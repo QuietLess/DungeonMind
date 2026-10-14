@@ -818,3 +818,47 @@ def test_c_timeout_can_fire_before_the_first_turn():
     assert state["insufficient_evidence"] is True
     assert state["answer"].strip()
     assert state["trace"][-1]["node"] == "verify"
+
+
+# --- coverage follow-ups (behaviour 6 for search_rules; real-adapter turns carry usage) ------
+
+
+@pytest.mark.parametrize("args", [{}, {"query": ""}, {"query": "   "}, {"query": 7}])
+def test_6_search_rules_bad_arguments_are_a_tool_error_and_loop_continues(args):
+    llm = FakeLLM(
+        _route(Intent.LOOKUP),
+        turns=[
+            tool_turn(("tu_bad", "search_rules", args)),
+            final_turn(final("I couldn't search for that.", insufficient=True, confidence="low")),
+        ],
+    )
+    state = run_chat("Look something up", _deps(llm))
+
+    record = state["tool_calls"][0]
+    assert record["id"] == "T1"
+    assert record["name"] == "search_rules"
+    assert record["is_error"] is True
+    assert "error" in record["output"]
+    assert state.get("evidence", []) == []
+
+    block = _tool_results(llm.step_calls()[1]["messages"][-1])[0]
+    assert block["tool_use_id"] == "tu_bad"
+    assert block["is_error"] is True
+    assert json.loads(block["content"])["id"] == "T1"
+
+    assert len(llm.step_calls()) == 2
+    assert state["stop_reason"] == "completed"
+
+
+def test_4_turns_reporting_usage_complete_normally():
+    first = tool_turn(("tu_1", "dice_roll", {"expression": "1d20"}))
+    first.usage = {"input_tokens": 120, "output_tokens": 30}
+    last = final_turn(final("You rolled it [T1].", ["T1"]))
+    last.usage = {"input_tokens": 200, "output_tokens": 40}
+    llm = FakeLLM(_route(Intent.PROBABILITY), turns=[first, last])
+    state = run_chat("Roll a d20", _deps(llm))
+
+    assert state["stop_reason"] == "completed"
+    assert _cited_ids(state) == {"T1"}
+    assert len(state["tool_calls"]) == 1
+    assert state["trace"][-1]["node"] == "verify"
