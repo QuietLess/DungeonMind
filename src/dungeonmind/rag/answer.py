@@ -75,7 +75,9 @@ OUTPUT_SCHEMA = {
 # Any bracketed marker that starts with an evidence (E#) or tool-result (T#) id, plus the
 # whitespace before it. Canonical markers are [E3] or [E1, T2]; anything else that starts like
 # one ([E1-E9], [E1 ], [T2;E1]) is malformed. This is the project's one citation-marker regex.
-INLINE_CITATION = re.compile(r"(\s*)\[([ET]\d+[^\[\]\n]*)\]")
+# The lookbehind starts a match only at the beginning of a whitespace run; without it, a long
+# run of spaces is rescanned from every position (quadratic time on model output).
+INLINE_CITATION = re.compile(r"(?<!\s)(\s*)\[([ET]\d+[^\[\]\n]*)\]")
 _CANONICAL_IDS = re.compile(r"[ET]\d+(?:\s*,\s*[ET]\d+)*")
 MALFORMED = "malformed-citation"
 
