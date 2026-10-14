@@ -1,0 +1,46 @@
+{"id": "ex-01", "type": "exact", "query": "How does the Ready action work?", "relevant": ["Ready [Action]"]}
+{"id": "ex-02", "type": "exact", "query": "What does the Grappled condition do?", "relevant": ["Grappled [Condition]"]}
+{"id": "ex-03", "type": "exact", "query": "Exhaustion condition effects", "relevant": ["Exhaustion [Condition]"]}
+{"id": "ex-04", "type": "exact", "query": "How do opportunity attacks work?", "relevant": ["Opportunity Attacks"]}
+{"id": "ex-05", "type": "exact", "query": "What are the rules for concentration?", "relevant": ["Concentration"]}
+{"id": "ex-06", "type": "exact", "query": "How do death saving throws work?", "relevant": ["Death Saving Throws", "Death Saving Throw"]}
+{"id": "ex-07", "type": "exact", "query": "What does half cover give?", "relevant": ["Cover"]}
+{"id": "ex-08", "type": "exact", "query": "What happens on a long rest?", "relevant": ["Long Rest"]}
+{"id": "ex-09", "type": "exact", "query": "How does the Help action work?", "relevant": ["Help [Action]"]}
+{"id": "ex-10", "type": "exact", "query": "Rules for difficult terrain", "relevant": ["Difficult Terrain"]}
+{"id": "ex-11", "type": "exact", "query": "What is the Prone condition?", "relevant": ["Prone [Condition]"]}
+{"id": "ex-12", "type": "exact", "query": "How do temporary hit points work?", "relevant": ["Temporary Hit Points"]}
+{"id": "ex-13", "type": "exact", "query": "Do resistance and vulnerability stack?", "relevant": ["No Stacking", "Resistance and Vulnerability", "Resistance"]}
+{"id": "ex-14", "type": "exact", "query": "How is the encounter XP budget determined?", "relevant": ["Step 2: Determine Your XP Budget"]}
+{"id": "pa-01", "type": "paraphrase", "query": "Can I grab an enemy so it can't run away?", "relevant": ["Grappling", "Grappled [Condition]", "Unarmed Strike"]}
+{"id": "pa-02", "type": "paraphrase", "query": "What happens when my character runs out of health?", "relevant": ["Dropping to 0 Hit Points", "Falling Unconscious", "Death Saving Throws"]}
+{"id": "pa-03", "type": "paraphrase", "query": "Can I hold my attack until the goblin comes through the door?", "relevant": ["Ready [Action]"]}
+{"id": "pa-04", "type": "paraphrase", "query": "If two good things give me an edge on the same roll do I roll three dice?", "relevant": ["They Don't Stack", "Advantage/Disadvantage", "Advantage"]}
+{"id": "pa-05", "type": "paraphrase", "query": "Does rolling a 20 on a saving throw automatically succeed?", "relevant": ["Rolling 20 or 1", "D20 Test", "Saving Throws"]}
+{"id": "pa-06", "type": "paraphrase", "query": "How far can I jump forward with a running start?", "relevant": ["Long Jump", "Jumping"]}
+{"id": "pa-07", "type": "paraphrase", "query": "What happens if a wizard gets hit while keeping a spell going?", "relevant": ["Concentration"]}
+{"id": "pa-08", "type": "paraphrase", "query": "Can I sneak up on enemies so they don't see me coming?", "relevant": ["Hide [Action]", "Hiding", "Surprise"]}
+{"id": "pa-09", "type": "paraphrase", "query": "How long can a character hold their breath underwater?", "relevant": ["Suffocation [Hazard]"]}
+{"id": "pa-10", "type": "paraphrase", "query": "What happens when you fall off a cliff?", "relevant": ["Falling [Hazard]"]}
+{"id": "pa-11", "type": "paraphrase", "query": "Can I see in the dark?", "relevant": ["Darkvision", "Darkness", "Vision and Light"]}
+{"id": "pa-12", "type": "paraphrase", "query": "Do I get a free hit when someone walks away from me?", "relevant": ["Opportunity Attacks"]}
+{"id": "pa-13", "type": "paraphrase", "query": "Who goes first in a fight?", "relevant": ["Initiative"]}
+{"id": "pa-14", "type": "paraphrase", "query": "How much can my character carry before slowing down?", "relevant": ["Carrying Capacity", "Carrying Objects"]}
+{"id": "pa-15", "type": "paraphrase", "query": "What does it mean when a monster is bloodied?", "relevant": ["Bloodied"]}
+{"id": "pa-16", "type": "paraphrase", "query": "Can I knock someone out instead of killing them?", "relevant": ["Knocking Out a Creature"]}
+{"id": "en-01", "type": "entity", "query": "Fireball spell", "relevant": ["Fireball"]}
+{"id": "en-02", "type": "entity", "query": "What does Counterspell do?", "relevant": ["Counterspell"]}
+{"id": "en-03", "type": "entity", "query": "Adult red dragon stat block", "relevant": ["Adult Red Dragon"]}
+{"id": "en-04", "type": "entity", "query": "the spell that heals a creature by touch", "relevant": ["Cure Wounds"]}
+{"id": "en-05", "type": "entity", "query": "Bag of Holding", "relevant": ["Bag of Holding"]}
+{"id": "en-06", "type": "entity", "query": "Lich legendary actions", "relevant": ["Lich"]}
+{"id": "en-07", "type": "entity", "query": "Rogue Sneak Attack damage", "relevant": ["Level 1: Sneak Attack"]}
+{"id": "en-08", "type": "entity", "query": "Barbarian rage", "relevant": ["Level 1: Rage"]}
+{"id": "en-09", "type": "entity", "query": "spell that lets you speak telepathically with an ally over any distance", "relevant": ["Sending"]}
+{"id": "en-10", "type": "entity", "query": "Goblin warrior stats", "relevant": ["Goblin Warrior"]}
+{"id": "mu-01", "type": "multi", "query": "If I'm grappled and prone, can I stand up and move away?", "relevant": ["Grappled [Condition]", "Prone [Condition]"]}
+{"id": "mu-02", "type": "multi", "query": "Does an invisible creature have advantage on attacks against me?", "relevant": ["Invisible [Condition]"]}
+{"id": "mu-03", "type": "multi", "query": "Can I cast a spell as a bonus action and another as an action in the same turn?", "relevant": ["One Spell with a Spell Slot per Turn", "Bonus Action", "Casting Time"]}
+{"id": "un-01", "type": "unanswerable", "query": "What is Elminster's home city in the Forgotten Realms?", "relevant": []}
+{"id": "un-02", "type": "unanswerable", "query": "What are the stats of a Beholder?", "relevant": []}
+{"id": "un-03", "type": "unanswerable", "query": "How does the Artificer class infuse items?", "relevant": []}
