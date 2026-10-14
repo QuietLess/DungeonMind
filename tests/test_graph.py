@@ -115,7 +115,9 @@ def test_2_rules_qa_retrieves_then_answers_without_agent_loop():
 # --- 3. tool intents ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("intent", [Intent.LOOKUP, Intent.PROBABILITY, Intent.ENCOUNTER])
+# M5: ENCOUNTER is no longer a tool intent (it routes to the encounter node; see
+# tests/test_graph_encounter.py), so only LOOKUP and PROBABILITY go straight to the agent.
+@pytest.mark.parametrize("intent", [Intent.LOOKUP, Intent.PROBABILITY])
 def test_3_tool_intents_run_agent_loop_without_upfront_retrieval(intent):
     llm = FakeLLM(_route(intent), turns=[final_turn(final("Nothing needed.", insufficient=True))])
     retrieve = FakeRetriever()

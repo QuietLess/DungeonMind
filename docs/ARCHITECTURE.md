@@ -287,4 +287,5 @@ Rules for options (each one is an acceptance criterion):
   `JsonFileStore` creates missing parent directories, and with no file it starts empty.
 - The `encounter` node uses `deps.registry.catalog`. T1 `arguments` is
   `request.model_dump(mode="json")`.
-- The other-edition note (behaviour 10) also applies to completed encounter answers.
+- The other-edition note (behaviour 10) also applies to completed encounter answers that
+  present options, not to needs_input answers or revise-limit messages.
