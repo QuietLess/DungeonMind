@@ -83,13 +83,23 @@ class AgentTurn:
 class LLM(Protocol):
     """Everything the graph needs from a model. ClaudeLLM implements it; tests fake it."""
 
-    def route(self, question: str) -> RouteDecision: ...
+    # `timeout` is the wall-clock budget in seconds for this one call (None = adapter default).
 
-    def answer(self, question: str, evidence: list[Evidence]) -> FinalAnswer:
+    def route(self, question: str, *, timeout: float | None = None) -> RouteDecision: ...
+
+    def answer(
+        self, question: str, evidence: list[Evidence], *, timeout: float | None = None
+    ) -> FinalAnswer:
         """Answer from numbered evidence (E1…E{n} in list order)."""
         ...
 
-    def agent_step(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AgentTurn:
+    def agent_step(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        timeout: float | None = None,
+    ) -> AgentTurn:
         """One turn of the bounded tool loop over Anthropic-format `messages`."""
         ...
 
@@ -135,4 +145,5 @@ class ChatState(TypedDict, total=False):
     insufficient_evidence: bool
     violations: list[str]  # citation-contract breaches found by verify
     stop_reason: StopReason
+    error_type: str | None  # exception class name when stop_reason == "error"
     trace: list[TraceEvent]

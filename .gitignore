@@ -16,3 +16,5 @@ data/index/
 claude.md
 CLAUDE.md
 .coverage
+.env.*
+!.env.example
