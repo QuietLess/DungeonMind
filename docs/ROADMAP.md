@@ -29,7 +29,7 @@
   code, then backend and security review. The fix batch (dice limits, input/output caps,
   per-call timeouts, failed-tool and malformed-citation checks, evidence escaping, terminal
   sanitising, linear-time citation scan) also went in test-first. 294 tests; coverage of the
-  M4 code: llm.py 100%, build.py 96%.
+  M4 code: build.py and llm.py 100%; tools 95–100% except the network-only Open5e sync (32%).
 
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
