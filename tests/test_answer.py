@@ -135,6 +135,7 @@ def test_n1_long_whitespace_runs_dont_slow_citation_checks():
         """
         from dungeonmind.rag.answer import check_citations
         text = "A" + " " * 60_000 + "B [E9] " + " " * 60_000 + "[E1]."
+        _started = time.perf_counter()  # time the check, not the package import (~3 s)
         cleaned, ids, violations = check_citations(text, [], lambda i: None if i == "E1" else "bad")
         _done({"ids": ids, "violations": violations, "kept_e9": "[E9]" in cleaned})
         """,

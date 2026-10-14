@@ -72,12 +72,12 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
-# Any bracketed marker that starts with an evidence (E#) or tool-result (T#) id, plus the
-# whitespace before it. Canonical markers are [E3] or [E1, T2]; anything else that starts like
-# one ([E1-E9], [E1 ], [T2;E1]) is malformed. This is the project's one citation-marker regex.
-# The lookbehind starts a match only at the beginning of a whitespace run; without it, a long
-# run of spaces is rescanned from every position (quadratic time on model output).
-INLINE_CITATION = re.compile(r"(?<!\s)(\s*)\[([ET]\d+[^\[\]\n]*)\]")
+# Any bracketed marker that starts with an evidence (E#) or tool-result (T#) id. Canonical
+# markers are [E3] or [E1, T2]; anything else that starts like one ([E1-E9], [E1 ], [T2;E1]) is
+# malformed. This is the project's one citation-marker regex. It deliberately doesn't match the
+# whitespace before a marker: a leading `\s*` is rescanned from every position of a long space
+# run (quadratic time on model output), so check_citations trims that whitespace itself.
+INLINE_CITATION = re.compile(r"\[([ET]\d+[^\[\]\n]*)\]")
 _CANONICAL_IDS = re.compile(r"[ET]\d+(?:\s*,\s*[ET]\d+)*")
 MALFORMED = "malformed-citation"
 
@@ -138,20 +138,28 @@ def check_citations(
     """
     inline: list[str] = []
     malformed = False
-
-    def clean(m: re.Match[str]) -> str:
-        nonlocal malformed
-        if not _CANONICAL_IDS.fullmatch(m.group(2)):
+    parts: list[str] = []
+    pos = 0
+    for m in INLINE_CITATION.finditer(text):
+        parts.append(text[pos : m.start()])
+        pos = m.end()
+        body = m.group(1)
+        if _CANONICAL_IDS.fullmatch(body):
+            ids = [i.strip() for i in body.split(",")]
+            inline.extend(ids)
+            keep = [i for i in ids if problem(i) is None]
+            if len(keep) == len(ids):
+                parts.append(m.group(0))
+                continue
+            if keep:
+                parts.append(f"[{', '.join(keep)}]")
+                continue
+        else:
             malformed = True
-            return ""
-        ids = [i.strip() for i in m.group(2).split(",")]
-        inline.extend(ids)
-        keep = [i for i in ids if problem(i) is None]
-        if len(keep) == len(ids):
-            return m.group(0)
-        return f"{m.group(1)}[{', '.join(keep)}]" if keep else ""
-
-    text = INLINE_CITATION.sub(clean, text)
+        # Dropping the marker: also drop the whitespace before it ("Yes [E9]." → "Yes.").
+        parts[-1] = parts[-1].rstrip()
+    parts.append(text[pos:])
+    text = "".join(parts)
     claimed = list(dict.fromkeys([*listed, *inline]))
     cited = [i for i in claimed if problem(i) is None]
     violations = [v for i in claimed if (v := problem(i)) is not None]
