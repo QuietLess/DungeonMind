@@ -76,8 +76,10 @@ OUTPUT_SCHEMA = {
 # markers are [E3] or [E1, T2]; anything else that starts like one ([E1-E9], [E1 ], [T2;E1]) is
 # malformed. This is the project's one citation-marker regex. It deliberately doesn't match the
 # whitespace before a marker: a leading `\s*` is rescanned from every position of a long space
-# run (quadratic time on model output), so check_citations trims that whitespace itself.
-INLINE_CITATION = re.compile(r"\[([ET]\d+[^\[\]\n]*)\]")
+# run (quadratic time on model output), so check_citations trims that whitespace itself. The
+# quantifiers are possessive for the same reason: `\d+` and `[^…]*` both match digits, and an
+# unclosed "[E1111…" would otherwise be retried at every split point.
+INLINE_CITATION = re.compile(r"\[([ET]\d++[^\[\]\n]*+)\]")
 _CANONICAL_IDS = re.compile(r"[ET]\d+(?:\s*,\s*[ET]\d+)*")
 MALFORMED = "malformed-citation"
 
