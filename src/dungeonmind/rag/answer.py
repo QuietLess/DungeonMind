@@ -15,8 +15,9 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import anthropic
 from pydantic import BaseModel
@@ -25,6 +26,7 @@ from dungeonmind.rag.hybrid import Evidence
 
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "medium"
+MAX_TOKENS = 16000
 
 SYSTEM_PROMPT = """\
 You are DungeonMind, a rules assistant for Dungeons & Dragons using the System \
@@ -51,7 +53,7 @@ Write for a game master at the table: lead with the ruling, then the detail, \
 in a few short paragraphs at most."""
 
 
-class _ModelOutput(BaseModel):
+class ModelOutput(BaseModel):
     answer: str
     citations: list[str]
     confidence: Literal["high", "medium", "low"]
@@ -70,7 +72,16 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
-_INLINE_CITATION = re.compile(r"\[(E\d+(?:\s*,\s*E\d+)*)\]")
+# Any bracketed marker that starts with an evidence (E#) or tool-result (T#) id. Canonical
+# markers are [E3] or [E1, T2]; anything else that starts like one ([E1-E9], [E1 ], [T2;E1]) is
+# malformed. This is the project's one citation-marker regex. It deliberately doesn't match the
+# whitespace before a marker: a leading `\s*` is rescanned from every position of a long space
+# run (quadratic time on model output), so check_citations trims that whitespace itself. The
+# quantifiers are possessive for the same reason: `\d+` and `[^…]*` both match digits, and an
+# unclosed "[E1111…" would otherwise be retried at every split point.
+INLINE_CITATION = re.compile(r"\[([ET]\d++[^\[\]\n]*+)\]")
+_CANONICAL_IDS = re.compile(r"[ET]\d+(?:\s*,\s*[ET]\d+)*")
+MALFORMED = "malformed-citation"
 
 
 @dataclass
@@ -98,39 +109,118 @@ def format_evidence(evidence: list[Evidence]) -> tuple[str, dict[str, Evidence]]
     """Render evidence as numbered blocks; return the text and the id → evidence map."""
     id_map = {f"E{i}": ev for i, ev in enumerate(evidence, start=1)}
     blocks = [
-        f'<evidence id="{eid}" source="{ev.chunk.citation}">\n{ev.chunk.text}\n</evidence>'
+        f'<evidence id="{eid}" source="{_escape(ev.chunk.citation)}">\n'
+        f"{_escape(ev.chunk.text)}\n</evidence>"
         for eid, ev in id_map.items()
     ]
     return "\n\n".join(blocks), id_map
 
 
+def _escape(text: str) -> str:
+    """Escape markup so stored text can't close an evidence block or forge another id."""
+    return (
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    )
+
+
+def evidence_message(question: str, evidence: list[Evidence]) -> str:
+    """The user turn for a rules answer: the numbered evidence set, then the question."""
+    evidence_text, _ = format_evidence(evidence)
+    return f"<evidence_set>\n{evidence_text}\n</evidence_set>\n\nQuestion: {question}"
+
+
+def check_citations(
+    text: str, listed: list[str], problem: Callable[[str], str | None]
+) -> tuple[str, list[str], list[str]]:
+    """Apply the citation contract to an answer's text and its `citations` list.
+
+    `problem(id)` returns None for a citable id, or the violation to report for it. Returns
+    the text with bad and malformed markers removed (with the whitespace before them), the
+    citable ids in order of first appearance (list, then inline markers), and the violations.
+    """
+    inline: list[str] = []
+    malformed = False
+    parts: list[str] = []
+    pos = 0
+    for m in INLINE_CITATION.finditer(text):
+        parts.append(text[pos : m.start()])
+        pos = m.end()
+        body = m.group(1)
+        if _CANONICAL_IDS.fullmatch(body):
+            ids = [i.strip() for i in body.split(",")]
+            inline.extend(ids)
+            keep = [i for i in ids if problem(i) is None]
+            if len(keep) == len(ids):
+                parts.append(m.group(0))
+                continue
+            if keep:
+                parts.append(f"[{', '.join(keep)}]")
+                continue
+        else:
+            malformed = True
+        # Dropping the marker: also drop the whitespace before it ("Yes [E9]." → "Yes.").
+        parts[-1] = parts[-1].rstrip()
+    parts.append(text[pos:])
+    text = "".join(parts)
+    claimed = list(dict.fromkeys([*listed, *inline]))
+    cited = [i for i in claimed if problem(i) is None]
+    violations = [v for i in claimed if (v := problem(i)) is not None]
+    if malformed:
+        violations.append(MALFORMED)
+    return text, cited, violations
+
+
 def validate(
     raw: str, id_map: dict[str, Evidence]
-) -> tuple[_ModelOutput, list[Citation], list[str]]:
+) -> tuple[ModelOutput, list[Citation], list[str]]:
     """Parse model JSON and enforce that every citation refers to supplied evidence."""
-    out = _ModelOutput.model_validate(json.loads(raw))
-    inline = {
-        eid.strip() for group in _INLINE_CITATION.findall(out.answer) for eid in group.split(",")
-    }
-    claimed = list(dict.fromkeys([*out.citations, *sorted(inline)]))
-    violations = [eid for eid in claimed if eid not in id_map]
+    out = ModelOutput.model_validate(json.loads(raw))
+    out.answer, cited, violations = check_citations(
+        out.answer, out.citations, lambda eid: None if eid in id_map else eid
+    )
     citations = [
-        Citation(eid, id_map[eid].chunk.chunk_id, id_map[eid].chunk.citation)
-        for eid in claimed
-        if eid in id_map
+        Citation(eid, id_map[eid].chunk.chunk_id, id_map[eid].chunk.citation) for eid in cited
     ]
-    if violations:
-        # Remove invented markers from the text so the user never sees them.
-        def keep_valid(m: re.Match) -> str:
-            ids = [e.strip() for e in m.group(1).split(",") if e.strip() in id_map]
-            return f"[{', '.join(ids)}]" if ids else ""
-
-        out.answer = _INLINE_CITATION.sub(keep_valid, out.answer)
     if not citations and not out.insufficient_evidence:
         # An uncited answer breaks the contract: downgrade rather than present it as grounded.
         violations.append("no-citations")
         out.confidence = "low"
     return out, citations, violations
+
+
+def default_client() -> anthropic.Anthropic:
+    return anthropic.Anthropic(max_retries=2)
+
+
+def create_message(
+    client: anthropic.Anthropic,
+    *,
+    model: str,
+    effort: str,
+    system: str,
+    messages: list[dict[str, Any]],
+    schema: dict[str, Any] = OUTPUT_SCHEMA,
+    max_tokens: int = MAX_TOKENS,
+    tools: list[dict[str, Any]] | None = None,
+    timeout: float | None = None,
+) -> Any:
+    """The one Messages API request shape DungeonMind uses (structured JSON output)."""
+    extra: dict[str, Any] = {}
+    if tools:
+        extra["tools"] = tools
+    if timeout is not None:  # None leaves the SDK's default timeout in place
+        extra["timeout"] = timeout
+    return client.beta.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
+        # On a safety-classifier decline, the API retries on a fallback model.
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+        **extra,
+    )
 
 
 class AnswerGenerator:
@@ -140,31 +230,19 @@ class AnswerGenerator:
         model: str = DEFAULT_MODEL,
         effort: str = DEFAULT_EFFORT,
     ) -> None:
-        self.client = client or anthropic.Anthropic()
+        self.client = client or default_client()
         self.model = model
         self.effort = effort
 
     def answer(self, question: str, evidence: list[Evidence]) -> Answer:
-        evidence_text, id_map = format_evidence(evidence)
+        _, id_map = format_evidence(evidence)
         started = time.perf_counter()
-        response = self.client.beta.messages.create(
+        response = create_message(
+            self.client,
             model=self.model,
-            max_tokens=16000,
+            effort=self.effort,
             system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"<evidence_set>\n{evidence_text}\n</evidence_set>\n\n"
-                    f"Question: {question}",
-                }
-            ],
-            output_config={
-                "effort": self.effort,
-                "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
-            },
-            # On a safety-classifier decline, the API retries on a fallback model.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
+            messages=[{"role": "user", "content": evidence_message(question, evidence)}],
         )
         latency = (time.perf_counter() - started) * 1000
         usage = {
@@ -202,4 +280,15 @@ class AnswerGenerator:
         )
 
 
-__all__ = ["Answer", "AnswerGenerator", "Citation", "format_evidence", "validate"]
+__all__ = [
+    "Answer",
+    "AnswerGenerator",
+    "Citation",
+    "ModelOutput",
+    "check_citations",
+    "create_message",
+    "default_client",
+    "evidence_message",
+    "format_evidence",
+    "validate",
+]

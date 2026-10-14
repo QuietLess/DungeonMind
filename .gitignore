@@ -15,3 +15,6 @@ data/index/
 # Local agent instructions (personal, not part of the project)
 claude.md
 CLAUDE.md
+.coverage
+.env.*
+!.env.example

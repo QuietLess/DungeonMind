@@ -93,7 +93,7 @@ class EncounterMonster(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(description="Creature name, e.g. 'Skeleton'")
+    name: str = Field(max_length=200, description="Creature name, e.g. 'Skeleton'")
     cr: str = Field(description="Challenge rating, e.g. '1/4' or '5'")
     count: int = Field(default=1, ge=1, le=50)
     xp: int | None = Field(
@@ -107,7 +107,7 @@ class EncounterInput(BaseModel):
     party_levels: list[int] = Field(
         min_length=1, max_length=12, description="One entry per character, e.g. [5, 5, 5, 5]"
     )
-    monsters: list[EncounterMonster] = Field(default_factory=list)
+    monsters: list[EncounterMonster] = Field(default_factory=list, max_length=20)
     target: Difficulty | None = Field(
         default=None, description="Desired difficulty, to report remaining budget"
     )

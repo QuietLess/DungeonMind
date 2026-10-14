@@ -19,9 +19,14 @@ from collections import Counter
 from dataclasses import dataclass, field
 from fractions import Fraction
 
-MAX_DICE = 100
+MAX_LENGTH = 64  # characters in an expression
+MAX_TERMS = 10  # dice terms plus constants
+MAX_DICE = 100  # dice in the whole expression
 MAX_SIDES = 1000
-MAX_KEEP_OUTCOMES = 2_000_000  # brute-force bound for keep-highest/lowest distributions
+# Exact-odds bounds (about a second of arithmetic at most): total support Σ count × sides, and
+# the brute-force enumeration for keep-highest/lowest terms.
+MAX_SUPPORT = 1_000
+MAX_KEEP_OUTCOMES = 100_000
 
 _TERM = re.compile(r"([+-])?(?:(\d*)d(\d+|%)(?:(kh|kl)(\d+))?|(\d+))")
 
@@ -79,15 +84,21 @@ def parse(expression: str) -> DiceExpression:
     text = re.sub(r"\s*([+-])\s*", r"\1", expression.lower().strip())
     if not text:
         raise DiceError("empty dice expression")
+    if len(expression) > MAX_LENGTH:
+        raise DiceError(f"dice expression is longer than {MAX_LENGTH} characters")
     if re.search(r"\s", text):
         raise DiceError(f"unexpected whitespace in {expression!r}")
     dice: list[DiceTerm] = []
     constant = 0
     pos = 0
+    terms = 0
     while pos < len(text):
         m = _TERM.match(text, pos)
         if not m or m.end() == pos or (pos > 0 and not m.group(1)):
             raise DiceError(f"cannot parse {expression!r} at position {pos}")
+        terms += 1
+        if terms > MAX_TERMS:
+            raise DiceError(f"dice expression has more than {MAX_TERMS} terms")
         sign = -1 if m.group(1) == "-" else 1
         if m.group(6) is not None:
             constant += sign * int(m.group(6))
@@ -106,6 +117,8 @@ def parse(expression: str) -> DiceExpression:
                 keep = (m.group(4), n)
             dice.append(DiceTerm(count=count, sides=sides, sign=sign, keep=keep))
         pos = m.end()
+    if sum(t.count for t in dice) > MAX_DICE:
+        raise DiceError(f"dice expression has more than {MAX_DICE} dice in total")
     return DiceExpression(dice=tuple(dice), constant=constant, source=expression)
 
 
@@ -131,39 +144,54 @@ def roll(expression: str | DiceExpression, rng: random.Random | None = None) -> 
     return RollResult(expression=str(expr), terms=terms, constant=expr.constant, total=total)
 
 
-def _term_distribution(t: DiceTerm) -> dict[int, Fraction]:
+def _too_large(what: str) -> DiceError:
+    return DiceError(f"{what} is too large for exact odds")
+
+
+def _term_counts(t: DiceTerm) -> tuple[dict[int, int], int]:
+    """Ways to reach each (unsigned) total, and the number of equally likely outcomes."""
     if t.keep is None:
-        dist = {0: Fraction(1)}
-        die = {face: Fraction(1, t.sides) for face in range(1, t.sides + 1)}
+        counts = {0: 1}
+        die = dict.fromkeys(range(1, t.sides + 1), 1)
         for _ in range(t.count):
-            dist = _convolve(dist, die)
-    else:
-        outcomes = t.sides**t.count
-        if outcomes > MAX_KEEP_OUTCOMES:
-            raise DiceError(f"{t} has {outcomes:,} outcomes; too many to enumerate exactly")
-        counts = Counter(
-            sum(_keep(list(r), t.keep))
-            for r in itertools.product(range(1, t.sides + 1), repeat=t.count)
-        )
-        dist = {total: Fraction(n, outcomes) for total, n in counts.items()}
-    return {t.sign * k: p for k, p in dist.items()}
+            counts = _convolve(counts, die)
+        return counts, t.sides**t.count
+    outcomes = t.sides**t.count
+    if outcomes > MAX_KEEP_OUTCOMES:
+        raise _too_large(f"{t} ({outcomes:,} outcomes to enumerate)")
+    counts = Counter(
+        sum(_keep(list(r), t.keep))
+        for r in itertools.product(range(1, t.sides + 1), repeat=t.count)
+    )
+    return dict(counts), outcomes
 
 
-def _convolve(a: dict[int, Fraction], b: dict[int, Fraction]) -> dict[int, Fraction]:
-    out: dict[int, Fraction] = {}
-    for x, px in a.items():
-        for y, py in b.items():
-            out[x + y] = out.get(x + y, Fraction(0)) + px * py
+def _term_distribution(t: DiceTerm) -> dict[int, Fraction]:
+    counts, outcomes = _term_counts(t)
+    return {t.sign * k: Fraction(n, outcomes) for k, n in counts.items()}
+
+
+def _convolve(a: dict[int, int], b: dict[int, int]) -> dict[int, int]:
+    # Integer counts, not Fractions: exact and far faster; divide once at the end.
+    out: dict[int, int] = {}
+    for x, nx in a.items():
+        for y, ny in b.items():
+            out[x + y] = out.get(x + y, 0) + nx * ny
     return out
 
 
 def distribution(expression: str | DiceExpression) -> dict[int, Fraction]:
     """Exact probability mass function of the expression's total."""
     expr = parse(expression) if isinstance(expression, str) else expression
-    dist = {expr.constant: Fraction(1)}
+    support = sum(t.count * t.sides for t in expr.dice)
+    if support > MAX_SUPPORT:
+        raise _too_large(f"{expr} (support {support:,} > {MAX_SUPPORT:,})")
+    counts, outcomes = {expr.constant: 1}, 1
     for t in expr.dice:
-        dist = _convolve(dist, _term_distribution(t))
-    return dict(sorted(dist.items()))
+        term, n = _term_counts(t)
+        counts = _convolve(counts, {t.sign * k: c for k, c in term.items()})
+        outcomes *= n
+    return {k: Fraction(c, outcomes) for k, c in sorted(counts.items())}
 
 
 def mean(expression: str | DiceExpression) -> Fraction:
