@@ -8,7 +8,6 @@ agent's tool loop, which runs as a bounded Python loop inside the `agent` node
 from __future__ import annotations
 
 import json
-import re
 import time
 import uuid
 from collections.abc import Callable
@@ -30,11 +29,18 @@ from dungeonmind.graph.state import (
     ToolRecord,
     TraceEvent,
 )
+from dungeonmind.rag.answer import check_citations
 from dungeonmind.rag.hybrid import Evidence
 from dungeonmind.tools.registry import ToolRegistry
 
 # The graph has at most four node steps; this only guards against a wiring mistake.
 RECURSION_LIMIT = 12
+
+MAX_STEPS_LIMIT = 10  # upper bound for Deps.max_steps
+MAX_TOOL_CALLS_PER_TURN = 8
+MAX_QUERY_CHARS = 200  # search_rules query
+MAX_TOOL_OUTPUT_CHARS = 20_000  # JSON of one tool output
+MIN_CALL_TIMEOUT_S = 1.0  # floor for an agent turn's share of the remaining budget
 
 SEARCH_RULES_TOOL: dict[str, Any] = {
     "name": "search_rules",
@@ -43,7 +49,12 @@ SEARCH_RULES_TOOL: dict[str, Any] = {
     "spell/monster facts, odds, rolls and encounter budgets.",
     "input_schema": {
         "type": "object",
-        "properties": {"query": {"type": "string", "description": "What to look up"}},
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": f"What to look up (at most {MAX_QUERY_CHARS} characters)",
+            }
+        },
         "required": ["query"],
         "additionalProperties": False,
     },
@@ -65,9 +76,6 @@ OTHER_EDITION_NOTE = (
     "this answer describes the 2024 rules.\n\n"
 )
 
-# Inline citation markers: [E3], [T2], [E1, T2].
-_INLINE_CITATION = re.compile(r"\[([ET]\d+(?:\s*,\s*[ET]\d+)*)\]")
-
 
 @dataclass
 class Deps:
@@ -77,6 +85,10 @@ class Deps:
     max_steps: int = 6
     timeout_s: float = 60.0
     clock: Callable[[], float] = field(default=time.monotonic)
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.max_steps <= MAX_STEPS_LIMIT:
+            raise ValueError(f"max_steps must be 1–{MAX_STEPS_LIMIT}, got {self.max_steps}")
 
 
 # --- helpers ----------------------------------------------------------------------------------
@@ -116,6 +128,14 @@ def _fallback(answer: str, stop_reason: StopReason) -> ChatState:
     }
 
 
+def _error(error: Exception) -> ChatState:
+    return {**_fallback(ERROR_ANSWER, "error"), "error_type": type(error).__name__}
+
+
+def _node_error(state: ChatState, node: str, error: Exception, started: float) -> ChatState:
+    return {**_error(error), "trace": _event(state, node, _describe(error), started)}
+
+
 def _hits(evidence: list[Evidence], first_index: int) -> list[dict[str, Any]]:
     return [
         {"id": f"E{first_index + i}", "citation": ev.chunk.citation, "text": ev.chunk.text}
@@ -129,12 +149,9 @@ def _hits(evidence: list[Evidence], first_index: int) -> list[dict[str, Any]]:
 def _route_node(state: ChatState, deps: Deps) -> ChatState:
     started = time.perf_counter()
     try:
-        decision = deps.llm.route(state["question"])
+        decision = deps.llm.route(state["question"], timeout=deps.timeout_s)
     except Exception as e:  # errors are data (contract behaviour 6)
-        return {
-            **_fallback(ERROR_ANSWER, "error"),
-            "trace": _event(state, "route", _describe(e), started),
-        }
+        return _node_error(state, "route", e, started)
     return {
         "intent": decision.intent,
         "route_reason": decision.reason,
@@ -161,10 +178,7 @@ def _retrieve_node(state: ChatState, deps: Deps) -> ChatState:
     try:
         evidence = deps.retrieve(state["question"])
     except Exception as e:
-        return {
-            **_fallback(ERROR_ANSWER, "error"),
-            "trace": _event(state, "retrieve", _describe(e), started),
-        }
+        return _node_error(state, "retrieve", e, started)
     return {
         "evidence": evidence,
         "trace": _event(state, "retrieve", f"{len(evidence)} chunks", started),
@@ -179,12 +193,9 @@ def _answer_node(state: ChatState, deps: Deps) -> ChatState:
     started = time.perf_counter()
     evidence = state.get("evidence", [])
     try:
-        final = deps.llm.answer(state["question"], evidence)
+        final = deps.llm.answer(state["question"], evidence, timeout=deps.timeout_s)
     except Exception as e:
-        return {
-            **_fallback(ERROR_ANSWER, "error"),
-            "trace": _event(state, "answer", _describe(e), started),
-        }
+        return _node_error(state, "answer", e, started)
     return {
         **_final_fields(final),
         "stop_reason": "completed",
@@ -197,7 +208,6 @@ class _AgentRun:
 
     def __init__(self, state: ChatState, deps: Deps) -> None:
         self.deps = deps
-        self.state = state
         self.evidence: list[Evidence] = list(state.get("evidence", []))
         self.records: list[ToolRecord] = list(state.get("tool_calls", []))
         self.messages: list[dict[str, Any]] = [{"role": "user", "content": state["question"]}]
@@ -208,15 +218,32 @@ class _AgentRun:
         ms = (time.perf_counter() - started) * 1000
         self.trace.append(TraceEvent(node="agent", detail=detail, ms=ms))
 
+    def run_turn_tools(self, calls: list[ToolCall]) -> list[dict[str, Any]]:
+        """Run a turn's tool calls (at most MAX_TOOL_CALLS_PER_TURN) into tool_result blocks."""
+        results = [self.run_tool(call) for call in calls[:MAX_TOOL_CALLS_PER_TURN]]
+        refused = {"error": f"too many tool calls in one turn (max {MAX_TOOL_CALLS_PER_TURN})"}
+        results += [self.record(call, refused) for call in calls[MAX_TOOL_CALLS_PER_TURN:]]
+        return results
+
     def run_tool(self, call: ToolCall) -> dict[str, Any]:
         """Run one tool call, record it, and return its tool_result block."""
+        found: list[Evidence] = []
         if call.name == SEARCH_RULES_TOOL["name"]:
-            output = self._search_rules(call.arguments)
+            output, found = self._search_rules(call.arguments)
         else:
             try:
                 output = self.deps.registry.call(call.name, call.arguments)
             except Exception as e:  # an unexpected tool crash is still data
                 output = {"error": f"{call.name} failed: {type(e).__name__}"}
+        size = len(json.dumps(output, ensure_ascii=False, default=str))
+        if size > MAX_TOOL_OUTPUT_CHARS:
+            output = {"error": "tool result too large"}
+        elif found:
+            # Only evidence the model actually received gets E-ids in the state.
+            self.evidence.extend(found)
+        return self.record(call, output)
+
+    def record(self, call: ToolCall, output: dict[str, Any]) -> dict[str, Any]:
         tid = f"T{len(self.records) + 1}"
         is_error = "error" in output
         self.records.append(
@@ -231,17 +258,19 @@ class _AgentRun:
             "is_error": is_error,
         }
 
-    def _search_rules(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _search_rules(self, arguments: dict[str, Any]) -> tuple[dict[str, Any], list[Evidence]]:
         query = arguments.get("query")
         if not isinstance(query, str) or not query.strip():
-            return {"error": "search_rules needs a non-empty string 'query'."}
+            return {"error": "search_rules needs a non-empty string 'query'."}, []
+        if len(query) > MAX_QUERY_CHARS:
+            return {
+                "error": f"search_rules query must be at most {MAX_QUERY_CHARS} characters."
+            }, []
         try:
             found = self.deps.retrieve(query)
         except Exception as e:
-            return {"error": f"search_rules failed: {type(e).__name__}"}
-        hits = _hits(found, len(self.evidence))
-        self.evidence.extend(found)
-        return {"result": hits}
+            return {"error": f"search_rules failed: {type(e).__name__}"}, []
+        return {"result": _hits(found, len(self.evidence))}, found
 
     def update(self, outcome: ChatState) -> ChatState:
         return {
@@ -256,29 +285,37 @@ class _AgentRun:
 
 def _agent_node(state: ChatState, deps: Deps) -> ChatState:
     run = _AgentRun(state, deps)
-    tools = [*deps.registry.definitions(), SEARCH_RULES_TOOL]
+    started = time.perf_counter()
+    try:
+        tools = [*deps.registry.definitions(), SEARCH_RULES_TOOL]
+    except Exception as e:
+        run.log(f"tool list: {_describe(e)}", started)
+        return run.update(_error(e))
     deadline = deps.clock() + deps.timeout_s
 
     while run.steps < deps.max_steps:
         started = time.perf_counter()
-        if deps.clock() > deadline:
+        remaining = deadline - deps.clock()
+        if remaining < 0:
             run.log(f"timeout after {run.steps} turns", started)
             return run.update(_fallback(_timeout_answer(deps), "timeout"))
         run.steps += 1
         try:
-            turn = deps.llm.agent_step(run.messages, tools)
+            turn = deps.llm.agent_step(
+                run.messages, tools, timeout=max(remaining, MIN_CALL_TIMEOUT_S)
+            )
             if turn.final is None and not turn.tool_calls:
                 raise ValueError("model turn had neither tool calls nor a final answer")
         except Exception as e:
             run.log(f"turn {run.steps}: {_describe(e)}", started)
-            return run.update(_fallback(ERROR_ANSWER, "error"))
+            return run.update(_error(e))
         usage = f" ({_usage(turn.usage)})" if turn.usage else ""
 
         if turn.final is not None:
             run.log(f"turn {run.steps}: final answer{usage}", started)
             return run.update({**_final_fields(turn.final), "stop_reason": "completed"})
 
-        results = [run.run_tool(call) for call in turn.tool_calls]
+        results = run.run_turn_tools(turn.tool_calls)
         run.messages.append({"role": "assistant", "content": turn.raw_content})
         run.messages.append({"role": "user", "content": results})
         names = ", ".join(call.name for call in turn.tool_calls)
@@ -324,32 +361,29 @@ def _decline_node(state: ChatState) -> ChatState:
 
 
 def _verify_node(state: ChatState) -> ChatState:
-    """Enforce the citation contract (behaviour 9) and add the other-edition note (10)."""
+    """Enforce the citation contract (behaviour 9, C1, C2) and add the other-edition note (10)."""
     started = time.perf_counter()
     evidence = state.get("evidence", [])
-    records = state.get("tool_calls", [])
-    labels: dict[str, CitationRef] = {
+    records = {r["id"]: r for r in state.get("tool_calls", [])}
+    refs: dict[str, CitationRef] = {
         f"E{i}": CitationRef(id=f"E{i}", kind="srd", label=ev.chunk.citation)
         for i, ev in enumerate(evidence, start=1)
     }
-    labels |= {
-        r["id"]: CitationRef(id=r["id"], kind="tool", label=f"{r['name']} tool") for r in records
+    refs |= {
+        tid: CitationRef(id=tid, kind="tool", label=f"{r['name']} tool")
+        for tid, r in records.items()
     }
 
-    answer = state.get("answer", "")
-    inline = [cid.strip() for group in _INLINE_CITATION.findall(answer) for cid in group.split(",")]
+    def problem(cid: str) -> str | None:
+        if cid not in refs:
+            return cid
+        if cid in records and records[cid]["is_error"]:
+            return f"cited-error-{cid}"  # a failed tool call supports nothing
+        return None
+
     listed = [c["id"] for c in state.get("citations", [])]
-    claimed = list(dict.fromkeys([*listed, *inline]))
-    citations = [labels[cid] for cid in claimed if cid in labels]
-    violations = [cid for cid in claimed if cid not in labels]
-
-    if violations:
-        # Remove invented markers from the text so the user never sees them.
-        def keep_valid(m: re.Match[str]) -> str:
-            ids = [c.strip() for c in m.group(1).split(",") if c.strip() in labels]
-            return f"[{', '.join(ids)}]" if ids else ""
-
-        answer = _INLINE_CITATION.sub(keep_valid, answer)
+    answer, cited, violations = check_citations(state.get("answer", ""), listed, problem)
+    citations = [refs[cid] for cid in cited]
 
     confidence = state.get("confidence", "low")
     answered = state.get("stop_reason") == "completed" and state.get("intent") in TOOL_INTENTS | {
@@ -406,6 +440,7 @@ def run_chat(
         "question": question,
         "conversation_id": conversation_id or uuid.uuid4().hex,
         "campaign_id": campaign_id,
+        "error_type": None,
         "trace": [],
     }
     return build_graph(deps).invoke(initial, config={"recursion_limit": RECURSION_LIMIT})

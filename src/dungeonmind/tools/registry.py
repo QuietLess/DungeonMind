@@ -31,7 +31,9 @@ from dungeonmind.tools.encounter import EncounterInput, evaluate
 class RollInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    expression: str = Field(description="Dice expression, e.g. '1d20+7', '8d6', '4d6kh3'")
+    expression: str = Field(
+        max_length=64, description="Dice expression, e.g. '1d20+7', '8d6', '4d6kh3'"
+    )
 
 
 class ProbabilityInput(BaseModel):
@@ -46,7 +48,9 @@ class ProbabilityInput(BaseModel):
     disadvantage: bool = False
     crit_range: int = Field(default=20, ge=2, le=20, description="Lowest natural roll that crits")
     damage: str | None = Field(
-        default=None, description="Optional damage dice for expected damage, e.g. '1d8+4'"
+        default=None,
+        max_length=64,
+        description="Optional damage dice for expected damage, e.g. '1d8+4'",
     )
 
 

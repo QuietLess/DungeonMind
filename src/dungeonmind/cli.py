@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import collections
 import json
+import os
+import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -19,6 +21,19 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 DEFAULT_PDF = Path("data/raw/srd/SRD_CC_v5.2.1.pdf")
 DEFAULT_CHUNKS = Path("data/processed/srd_5.2.1_chunks.jsonl")
+
+NO_CREDENTIALS = "No valid Anthropic credentials. Set ANTHROPIC_API_KEY (see README)."
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def clean_for_terminal(text: str) -> str:
+    """Drop control characters (keeping newline and tab) so output can't drive the terminal."""
+    return _CONTROL_CHARS.sub("", text)
+
+
+def _say(text: str, **style: Any) -> None:
+    """Print model-, tool- or exception-derived text, cleaned for the terminal."""
+    typer.secho(clean_for_terminal(text), **style)
 
 
 @app.command()
@@ -77,23 +92,22 @@ def ask(
         for i, ev in enumerate(evidence, start=1):
             typer.echo(f"  E{i}  {ev.chunk.citation}")
         typer.echo()
-    no_key = "No valid Anthropic credentials. Set ANTHROPIC_API_KEY (see README)."
     try:
         answer = AnswerGenerator().answer(question, evidence)
     except anthropic.AuthenticationError as e:
-        raise typer.BadParameter(no_key) from e
+        raise typer.BadParameter(NO_CREDENTIALS) from e
     except TypeError as e:  # the SDK raises this when no credential is configured at all
         if "authentication method" not in str(e):
             raise
-        raise typer.BadParameter(no_key) from e
+        raise typer.BadParameter(NO_CREDENTIALS) from e
 
-    typer.echo(answer.text + "\n")
+    _say(answer.text + "\n")
     label = "insufficient evidence" if answer.insufficient_evidence else answer.confidence
     typer.secho(f"Confidence: {label}", bold=True)
     for c in answer.citations:
-        typer.echo(f"  [{c.evidence_id}] {c.citation}")
+        _say(f"  [{c.evidence_id}] {c.citation}")
     if answer.violations:
-        typer.secho(f"Citation contract violations removed: {answer.violations}", fg="yellow")
+        _say(f"Citation contract violations removed: {answer.violations}", fg="yellow")
     typer.echo(
         f"\n{answer.model} · {answer.usage['input_tokens']} in / "
         f"{answer.usage['output_tokens']} out tokens · {answer.latency_ms:.0f} ms"
@@ -104,7 +118,9 @@ def ask(
 def chat(
     question: str,
     trace: Annotated[bool, typer.Option(help="Show routing, tool calls and timings")] = False,
-    max_steps: Annotated[int, typer.Option(min=1, help="Agent tool turns before stopping")] = 6,
+    max_steps: Annotated[
+        int, typer.Option(min=1, max=10, help="Agent tool turns before stopping")
+    ] = 6,
 ) -> None:
     """Ask anything: routes to rules Q&A or the tool agent, with verified citations."""
     from dungeonmind.graph.build import Deps, run_chat
@@ -112,6 +128,8 @@ def chat(
     from dungeonmind.tools.catalog import Catalog
     from dungeonmind.tools.registry import ToolRegistry
 
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        raise typer.BadParameter(NO_CREDENTIALS)
     retriever = load_retriever(Mode.DENSE)
     chunks = list(retriever.by_id.values())
     deps = Deps(
@@ -121,35 +139,30 @@ def chat(
         max_steps=max_steps,
     )
     state = run_chat(question, deps)
-    # run_chat turns API failures into an error answer; surface missing/invalid keys like `ask`.
-    if state["stop_reason"] == "error" and any(
-        "AuthenticationError" in e["detail"] or "authentication method" in e["detail"]
-        for e in state["trace"]
-    ):
-        raise typer.BadParameter(
-            "No valid Anthropic credentials. Set ANTHROPIC_API_KEY (see README)."
-        )
+    if state.get("error_type") == "AuthenticationError":  # run_chat never raises; ask doesn't
+        raise typer.BadParameter(NO_CREDENTIALS)
 
-    typer.echo(state["answer"] + "\n")
+    _say(state["answer"] + "\n")
     label = "insufficient evidence" if state["insufficient_evidence"] else state["confidence"]
-    typer.secho(f"Confidence: {label}", bold=True)
+    _say(f"Confidence: {label}", bold=True)
     for c in state["citations"]:
-        typer.echo(f"  [{c['id']}] {c['label']}")
+        _say(f"  [{c['id']}] {c['label']}")
     if state.get("violations"):
-        typer.secho(f"Citation contract violations removed: {state['violations']}", fg="yellow")
-    typer.echo(f"Stop reason: {state['stop_reason']}")
+        _say(f"Citation contract violations removed: {state['violations']}", fg="yellow")
+    _say(f"Stop reason: {state['stop_reason']}")
 
     if trace:
-        typer.secho("\nTrace", bold=True)
+        _say("\nTrace", bold=True)
         if "intent" in state:
-            typer.echo(f"  route: {state['intent'].value} ({state['route_reason']})")
+            _say(f"  route: {state['intent'].value} ({state['route_reason']})")
         for r in state.get("tool_calls", []):
             output = json.dumps(r["output"], ensure_ascii=False, default=str)
             short = output if len(output) <= 160 else output[:160] + "…"
-            typer.echo(f"  {r['id']} {r['name']} {json.dumps(r['arguments'])}")
-            typer.echo(f"     → {short}")
+            arguments = json.dumps(r["arguments"], ensure_ascii=False, default=str)
+            _say(f"  {r['id']} {r['name']} {arguments}")
+            _say(f"     → {short}")
         for e in state["trace"]:
-            typer.echo(f"  {e['node']:<11} {e['ms']:8.0f} ms  {e['detail']}")
+            _say(f"  {e['node']:<11} {e['ms']:8.0f} ms  {e['detail']}")
 
 
 @app.command()
@@ -202,7 +215,7 @@ def tool(
         args = json.loads(arguments)
     except json.JSONDecodeError as e:
         raise typer.BadParameter(f"arguments must be JSON: {e}") from e
-    typer.echo(json.dumps(registry.call(name, args), indent=2, ensure_ascii=False))
+    _say(json.dumps(registry.call(name, args), indent=2, ensure_ascii=False))
 
 
 @app.command("eval-retrieval")

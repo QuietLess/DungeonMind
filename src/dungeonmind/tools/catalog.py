@@ -77,7 +77,9 @@ class SpellQuery(BaseModel):
     concentration: bool | None = None
     ritual: bool | None = None
     casting_time: CastingTime | None = None
-    text: str | None = Field(default=None, description="Words to find in the name or description")
+    text: str | None = Field(
+        default=None, max_length=200, description="Words to find in the name or description"
+    )
     limit: int = Field(default=15, ge=1, le=50)
 
 
@@ -95,7 +97,9 @@ class MonsterQuery(BaseModel):
     can_fly: bool | None = Field(
         default=None, description="true = only flyers; false = exclude anything with a fly speed"
     )
-    text: str | None = Field(default=None, description="Words to find in name, traits or actions")
+    text: str | None = Field(
+        default=None, max_length=200, description="Words to find in name, traits or actions"
+    )
     limit: int = Field(default=15, ge=1, le=50)
 
 
@@ -103,7 +107,7 @@ class EntityQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["spell", "monster"]
-    name: str
+    name: str = Field(max_length=200)
 
 
 def _choice(value: str | None, options: list[str], field_name: str) -> str | None:

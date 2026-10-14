@@ -91,11 +91,12 @@ def attack(
         crit_expr = dice.DiceExpression(
             dice=expr.dice + expr.dice, constant=expr.constant, source=f"crit({damage})"
         )
-        # Damage can't go below 0 on a hit.
-        normal = sum((max(k, 0) * p for k, p in dice.distribution(expr).items()), Fraction(0))
+        # Damage can't go below 0 on a hit. The crit expression is the larger one, so it goes
+        # first: an oversized damage expression fails before any arithmetic is spent.
         critical = sum(
             (max(k, 0) * p for k, p in dice.distribution(crit_expr).items()), Fraction(0)
         )
+        normal = sum((max(k, 0) * p for k, p in dice.distribution(expr).items()), Fraction(0))
         expected = (hit - crit) * normal + crit * critical
 
     return AttackOdds(

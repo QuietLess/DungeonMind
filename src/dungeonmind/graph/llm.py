@@ -17,14 +17,17 @@ from dungeonmind.graph.state import AgentTurn, FinalAnswer, Intent, RouteDecisio
 from dungeonmind.rag.answer import (
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
+    MAX_TOKENS,
     OUTPUT_SCHEMA,
     SYSTEM_PROMPT,
     ModelOutput,
+    create_message,
+    default_client,
     evidence_message,
 )
 from dungeonmind.rag.hybrid import Evidence
 
-MAX_TOKENS = 16000
+ROUTE_MAX_TOKENS = 1024  # a routing decision is a few dozen tokens
 
 ROUTE_SCHEMA = {
     "type": "object",
@@ -91,13 +94,18 @@ class ClaudeLLM:
         model: str = DEFAULT_MODEL,
         effort: str = DEFAULT_EFFORT,
     ) -> None:
-        self.client = client or anthropic.Anthropic()
+        self.client = client or default_client()
         self.model = model
         self.effort = effort
 
-    def route(self, question: str) -> RouteDecision:
+    def route(self, question: str, *, timeout: float | None = None) -> RouteDecision:
         response = self._create(
-            ROUTE_PROMPT, [{"role": "user", "content": question}], ROUTE_SCHEMA, effort="low"
+            ROUTE_PROMPT,
+            [{"role": "user", "content": question}],
+            ROUTE_SCHEMA,
+            effort="low",
+            max_tokens=ROUTE_MAX_TOKENS,
+            timeout=timeout,
         )
         data = _final_json(response)
         return RouteDecision(
@@ -106,13 +114,21 @@ class ClaudeLLM:
             other_edition=bool(data["other_edition"]),
         )
 
-    def answer(self, question: str, evidence: list[Evidence]) -> FinalAnswer:
+    def answer(
+        self, question: str, evidence: list[Evidence], *, timeout: float | None = None
+    ) -> FinalAnswer:
         messages = [{"role": "user", "content": evidence_message(question, evidence)}]
-        response = self._create(SYSTEM_PROMPT, messages, OUTPUT_SCHEMA)
+        response = self._create(SYSTEM_PROMPT, messages, OUTPUT_SCHEMA, timeout=timeout)
         return _final_answer(_final_json(response))
 
-    def agent_step(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AgentTurn:
-        response = self._create(AGENT_PROMPT, messages, OUTPUT_SCHEMA, tools=tools)
+    def agent_step(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        timeout: float | None = None,
+    ) -> AgentTurn:
+        response = self._create(AGENT_PROMPT, messages, OUTPUT_SCHEMA, tools=tools, timeout=timeout)
         usage = {
             "input_tokens": response.usage.input_tokens,
             "output_tokens": response.usage.output_tokens,
@@ -133,22 +149,20 @@ class ClaudeLLM:
         messages: list[dict[str, Any]],
         schema: dict[str, Any],
         effort: str | None = None,
+        max_tokens: int = MAX_TOKENS,
         tools: list[dict[str, Any]] | None = None,
+        timeout: float | None = None,
     ) -> Any:
-        extra = {"tools": tools} if tools else {}
-        return self.client.beta.messages.create(
+        return create_message(
+            self.client,
             model=self.model,
-            max_tokens=MAX_TOKENS,
+            effort=effort or self.effort,
             system=system,
             messages=messages,
-            output_config={
-                "effort": effort or self.effort,
-                "format": {"type": "json_schema", "schema": schema},
-            },
-            # On a safety-classifier decline, the API retries on a fallback model.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            **extra,
+            schema=schema,
+            max_tokens=max_tokens,
+            tools=tools,
+            timeout=timeout,
         )
 
 
