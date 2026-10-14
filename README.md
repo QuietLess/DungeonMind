@@ -71,8 +71,8 @@ question → route ─┬─ rules_qa ──────────────
   escaped in prompts, and terminal output is stripped of control characters.
 
 Built test-first: the graph's 61 contract tests were written against a scripted fake LLM
-before the implementation, followed by backend and security review. All 293 tests run
-offline in about 11 s.
+before the implementation, followed by backend and security review. All 294 tests run
+offline in about 14 s.
 
 ## Structured tools
 

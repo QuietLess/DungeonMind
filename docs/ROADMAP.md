@@ -28,7 +28,7 @@
   Every answer passes a citation check. Built test-first: 61 contract tests written before the
   code, then backend and security review. The fix batch (dice limits, input/output caps,
   per-call timeouts, failed-tool and malformed-citation checks, evidence escaping, terminal
-  sanitising, linear-time citation scan) also went in test-first. 293 tests; coverage of the
+  sanitising, linear-time citation scan) also went in test-first. 294 tests; coverage of the
   M4 code: llm.py 100%, build.py 96%.
 
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
@@ -43,6 +43,7 @@
 | M8-a | Per-user rate and spend limits; server-side `max_steps`; request size limit | M8 |
 | M8-b | Hide exception/trace text from API clients; sanitise rendered answers, strip bidi characters | M8 |
 | Q1 | `"` in evidence text is escaped as `&quot;` (only the source attribute needs it); the model may echo it | when convenient |
+| Q2 | Truncate very long invalid citation ids in `violations` (a 20k-digit id is reported in full) | when convenient |
 
 ## Known limitations
 
