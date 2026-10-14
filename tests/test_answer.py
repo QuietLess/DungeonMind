@@ -2,6 +2,8 @@
 
 import json
 
+from isolated import run_isolated
+
 from dungeonmind.rag.answer import format_evidence, validate
 from dungeonmind.rag.hybrid import Evidence
 from dungeonmind.schemas import Chunk, EntityType
@@ -122,3 +124,22 @@ def test_s1_stored_text_cannot_close_a_block_or_forge_an_id():
     assert text.count("<evidence ") == 1
     assert text.count("</evidence>") == 1
     assert 'id="E2"' not in text
+
+
+# --- N1: citation scanning is linear in the answer length (security re-review) --------------
+
+
+def test_n1_long_whitespace_runs_dont_slow_citation_checks():
+    # The old pattern `(\s*)\[...` retried from every space: 60k spaces took ~12.7 s.
+    out = run_isolated(
+        """
+        from dungeonmind.rag.answer import check_citations
+        text = "A" + " " * 60_000 + "B [E9] " + " " * 60_000 + "[E1]."
+        cleaned, ids, violations = check_citations(text, [], lambda i: None if i == "E1" else "bad")
+        _done({"ids": ids, "violations": violations, "kept_e9": "[E9]" in cleaned})
+        """,
+        hard_timeout=30,
+    )
+    assert out["elapsed"] < 0.5, out
+    assert out["value"]["ids"] == ["E1"] and out["value"]["violations"] == ["bad"]
+    assert out["value"]["kept_e9"] is False
