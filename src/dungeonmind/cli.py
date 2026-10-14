@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -97,6 +98,58 @@ def ask(
         f"\n{answer.model} · {answer.usage['input_tokens']} in / "
         f"{answer.usage['output_tokens']} out tokens · {answer.latency_ms:.0f} ms"
     )
+
+
+@app.command()
+def chat(
+    question: str,
+    trace: Annotated[bool, typer.Option(help="Show routing, tool calls and timings")] = False,
+    max_steps: Annotated[int, typer.Option(min=1, help="Agent tool turns before stopping")] = 6,
+) -> None:
+    """Ask anything: routes to rules Q&A or the tool agent, with verified citations."""
+    from dungeonmind.graph.build import Deps, run_chat
+    from dungeonmind.graph.llm import ClaudeLLM
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    retriever = load_retriever(Mode.DENSE)
+    chunks = list(retriever.by_id.values())
+    deps = Deps(
+        llm=ClaudeLLM(),
+        retrieve=lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE),
+        registry=ToolRegistry(Catalog.load(chunks=chunks)),
+        max_steps=max_steps,
+    )
+    state = run_chat(question, deps)
+    # run_chat turns API failures into an error answer; surface missing/invalid keys like `ask`.
+    if state["stop_reason"] == "error" and any(
+        "AuthenticationError" in e["detail"] or "authentication method" in e["detail"]
+        for e in state["trace"]
+    ):
+        raise typer.BadParameter(
+            "No valid Anthropic credentials. Set ANTHROPIC_API_KEY (see README)."
+        )
+
+    typer.echo(state["answer"] + "\n")
+    label = "insufficient evidence" if state["insufficient_evidence"] else state["confidence"]
+    typer.secho(f"Confidence: {label}", bold=True)
+    for c in state["citations"]:
+        typer.echo(f"  [{c['id']}] {c['label']}")
+    if state.get("violations"):
+        typer.secho(f"Citation contract violations removed: {state['violations']}", fg="yellow")
+    typer.echo(f"Stop reason: {state['stop_reason']}")
+
+    if trace:
+        typer.secho("\nTrace", bold=True)
+        if "intent" in state:
+            typer.echo(f"  route: {state['intent'].value} ({state['route_reason']})")
+        for r in state.get("tool_calls", []):
+            output = json.dumps(r["output"], ensure_ascii=False, default=str)
+            short = output if len(output) <= 160 else output[:160] + "…"
+            typer.echo(f"  {r['id']} {r['name']} {json.dumps(r['arguments'])}")
+            typer.echo(f"     → {short}")
+        for e in state["trace"]:
+            typer.echo(f"  {e['node']:<11} {e['ms']:8.0f} ms  {e['detail']}")
 
 
 @app.command()

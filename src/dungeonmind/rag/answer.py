@@ -51,7 +51,7 @@ Write for a game master at the table: lead with the ruling, then the detail, \
 in a few short paragraphs at most."""
 
 
-class _ModelOutput(BaseModel):
+class ModelOutput(BaseModel):
     answer: str
     citations: list[str]
     confidence: Literal["high", "medium", "low"]
@@ -104,11 +104,17 @@ def format_evidence(evidence: list[Evidence]) -> tuple[str, dict[str, Evidence]]
     return "\n\n".join(blocks), id_map
 
 
+def evidence_message(question: str, evidence: list[Evidence]) -> str:
+    """The user turn for a rules answer: the numbered evidence set, then the question."""
+    evidence_text, _ = format_evidence(evidence)
+    return f"<evidence_set>\n{evidence_text}\n</evidence_set>\n\nQuestion: {question}"
+
+
 def validate(
     raw: str, id_map: dict[str, Evidence]
-) -> tuple[_ModelOutput, list[Citation], list[str]]:
+) -> tuple[ModelOutput, list[Citation], list[str]]:
     """Parse model JSON and enforce that every citation refers to supplied evidence."""
-    out = _ModelOutput.model_validate(json.loads(raw))
+    out = ModelOutput.model_validate(json.loads(raw))
     inline = {
         eid.strip() for group in _INLINE_CITATION.findall(out.answer) for eid in group.split(",")
     }
@@ -145,19 +151,13 @@ class AnswerGenerator:
         self.effort = effort
 
     def answer(self, question: str, evidence: list[Evidence]) -> Answer:
-        evidence_text, id_map = format_evidence(evidence)
+        _, id_map = format_evidence(evidence)
         started = time.perf_counter()
         response = self.client.beta.messages.create(
             model=self.model,
             max_tokens=16000,
             system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"<evidence_set>\n{evidence_text}\n</evidence_set>\n\n"
-                    f"Question: {question}",
-                }
-            ],
+            messages=[{"role": "user", "content": evidence_message(question, evidence)}],
             output_config={
                 "effort": self.effort,
                 "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
@@ -202,4 +202,12 @@ class AnswerGenerator:
         )
 
 
-__all__ = ["Answer", "AnswerGenerator", "Citation", "format_evidence", "validate"]
+__all__ = [
+    "Answer",
+    "AnswerGenerator",
+    "Citation",
+    "ModelOutput",
+    "evidence_message",
+    "format_evidence",
+    "validate",
+]
