@@ -12,7 +12,7 @@ import pytest
 from fake_llm import FakeLLM, FakeRetriever, evidence, final, final_turn, tool_turn
 
 from dungeonmind.graph.build import Deps, build_graph, run_chat
-from dungeonmind.graph.state import Intent, RouteDecision
+from dungeonmind.graph.state import AgentTurn, Intent, RouteDecision
 from dungeonmind.tools.catalog import Catalog
 from dungeonmind.tools.registry import ToolRegistry
 
@@ -861,4 +861,333 @@ def test_4_turns_reporting_usage_complete_normally():
     assert state["stop_reason"] == "completed"
     assert _cited_ids(state) == {"T1"}
     assert len(state["tool_calls"]) == 1
+    assert state["trace"][-1]["node"] == "verify"
+
+
+# --- newly defined branches (Clarifications: retrieve/registry failures, empty turn) ---------
+
+
+class _Boom(Exception):
+    """A distinctive exception class, so error_type assertions can't pass by accident."""
+
+
+def _failing_retrieve(query: str):
+    raise _Boom("index unavailable")
+
+
+def test_c_retrieve_exception_in_rules_qa_gives_error_stop():
+    llm = FakeLLM(_route(Intent.RULES_QA), final=final("unused [E1].", ["E1"]))
+    state = run_chat("How does grappling work?", _deps(llm, _failing_retrieve))
+    assert state["stop_reason"] == "error"
+    assert llm.names() == ["route"]
+    assert state["confidence"] == "low" and state["insufficient_evidence"] is True
+    assert state["trace"][-1]["node"] == "verify"
+
+
+def test_c_retrieve_exception_inside_search_rules_is_a_tool_error_and_loop_continues():
+    llm = FakeLLM(
+        _route(Intent.LOOKUP),
+        turns=[
+            tool_turn(("tu_1", "search_rules", {"query": "grapple"})),
+            final_turn(final("Search is down.", insufficient=True, confidence="low")),
+        ],
+    )
+    state = run_chat("Grapple rules?", _deps(llm, _failing_retrieve))
+    record = state["tool_calls"][0]
+    assert record["is_error"] is True and "error" in record["output"]
+    block = _tool_results(llm.step_calls()[1]["messages"][-1])[0]
+    assert block["is_error"] is True
+    assert state["stop_reason"] == "completed"
+
+
+def test_c_registry_exception_is_a_tool_error_and_loop_continues():
+    llm = FakeLLM(
+        _route(Intent.PROBABILITY),
+        turns=[
+            tool_turn(("tu_1", "dice_roll", {"expression": "1d20"})),
+            final_turn(final("The roller broke.", insufficient=True, confidence="low")),
+        ],
+    )
+    deps = _deps(llm)
+
+    def crash(name, arguments):
+        raise _Boom("registry bug")
+
+    deps.registry.call = crash
+    state = run_chat("Roll a d20", deps)
+    record = state["tool_calls"][0]
+    assert record["is_error"] is True and "error" in record["output"]
+    assert _tool_results(llm.step_calls()[1]["messages"][-1])[0]["is_error"] is True
+    assert state["stop_reason"] == "completed"
+
+
+def test_c_empty_agent_turn_gives_error_stop():
+    llm = FakeLLM(_route(Intent.LOOKUP), turns=[AgentTurn()])
+    state = run_chat("Find me a spell", _deps(llm))
+    assert state["stop_reason"] == "error"
+    assert state["confidence"] == "low" and state["insufficient_evidence"] is True
+    assert state["trace"][-1]["node"] == "verify"
+
+
+# --- H2 output and query size --------------------------------------------------------------
+
+
+def test_h2_search_rules_query_over_200_chars_is_a_tool_error_without_retrieving():
+    retrieve = FakeRetriever()
+    llm = FakeLLM(
+        _route(Intent.LOOKUP),
+        turns=[
+            tool_turn(("tu_1", "search_rules", {"query": "a" * 201})),
+            final_turn(final("Too long.", insufficient=True, confidence="low")),
+        ],
+    )
+    state = run_chat("Look it up", _deps(llm, retrieve))
+    assert retrieve.queries == []
+    assert state["tool_calls"][0]["is_error"] is True
+    assert state["stop_reason"] == "completed"
+
+
+def test_h2_search_rules_query_of_200_chars_is_accepted():
+    q = "a" * 200
+    retrieve = FakeRetriever({q: [evidence("long")]})
+    llm = FakeLLM(
+        _route(Intent.LOOKUP),
+        turns=[
+            tool_turn(("tu_1", "search_rules", {"query": q})),
+            final_turn(final("Found [E1].", ["E1"])),
+        ],
+    )
+    state = run_chat("Look it up", _deps(llm, retrieve))
+    assert retrieve.queries == [q]
+    assert state["tool_calls"][0]["is_error"] is False
+
+
+def test_h2_oversized_tool_output_is_replaced_by_an_error():
+    huge = [evidence("huge", text="x" * 25_000)]
+    llm = FakeLLM(
+        _route(Intent.LOOKUP),
+        turns=[
+            tool_turn(("tu_1", "search_rules", {"query": "everything"})),
+            final_turn(final("Too much.", insufficient=True, confidence="low")),
+        ],
+    )
+    state = run_chat("Everything", _deps(llm, FakeRetriever({"everything": huge})))
+    record = state["tool_calls"][0]
+    assert record["output"] == {"error": "tool result too large"}
+    assert record["is_error"] is True
+    block = _tool_results(llm.step_calls()[1]["messages"][-1])[0]
+    assert block["is_error"] is True
+    assert json.loads(block["content"]) == {"id": "T1", "error": "tool result too large"}
+
+
+# --- H3 bounds ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("max_steps", [0, -1, 11, 100])
+def test_h3_max_steps_outside_1_to_10_is_rejected(max_steps):
+    with pytest.raises(ValueError):
+        _deps(FakeLLM(_route(Intent.LOOKUP)), max_steps=max_steps)
+
+
+@pytest.mark.parametrize("max_steps", [1, 10])
+def test_h3_max_steps_at_the_bounds_is_accepted(max_steps):
+    assert _deps(FakeLLM(_route(Intent.LOOKUP)), max_steps=max_steps).max_steps == max_steps
+
+
+def test_h3_at_most_8_tool_calls_run_per_turn():
+    calls = [(f"c{i}", "dice_roll", {"expression": "1d4"}) for i in range(1, 10)]
+    llm = FakeLLM(
+        _route(Intent.PROBABILITY),
+        turns=[tool_turn(*calls), final_turn(final("Rolled [T1].", ["T1"]))],
+    )
+    deps = _deps(llm)
+    ran: list[str] = []
+    real_call = deps.registry.call
+
+    def counting(name, arguments):
+        ran.append(name)
+        return real_call(name, arguments)
+
+    deps.registry.call = counting
+    state = run_chat("Roll 9 dice", deps)
+
+    assert len(ran) == 8
+    blocks = _tool_results(llm.step_calls()[1]["messages"][-1])
+    assert [b["tool_use_id"] for b in blocks] == [f"c{i}" for i in range(1, 10)]
+    assert all(b["is_error"] is False for b in blocks[:8])
+    assert blocks[8]["is_error"] is True
+    assert "too many tool calls" in json.loads(blocks[8]["content"])["error"]
+    assert state["stop_reason"] == "completed"
+
+
+# --- H4 per-call timeouts -------------------------------------------------------------------
+
+
+def test_h4_route_and_answer_get_the_run_timeout():
+    q = "How does grappling work?"
+    llm = FakeLLM(_route(Intent.RULES_QA), final=final("Yes [E1].", ["E1"]))
+    run_chat(q, _deps(llm, FakeRetriever({q: [evidence("grappled")]}), timeout_s=42.0))
+    assert llm.timeouts == [("route", 42.0), ("answer", 42.0)]
+
+
+def test_h4_agent_step_gets_the_remaining_budget_from_the_clock():
+    now = [0.0]
+
+    def advance():
+        now[0] += 25.0
+
+    llm = FakeLLM(_route(Intent.PROBABILITY), turns=_infinite_tool_turns(), on_step=advance)
+    state = run_chat("Keep rolling", _deps(llm, timeout_s=60.0, clock=lambda: now[0]))
+
+    steps = [t for name, t in llm.timeouts if name == "agent_step"]
+    assert steps == [pytest.approx(60.0), pytest.approx(35.0), pytest.approx(10.0)]
+    assert llm.timeouts[0] == ("route", 60.0)
+    assert state["stop_reason"] == "timeout"
+
+
+def test_h4_agent_step_timeout_has_a_one_second_floor():
+    now = [0.0]
+
+    def advance():
+        now[0] += 59.5
+
+    llm = FakeLLM(_route(Intent.PROBABILITY), turns=_infinite_tool_turns(), on_step=advance)
+    run_chat("Keep rolling", _deps(llm, timeout_s=60.0, clock=lambda: now[0]))
+
+    steps = [t for name, t in llm.timeouts if name == "agent_step"]
+    assert steps[:2] == [pytest.approx(60.0), pytest.approx(1.0)]
+
+
+# --- C1 failed tools can't be cited ---------------------------------------------------------
+
+
+def test_c1_citing_a_failed_tool_is_a_violation_and_does_not_count():
+    llm = FakeLLM(
+        _route(Intent.LOOKUP),
+        turns=[
+            tool_turn(("tu_1", "get_entity", {"kind": "monster", "name": "Beholder"})),
+            final_turn(final("Beholders have ten eye rays [T1].", ["T1"])),
+        ],
+    )
+    state = run_chat("Beholder eye rays?", _deps(llm))
+    assert state["tool_calls"][0]["is_error"] is True
+    assert "cited-error-T1" in state["violations"]
+    assert "T1" not in _cited_ids(state)
+    assert "[T1]" not in state["answer"]
+    assert "no-citations" in state["violations"]
+    assert state["confidence"] == "low"
+
+
+def test_c1_successful_tool_still_citable_next_to_a_failed_one():
+    llm = FakeLLM(
+        _route(Intent.PROBABILITY),
+        turns=[
+            tool_turn(
+                ("tu_1", "summon_dragon", {}),
+                ("tu_2", "probability", PROB_ARGS),
+            ),
+            final_turn(final("You hit 75% of the time [T1, T2].", ["T1", "T2"])),
+        ],
+    )
+    state = run_chat("Odds?", _deps(llm))
+    assert _cited_ids(state) == {"T2"}
+    assert "cited-error-T1" in state["violations"]
+    assert "no-citations" not in state["violations"]
+    assert "[T2]" in state["answer"] and "T1" not in state["answer"]
+
+
+# --- C2 malformed markers and whitespace ----------------------------------------------------
+
+
+def _rules_state(answer: str, citations: list[str]):
+    q = "Grappling?"
+    llm = FakeLLM(_route(Intent.RULES_QA), final=final(answer, citations))
+    return run_chat(q, _deps(llm, FakeRetriever({q: [evidence("grappled")]})))
+
+
+def test_c2_removing_a_marker_removes_the_space_before_it():
+    state = _rules_state("Yes [E9].", ["E1"])
+    assert state["answer"] == "Yes."
+    assert "E9" in state["violations"]
+
+
+@pytest.mark.parametrize("marker", ["[E1-E9]", "[E1 ]", "[T2;E1]", "[E1,]", "[E1 E2]"])
+def test_c2_malformed_markers_are_removed_and_flagged(marker):
+    state = _rules_state(f"Grab them [E1]. See also {marker}.", ["E1"])
+    assert state["answer"] == "Grab them [E1]. See also."
+    assert "malformed-citation" in state["violations"]
+    assert _cited_ids(state) == {"E1"}
+
+
+def test_c2_canonical_markers_are_not_flagged():
+    state = _rules_state("Grab them [E1]. Really [E1].", ["E1"])
+    assert state["answer"] == "Grab them [E1]. Really [E1]."
+    assert state.get("violations", []) == []
+
+
+# --- E1 error_type ----------------------------------------------------------------------------
+
+
+def test_e1_route_exception_sets_error_type():
+    state = run_chat("q", _deps(FakeLLM(_Boom("down"))))
+    assert state["stop_reason"] == "error"
+    assert state["error_type"] == "_Boom"
+
+
+def test_e1_answer_exception_sets_error_type():
+    q = "Grappling?"
+    llm = FakeLLM(_route(Intent.RULES_QA), final=_Boom("down"))
+    state = run_chat(q, _deps(llm, FakeRetriever({q: [evidence("grappled")]})))
+    assert state["error_type"] == "_Boom"
+
+
+def test_e1_agent_exception_sets_error_type():
+    llm = FakeLLM(_route(Intent.LOOKUP), turns=[_Boom("down")])
+    assert run_chat("Find a spell", _deps(llm))["error_type"] == "_Boom"
+
+
+def test_e1_retrieve_exception_sets_error_type():
+    llm = FakeLLM(_route(Intent.RULES_QA), final=final("unused", []))
+    assert run_chat("Grappling?", _deps(llm, _failing_retrieve))["error_type"] == "_Boom"
+
+
+def test_e1_empty_turn_sets_some_error_type():
+    state = run_chat("Find a spell", _deps(FakeLLM(_route(Intent.LOOKUP), turns=[AgentTurn()])))
+    assert isinstance(state.get("error_type"), str) and state["error_type"]
+
+
+@pytest.mark.parametrize("intent", [Intent.OUT_OF_SCOPE, Intent.CAMPAIGN_MEMORY])
+def test_e1_error_type_is_none_without_an_error(intent):
+    assert run_chat("q", _deps(FakeLLM(_route(intent)))).get("error_type") is None
+
+
+def test_e1_error_type_is_none_on_success_and_max_steps():
+    q = "Grappling?"
+    ok = run_chat(
+        q,
+        _deps(
+            FakeLLM(_route(Intent.RULES_QA), final=final("Yes [E1].", ["E1"])),
+            FakeRetriever({q: [evidence("grappled")]}),
+        ),
+    )
+    llm = FakeLLM(_route(Intent.PROBABILITY), turns=_infinite_tool_turns())
+    capped = run_chat("Roll", _deps(llm, max_steps=2))
+    assert ok.get("error_type") is None
+    assert capped["stop_reason"] == "max_steps" and capped.get("error_type") is None
+
+
+# --- E2 tool list can't raise out of run_chat -----------------------------------------------
+
+
+def test_e2_tool_definitions_failure_gives_error_stop_without_raising():
+    llm = FakeLLM(_route(Intent.LOOKUP), turns=[final_turn(final("unused", insufficient=True))])
+    deps = _deps(llm)
+
+    def broken():
+        raise _Boom("schema bug")
+
+    deps.registry.definitions = broken
+    state = run_chat("Find a spell", deps)
+    assert state["stop_reason"] == "error"
+    assert state["error_type"] == "_Boom"
     assert state["trace"][-1]["node"] == "verify"

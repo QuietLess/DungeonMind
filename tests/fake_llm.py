@@ -18,6 +18,9 @@ class FakeLLM:
     - `final`: the FinalAnswer returned by `answer` (or an Exception to raise).
     - `turns`: AgentTurns (or Exceptions) handed out one per `agent_step` call, in order.
     - `on_step`: optional hook run at the start of each `agent_step` (e.g. to advance a clock).
+
+    The keyword-only `timeout` each method receives is recorded in `timeouts` as
+    (method name, timeout), in call order, so `calls` payloads stay unchanged.
     """
 
     def __init__(
@@ -32,24 +35,36 @@ class FakeLLM:
         self._turns: Iterator[AgentTurn | Exception] = iter(turns)
         self._on_step = on_step
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.timeouts: list[tuple[str, float | None]] = []
 
     # --- LLM protocol -------------------------------------------------------------------------
 
-    def route(self, question: str) -> RouteDecision:
+    def route(self, question: str, *, timeout: float | None = None) -> RouteDecision:
         self.calls.append(("route", {"question": question}))
+        self.timeouts.append(("route", timeout))
         if isinstance(self._route, Exception):
             raise self._route
         return self._route
 
-    def answer(self, question: str, evidence: list[Evidence]) -> FinalAnswer:
+    def answer(
+        self, question: str, evidence: list[Evidence], *, timeout: float | None = None
+    ) -> FinalAnswer:
         self.calls.append(("answer", {"question": question, "evidence": list(evidence)}))
+        self.timeouts.append(("answer", timeout))
         if self._final is None:
             raise AssertionError("FakeLLM.answer called but no final answer was scripted")
         if isinstance(self._final, Exception):
             raise self._final
         return self._final
 
-    def agent_step(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AgentTurn:
+    def agent_step(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        timeout: float | None = None,
+    ) -> AgentTurn:
+        self.timeouts.append(("agent_step", timeout))
         # Deep-copy: the graph may keep mutating the same list after this call returns.
         self.calls.append(
             ("agent_step", {"messages": copy.deepcopy(messages), "tools": copy.deepcopy(tools)})
