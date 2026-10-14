@@ -144,3 +144,20 @@ def test_n1_long_whitespace_runs_dont_slow_citation_checks():
     assert out["elapsed"] < 0.5, out
     assert out["value"]["ids"] == ["E1"] and out["value"]["violations"] == ["bad"]
     assert out["value"]["kept_e9"] is False
+
+
+def test_n1b_long_digit_runs_dont_slow_citation_checks():
+    # `\d+` and the following `[^...]*` could split a digit run every possible way: an unclosed
+    # "[E" + 60k digits took ~15.9 s. Closed markers must behave exactly as before.
+    out = run_isolated(
+        """
+        from dungeonmind.rag.answer import check_citations
+        text = "ok [E1] then [E" + "1" * 60_000
+        _started = time.perf_counter()
+        cleaned, ids, violations = check_citations(text, [], lambda i: None)
+        _done({"ids": ids, "violations": violations, "prefix": cleaned[:13]})
+        """,
+        hard_timeout=40,
+    )
+    assert out["elapsed"] < 0.5, out
+    assert out["value"] == {"ids": ["E1"], "violations": [], "prefix": "ok [E1] then "}
