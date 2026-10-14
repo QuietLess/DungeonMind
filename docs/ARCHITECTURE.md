@@ -273,3 +273,18 @@ Rules for options (each one is an acceptance criterion):
   and are exempt from the no-citations check. LLM exceptions in this node follow behaviour 6.
 - CLI: `chat --conversation NAME` uses `JsonFileStore("data/state/conversations.json")`;
   without it nothing persists.
+
+### M5 clarifications (settled after the first test pass)
+
+- Roles are a variety heuristic, not a rules claim. "Melee or Ranged Attack Roll" contains
+  "Ranged Attack Roll" but not "Melee Attack Roll", so it grants `ranged` only. No SRD
+  creature is purely ranged, and this is what makes e.g. the Guard and the Mage `ranged`.
+- `EncounterRequest.creature_types` entries must be catalog `CREATURE_TYPES` (ValidationError
+  otherwise); each party level is 1–20 and each `exclude_names` entry ≤ 200 characters.
+- Options are chosen greedily in ranking order (rule 5), skipping any that would break the
+  variety rule (rule 4). The final tie-break compares the sorted, lowercased monster names.
+- The store lives in `dungeonmind.graph.store` (`InMemoryStore`, `JsonFileStore`).
+  `JsonFileStore` creates missing parent directories, and with no file it starts empty.
+- The `encounter` node uses `deps.registry.catalog`. T1 `arguments` is
+  `request.model_dump(mode="json")`.
+- The other-edition note (behaviour 10) also applies to completed encounter answers.
