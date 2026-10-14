@@ -29,8 +29,8 @@ src/dungeonmind/
   tools/encounter.py XP budgets, difficulty, SRD warnings
   tools/registry.py  allow-listed tools, typed schemas, error → {"error": …}
   graph/state.py     orchestrator contract (state, intents, LLM port)
-  graph/build.py     LangGraph graph and run_chat()          (M4)
-  graph/llm.py       ClaudeLLM: the real LLM port            (M4)
+  graph/build.py     LangGraph graph, bounded agent loop, verify, run_chat()
+  graph/llm.py       ClaudeLLM: the real LLM port (Anthropic SDK)
   evals/             retrieval benchmark
   cli.py             developer CLI
 ```

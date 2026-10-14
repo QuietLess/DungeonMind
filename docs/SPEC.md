@@ -25,9 +25,9 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan).
 | --- | --- | --- |
 | Grounded rules Q&A | "How does grappling work?" → answer + SRD page citations | ✅ M2 |
 | Correct abstention | "Stats of a Beholder?" → "not in the SRD" instead of invented stats | ✅ M2 |
-| Structured lookup | "Level-3 fire spells", "undead CR 3–8 that can't fly" | ✅ M3 (tools), M4 (chat) |
-| Odds and dice | "+7 vs AC 18 with advantage?" → exactly 75% | ✅ M3 (tools), M4 (chat) |
-| One chat entry point | Any question → routed to the right path, cited, traced | 🔨 M4 |
+| Structured lookup | "Level-3 fire spells", "undead CR 3–8 that can't fly" | ✅ M3 + M4 |
+| Odds and dice | "+7 vs AC 18 with advantage?" → exactly 75% | ✅ M3 + M4 |
+| One chat entry point | Any question → routed to the right path, cited, traced | ✅ M4 |
 | Encounter planning | "Hard undead encounter for four level-5s, no flyers" → 2–3 options | M5 |
 | Campaign memory | "What did we promise Elara?" → only that campaign's notes | M6 |
 | Session prep | "Turn my notes into 5 scenes" | M6 |
@@ -47,8 +47,8 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan).
 ## Acceptance criteria by milestone
 
 - **M1–M3:** met. See README for the commands and results.
-- **M4 (orchestrator):** see `ARCHITECTURE.md` › M4 contract. Each criterion has an
-  offline test using a scripted fake LLM.
+- **M4 (orchestrator):** met. See `ARCHITECTURE.md` › M4 contract and M4 hardening; each
+  criterion has an offline test using a scripted fake LLM.
 
 ## Out of scope for now
 

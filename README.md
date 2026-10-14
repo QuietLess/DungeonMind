@@ -14,7 +14,7 @@ not a chat-with-a-PDF demo.
 | M1 — Corpus: SRD 5.2.1 ingestion with page/section provenance | ✅ |
 | M2 — Hybrid retrieval, benchmark, cited answers | ✅ |
 | M3 — Structured tools: spells, monsters, dice, probability, encounter budget | ✅ |
-| M4 — LangGraph orchestrator with bounded workflows | ⬜ |
+| M4 — LangGraph orchestrator with bounded workflows | ✅ |
 | M5 — Encounter builder | ⬜ |
 | M6 — Isolated campaign memory | ⬜ |
 | M7 — 200+ question eval suite and CI regression gates | ⬜ |
@@ -35,12 +35,44 @@ uv run dungeonmind tool search_monsters '{"creature_type": "undead", "can_fly": 
 uv run pytest
 ```
 
-Cited answers need an Anthropic API key (never commit it; `.env` is git-ignored):
+Answers need an Anthropic API key (never commit it; `.env` is git-ignored):
 
 ```powershell
 setx ANTHROPIC_API_KEY "sk-ant-..."         # Windows; open a new terminal afterwards
-uv run dungeonmind ask "How does grappling work?" --show-evidence
+uv run dungeonmind chat "What is the probability my +7 attack hits AC 18 with advantage?" --trace
+uv run dungeonmind chat "Which undead between CR 3 and CR 5 can't fly?"
+uv run dungeonmind chat "How does the Ready action work?"
 ```
+
+`chat` is the main entry point. `ask` is the simpler rules-only path from M2. Each `chat`
+question costs roughly 2–5¢ on Claude Opus 5.5.
+
+Design docs: [SPEC](docs/SPEC.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROADMAP](docs/ROADMAP.md)
+
+## How a question is answered
+
+```
+question → route ─┬─ rules_qa ──────────────→ retrieve → answer ─┐
+                  ├─ lookup / probability / encounter → agent ───┤→ verify → answer + citations
+                  ├─ campaign_memory / session_prep → "later" ───┤
+                  └─ out_of_scope ───────────→ decline ──────────┘
+```
+
+- **Route:** Claude classifies the question and flags when the user is asking about older
+  editions (the answer then says it covers 2024 rules only).
+- **Agent:** a tool loop with hard limits: at most 6 turns (max 10), 8 tool calls per turn,
+  and a 60 s budget passed to every API call as a timeout. The tools are the six below plus
+  `search_rules`. A tool error goes back to the model as data, so a bad argument never
+  crashes the run.
+- **Verify:** every cited `E#` (rules passage) or `T#` (tool result) must exist in this run.
+  Invented ids, citations of failed tool calls and malformed markers are removed and
+  reported, and an uncited answer is downgraded to low confidence.
+- **Untrusted text:** retrieved passages and tool output are treated as data. Evidence is
+  escaped in prompts, and terminal output is stripped of control characters.
+
+Built test-first: the graph's 61 contract tests were written against a scripted fake LLM
+before the implementation, followed by backend and security review. All 293 tests run
+offline in about 11 s.
 
 ## Structured tools
 
@@ -121,7 +153,7 @@ src/dungeonmind/
   rag/        ingestion, BM25, dense (Qdrant), RRF fusion, reranking, cited answers
   tools/      spell/monster catalog (Open5e), dice, probability, encounters, tool registry
   schemas/    Chunk and shared models
-  graph/      LangGraph state and nodes (M4)
+  graph/      orchestrator: contract (state.py), LangGraph graph (build.py), Claude adapter (llm.py)
   memory/     per-campaign memory (M6)
   evals/      retrieval benchmark dataset and runner
 scripts/      data acquisition
