@@ -21,6 +21,7 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 DEFAULT_PDF = Path("data/raw/srd/SRD_CC_v5.2.1.pdf")
 DEFAULT_CHUNKS = Path("data/processed/srd_5.2.1_chunks.jsonl")
+CONVERSATIONS = Path("data/state/conversations.json")
 
 NO_CREDENTIALS = "No valid Anthropic credentials. Set ANTHROPIC_API_KEY (see README)."
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
@@ -121,24 +122,34 @@ def chat(
     max_steps: Annotated[
         int, typer.Option(min=1, max=10, help="Agent tool turns before stopping")
     ] = 6,
+    conversation: Annotated[
+        str | None,
+        typer.Option(help="Conversation name; remembers the last encounter for follow-ups"),
+    ] = None,
 ) -> None:
-    """Ask anything: routes to rules Q&A or the tool agent, with verified citations."""
+    """Ask anything: rules Q&A, lookups and odds, or building encounters, with citations."""
     from dungeonmind.graph.build import Deps, run_chat
     from dungeonmind.graph.llm import ClaudeLLM
+    from dungeonmind.graph.store import JsonFileStore
     from dungeonmind.tools.catalog import Catalog
     from dungeonmind.tools.registry import ToolRegistry
 
+    if conversation is not None and not 1 <= len(conversation.strip()) <= 100:
+        raise typer.BadParameter("--conversation must be 1–100 characters")
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         raise typer.BadParameter(NO_CREDENTIALS)
     retriever = load_retriever(Mode.DENSE)
     chunks = list(retriever.by_id.values())
+    # Without --conversation, Deps keeps its in-memory store and nothing persists.
+    extra = {"store": JsonFileStore(CONVERSATIONS)} if conversation else {}
     deps = Deps(
         llm=ClaudeLLM(),
         retrieve=lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE),
         registry=ToolRegistry(Catalog.load(chunks=chunks)),
         max_steps=max_steps,
+        **extra,
     )
-    state = run_chat(question, deps)
+    state = run_chat(question, deps, conversation_id=conversation.strip() if conversation else None)
     if state.get("error_type") == "AuthenticationError":  # run_chat never raises; ask doesn't
         raise typer.BadParameter(NO_CREDENTIALS)
 
