@@ -175,3 +175,101 @@ Each item has a regression test.
   everywhere.
 - `citations` lists each id once, in order of first appearance (list, then inline markers).
 - The timeout check runs before every agent turn, including the first.
+
+## M5 contract — encounter builder
+
+Blueprint §9. The model extracts the request and writes the presentation; **code builds the
+encounters**, so no XP arithmetic is done by the model.
+
+### Builder (`dungeonmind.tools.encounter_builder`, deterministic, no LLM)
+
+```python
+class EncounterRequest(BaseModel):          # extra="forbid"
+    party_levels: list[int]                 # 1–12 entries, each 1–20
+    difficulty: Difficulty = Difficulty.MODERATE
+    creature_types: list[str] = []          # catalog CREATURE_TYPES; empty = any type
+    exclude_flying: bool = False
+    exclude_names: list[str] = []           # ≤ 20 entries, each ≤ 200 chars
+    max_stat_blocks: int = 3                # 1–3 (SRD p. 203: two or three is easiest to run)
+    theme: str | None = None                # ≤ 200 chars; flavour for the write-up, never a filter
+
+def roles(monster: Monster) -> set[str]     # capabilities, see below
+def primary_role(monster: Monster) -> str   # "boss" | "controller" | "ranged" | "frontline"
+def build_options(request: EncounterRequest, catalog: Catalog, max_options: int = 3) -> BuildResult
+def revise(request: EncounterRequest, direction: Literal["easier", "harder"]) -> EncounterRequest
+```
+
+`BuildResult` has `options: list[EncounterOption]`, `budget: int` (target difficulty's total
+budget), `band: tuple[int, int]` (exclusive low, inclusive high) and `note: str | None`.
+`EncounterOption` has `monsters` (each: name, cr as text, xp, count, role, citation),
+`total_xp`, `rating`, `warnings` (from `encounter.evaluate`) and `roles` (distinct primary roles).
+Both are plain dataclasses and serialise to JSON with `dataclasses.asdict`.
+
+Roles, computed from the stat block's traits, actions, bonus actions, reactions and legendary
+actions:
+
+- capabilities: `melee` if any text contains "Melee Attack Roll"; `ranged` if any contains
+  "Ranged Attack Roll"; `controller` if any text containing "Saving Throw" also names a
+  condition (Blinded, Charmed, Deafened, Frightened, Grappled, Incapacitated, Paralyzed,
+  Petrified, Poisoned, Prone, Restrained, Stunned, Unconscious); `legendary` if it has
+  legendary actions.
+- primary role: `boss` if legendary; else `controller` if controller; else `ranged` if ranged
+  and not melee; else `frontline`.
+
+Rules for options (each one is an acceptance criterion):
+
+1. **Candidates:** CR > 0; CR ≤ the party's highest level (so the SRD's "Powerful Creatures"
+   caution never applies); type in `creature_types` if given; no fly speed if
+   `exclude_flying`; name not in `exclude_names` (case-insensitive).
+2. **Band:** total XP > the next-lower difficulty's budget (0 for Low) and ≤ the requested
+   difficulty's budget. Four level-5s at High: (3,000, 4,400].
+3. **Shape:** 1 to `max_stat_blocks` distinct stat blocks, at most 2 creatures per character
+   (SRD "Many Creatures"), each option's `rating` equals the requested difficulty.
+4. **Variety:** options differ in their set of stat blocks, and no two share the same
+   highest-XP stat block.
+5. **Ranking:** more distinct primary roles first, then higher total XP, then fewer creatures,
+   then alphabetical by monster names. Up to `max_options` options.
+6. **Deterministic:** the same request and catalog give identical results.
+7. **Bounded:** `build_options` finishes in under 1 s for any valid request on the full
+   331-creature catalog.
+8. **Honest when empty:** no options → `options == []` and `note` says why: no candidates
+   after the filters, or no combination fits the band.
+9. **Citations:** each monster's `citation` is its SRD 5.2.1 page citation from the catalog.
+10. **Revise:** `revise` moves difficulty one step (low ↔ moderate ↔ high) and keeps every
+    other field. Easier than Low or harder than High raises ValueError naming the limit
+    (the SRD defines nothing outside Low–High).
+
+### Graph changes (`graph/state.py`, `graph/build.py`)
+
+- `Intent.ENCOUNTER` now routes to a new `encounter` node (it's removed from `TOOL_INTENTS`).
+- New LLM port methods, both with keyword-only `timeout`:
+  - `extract_encounter(question, previous: EncounterRequest | None) -> EncounterExtraction`
+    with `kind: "build" | "revise" | "other"`, `request: EncounterRequest | None` (for
+    build; None if load-bearing info is missing), `direction: "easier" | "harder" | None`
+    (for revise), and `missing: list[str]` (e.g. `["party_levels"]`).
+  - `present_encounter(question, request, record: ToolRecord) -> FinalAnswer`: writes the
+    options up (difficulty rationale, roles, tactics) citing `T1`. It says that the SRD has
+    no habitat data and that the theme only shaped the write-up.
+- `Deps` gains `store: ConversationStore` (default: in-memory). `ConversationStore` has
+  `get(conversation_id) -> EncounterRequest | None` and `put(conversation_id, request)`.
+  `JsonFileStore(path)` persists to a JSON file for the CLI.
+- `StopReason` gains `"needs_input"`.
+- The `encounter` node, in order:
+  1. `previous = store.get(conversation_id)` if a conversation id is given, else None.
+  2. `llm.extract_encounter(question, previous, timeout=deps.timeout_s)`.
+  3. `kind == "other"`: hand over to the `agent` node (e.g. "what's the XP budget for…?"),
+     so the trace is route, encounter, agent, verify.
+  4. `kind == "revise"`: with no previous request, answer that there's no earlier encounter in
+     this conversation and ask for the party, with `stop_reason="needs_input"`. Otherwise
+     `request = revise(previous, direction)`; a ValueError gives its message as the answer
+     (`stop_reason="completed"`, `insufficient_evidence=True`).
+  5. `kind == "build"` with `request` None or `missing` non-empty: ask for the missing
+     information, with `stop_reason="needs_input"` and no builder call.
+  6. Otherwise run `build_options`, record it as `ToolRecord` `T1` with name
+     `"encounter_builder"`, arguments the request, and output `{"result": asdict(result)}`;
+     `store.put(conversation_id, request)` when a conversation id is given; then
+     `llm.present_encounter(question, request, record, timeout=deps.timeout_s)` and verify.
+- `needs_input` answers have `confidence="low"`, `insufficient_evidence=False`, no citations,
+  and are exempt from the no-citations check. LLM exceptions in this node follow behaviour 6.
+- CLI: `chat --conversation NAME` uses `JsonFileStore("data/state/conversations.json")`;
+  without it nothing persists.

@@ -23,22 +23,23 @@ from enum import StrEnum
 from typing import Any, Literal, Protocol, TypedDict
 
 from dungeonmind.rag.hybrid import Evidence
+from dungeonmind.tools.encounter_builder import EncounterRequest
 
 
 class Intent(StrEnum):
     RULES_QA = "rules_qa"  # how a rule works → retrieve + cited answer
     LOOKUP = "lookup"  # spells/monsters by filters or name → tools
     PROBABILITY = "probability"  # odds, dice → tools
-    ENCOUNTER = "encounter"  # budgets, building encounters → tools (full builder is M5)
+    ENCOUNTER = "encounter"  # build or revise encounters → encounter node (M5)
     CAMPAIGN_MEMORY = "campaign_memory"  # the user's own campaign notes → M6, unsupported now
     SESSION_PREP = "session_prep"  # planning from notes → M6, unsupported now
     OUT_OF_SCOPE = "out_of_scope"  # not about running D&D → decline
 
 
-TOOL_INTENTS = frozenset({Intent.LOOKUP, Intent.PROBABILITY, Intent.ENCOUNTER})
+TOOL_INTENTS = frozenset({Intent.LOOKUP, Intent.PROBABILITY})
 UNSUPPORTED_INTENTS = frozenset({Intent.CAMPAIGN_MEMORY, Intent.SESSION_PREP})
 
-StopReason = Literal["completed", "max_steps", "timeout", "error"]
+StopReason = Literal["completed", "needs_input", "max_steps", "timeout", "error"]
 
 
 @dataclass
@@ -80,6 +81,24 @@ class AgentTurn:
     usage: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class EncounterExtraction:
+    """What the model understood from an encounter request (M5)."""
+
+    kind: Literal["build", "revise", "other"]
+    request: EncounterRequest | None = None  # build: None if load-bearing info is missing
+    direction: Literal["easier", "harder"] | None = None  # revise only
+    missing: list[str] = field(default_factory=list)  # e.g. ["party_levels"]
+
+
+class ConversationStore(Protocol):
+    """Remembers the last encounter request per conversation, for "make it harder"."""
+
+    def get(self, conversation_id: str) -> EncounterRequest | None: ...
+
+    def put(self, conversation_id: str, request: EncounterRequest) -> None: ...
+
+
 class LLM(Protocol):
     """Everything the graph needs from a model. ClaudeLLM implements it; tests fake it."""
 
@@ -101,6 +120,27 @@ class LLM(Protocol):
         timeout: float | None = None,
     ) -> AgentTurn:
         """One turn of the bounded tool loop over Anthropic-format `messages`."""
+        ...
+
+    def extract_encounter(
+        self,
+        question: str,
+        previous: EncounterRequest | None,
+        *,
+        timeout: float | None = None,
+    ) -> EncounterExtraction:
+        """Turn an encounter request (or a revision of `previous`) into structured form."""
+        ...
+
+    def present_encounter(
+        self,
+        question: str,
+        request: EncounterRequest,
+        record: ToolRecord,
+        *,
+        timeout: float | None = None,
+    ) -> FinalAnswer:
+        """Write up the builder's options (tool record T1) with citations."""
         ...
 
 
