@@ -12,8 +12,8 @@ not a chat-with-a-PDF demo.
 | Milestone | State |
 | --- | --- |
 | M1 — Corpus: SRD 5.2.1 ingestion with page/section provenance | ✅ |
-| M2 — Hybrid retrieval, benchmark, cited answers | 🟡 retrieval + benchmark done; answers need an API key |
-| M3 — Structured tools (dice ✅, probability ✅, Open5e, encounter budget) | 🟡 |
+| M2 — Hybrid retrieval, benchmark, cited answers | ✅ |
+| M3 — Structured tools: spells, monsters, dice, probability, encounter budget | ✅ |
 | M4 — LangGraph orchestrator with bounded workflows | ⬜ |
 | M5 — Encounter builder | ⬜ |
 | M6 — Isolated campaign memory | ⬜ |
@@ -29,6 +29,9 @@ uv run dungeonmind ingest                   # → data/processed/srd_5.2.1_chunk
 uv run dungeonmind index                    # embeds chunks into a local Qdrant index (~2.5 min)
 uv run dungeonmind search "can I grab an enemy so it can't run away?"
 uv run dungeonmind eval-retrieval           # Recall@K / MRR for every retrieval mode
+uv run dungeonmind sync-open5e              # SRD 5.2 spell + creature snapshot
+uv run dungeonmind tool list                # the structured tools the agent can call
+uv run dungeonmind tool search_monsters '{"creature_type": "undead", "can_fly": false}'
 uv run pytest
 ```
 
@@ -38,6 +41,32 @@ Cited answers need an Anthropic API key (never commit it; `.env` is git-ignored)
 setx ANTHROPIC_API_KEY "sk-ant-..."         # Windows; open a new terminal afterwards
 uv run dungeonmind ask "How does grappling work?" --show-evidence
 ```
+
+## Structured tools
+
+Questions like "level-3 fire spells" or "undead around CR 5 that can't fly" need
+filters, not text similarity. BM25 ranked Flaming Sphere (level 2) first for the
+first one, while `search_spells` returns exactly Fireball. These tools are
+deterministic, so the model never does the arithmetic itself:
+
+| Tool | Does |
+| --- | --- |
+| `search_spells` | Filter 339 SRD spells by level, school, class list, damage type, concentration, ritual, casting time, text |
+| `search_monsters` | Filter 331 SRD creatures by CR range, type, size, flying, text |
+| `get_entity` | Full spell or stat block by name; unknown names get suggestions ("Beholder" → "Did you mean: Behir?") |
+| `dice_roll` | Server-side roll with every die returned for auditing |
+| `probability` | Exact hit/save odds with advantage, crit range, expected damage (2024 nat-20/nat-1 rules) |
+| `encounter_budget` | 2024 XP budgets, difficulty rating and the SRD's troubleshooting warnings |
+
+Spell and monster data is a snapshot of the [Open5e API v2](https://open5e.com/api-docs),
+pinned to the `srd-2024` document so 2014 rules and third-party books can't leak in.
+Each record links to its page in the SRD PDF for citations (668 of 670). The encounter
+rules are transcribed from SRD pp. 202–203 and 256, and tests check them against the
+SRD's own worked examples and against the XP of all 331 stat blocks.
+
+The 2024 SRD has no habitat data for monsters, so "ruins" or "forest" can't be a
+hard filter. The encounter builder (M5) chooses thematically fitting creature types
+and says that it did.
 
 ## Retrieval benchmark (v0, 43 questions)
 
@@ -90,7 +119,7 @@ own structure rather than fixed token windows:
 ```
 src/dungeonmind/
   rag/        ingestion, BM25, dense (Qdrant), RRF fusion, reranking, cited answers
-  tools/      dice expressions, D20 Test probabilities
+  tools/      spell/monster catalog (Open5e), dice, probability, encounters, tool registry
   schemas/    Chunk and shared models
   graph/      LangGraph state and nodes (M4)
   memory/     per-campaign memory (M6)

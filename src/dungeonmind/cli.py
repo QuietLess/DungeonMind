@@ -119,6 +119,39 @@ def search(
         typer.echo(f"     {body}\n")
 
 
+@app.command("sync-open5e")
+def sync_open5e() -> None:
+    """Download the SRD 5.2 (2024) spell and creature snapshot from Open5e."""
+    from dungeonmind.tools.open5e import sync
+
+    for kind, n in sync().items():
+        typer.echo(f"  {kind:<10} {n}")
+
+
+@app.command()
+def tool(
+    name: Annotated[str, typer.Argument(help="Tool name, or 'list' to show all tools")],
+    arguments: Annotated[str, typer.Argument(help="JSON arguments")] = "{}",
+) -> None:
+    """Call a structured tool directly, e.g. tool search_spells '{"level": 3}'."""
+    import json
+
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    registry = ToolRegistry(Catalog.load(chunks=read_jsonl(DEFAULT_CHUNKS)))
+    if name == "list":
+        for d in registry.definitions():
+            typer.secho(d["name"], bold=True)
+            typer.echo(f"  {d['description']}")
+        return
+    try:
+        args = json.loads(arguments)
+    except json.JSONDecodeError as e:
+        raise typer.BadParameter(f"arguments must be JSON: {e}") from e
+    typer.echo(json.dumps(registry.call(name, args), indent=2, ensure_ascii=False))
+
+
 @app.command("eval-retrieval")
 def eval_retrieval(
     modes: Annotated[list[Mode] | None, typer.Option("--mode")] = None,

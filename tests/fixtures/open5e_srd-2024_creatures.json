@@ -1,0 +1,1879 @@
+[
+ {
+  "key": "srd-2024_adult-red-dragon",
+  "name": "Adult Red Dragon",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Dragon",
+   "key": "dragon"
+  },
+  "size": {
+   "name": "Huge",
+   "key": "huge"
+  },
+  "challenge_rating": 17.0,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 40,
+   "unit": "feet",
+   "fly": 80,
+   "climb": 40
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 40,
+   "crawl": 20,
+   "hover": false,
+   "fly": 80,
+   "burrow": 0,
+   "climb": 40,
+   "swim": 20
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "chaotic evil",
+  "languages": {
+   "as_string": "Common, Draconic",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    },
+    {
+     "name": "Draconic",
+     "key": "draconic",
+     "desc": "Typical speakers include dragons and dragonborn."
+    }
+   ]
+  },
+  "armor_class": 19,
+  "armor_detail": "natural armor",
+  "hit_points": 256,
+  "hit_dice": "19d12 + 133",
+  "experience_points": 18000,
+  "ability_scores": {
+   "strength": 27,
+   "dexterity": 10,
+   "constitution": 25,
+   "intelligence": 16,
+   "wisdom": 13,
+   "charisma": 23
+  },
+  "modifiers": {
+   "strength": 8,
+   "dexterity": 0,
+   "constitution": 7,
+   "intelligence": 3,
+   "wisdom": 1,
+   "charisma": 6
+  },
+  "initiative_bonus": 12,
+  "saving_throws": {
+   "strength": 8,
+   "dexterity": 6,
+   "constitution": 7,
+   "intelligence": 3,
+   "wisdom": 7,
+   "charisma": 6
+  },
+  "saving_throws_all": {
+   "strength": 8,
+   "dexterity": 6,
+   "constitution": 7,
+   "intelligence": 3,
+   "wisdom": 7,
+   "charisma": 6
+  },
+  "skill_bonuses": {
+   "perception": 13,
+   "stealth": 6
+  },
+  "skill_bonuses_all": {
+   "acrobatics": 0,
+   "animal_handling": 1,
+   "arcana": 3,
+   "athletics": 8,
+   "deception": 6,
+   "history": 3,
+   "insight": 1,
+   "intimidation": 6,
+   "investigation": 3,
+   "medicine": 1,
+   "nature": 3,
+   "perception": 13,
+   "performance": 6,
+   "persuasion": 6,
+   "religion": 3,
+   "sleight_of_hand": 0,
+   "stealth": 6,
+   "survival": 1
+  },
+  "passive_perception": 23,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "fire",
+   "damage_immunities": [
+    {
+     "name": "Fire",
+     "key": "fire"
+    }
+   ],
+   "damage_resistances_display": "",
+   "damage_resistances": [],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "",
+   "condition_immunities": []
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 120,
+  "blindsight_range": 60,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Commanding Presence",
+    "desc": "The dragon uses Spellcasting to cast Command (level 2 version). The dragon can't take this action again until the start of its next turn.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "LEGENDARY_ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Fiery Rays",
+    "desc": "The dragon uses Spellcasting to cast Scorching Ray. The dragon can't take this action again until the start of its next turn.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "LEGENDARY_ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Fire Breath",
+    "desc": "Dexterity Saving Throw: DC 21, each creature in a 60-foot Cone. Failure: 59 (17d6) Fire damage. Success: Half damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 2,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": {
+     "type": "RECHARGE_ON_ROLL",
+     "param": 5
+    }
+   },
+   {
+    "name": "Multiattack",
+    "desc": "The dragon makes three Rend attacks. It can replace one attack with a use of Spellcasting to cast Scorching Ray.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Pounce",
+    "desc": "The dragon moves up to half its Speed, and it makes one Rend attack.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "LEGENDARY_ACTION",
+    "order_in_statblock": 2,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Rend",
+    "desc": "Melee Attack Roll: +14, reach 10 ft. 13 (1d10 + 8) Slashing damage plus 5 (2d4) Fire damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Rend attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 14,
+      "reach": 10,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D10",
+      "damage_bonus": 8,
+      "damage_type": {
+       "name": "Slashing",
+       "key": "slashing"
+      },
+      "extra_damage_die_count": 2,
+      "extra_damage_die_type": "D4",
+      "extra_damage_bonus": 0,
+      "extra_damage_type": {
+       "name": "Fire",
+       "key": "fire"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Spellcasting",
+    "desc": "The dragon casts one of the following spells, requiring no Material components and using Charisma as the spellcasting ability (spell save DC 20, +12 to hit with spell attacks):\n\n- **At Will:** Command, Detect Magic, Scorching Ray\n- **1/Day Each:** Fireball",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 3,
+    "legendary_action_cost": null,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [
+   {
+    "name": "Legendary Resistance (3/Day, or 4/Day in Lair)",
+    "desc": "If the dragon fails a saving throw, it can choose to succeed instead."
+   }
+  ],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_bat",
+  "name": "Bat",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Beast",
+   "key": "beast"
+  },
+  "size": {
+   "name": "Small",
+   "key": "small"
+  },
+  "challenge_rating": 0.0,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 5,
+   "unit": "feet",
+   "fly": 30
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 5,
+   "crawl": 2,
+   "hover": false,
+   "fly": 30,
+   "burrow": 0,
+   "climb": 2,
+   "swim": 2
+  },
+  "category": "Animals",
+  "subcategory": null,
+  "alignment": "unaligned",
+  "languages": {
+   "as_string": "",
+   "data": []
+  },
+  "armor_class": 12,
+  "armor_detail": "natural armor",
+  "hit_points": 1,
+  "hit_dice": "1d4 - 1",
+  "experience_points": 0,
+  "ability_scores": {
+   "strength": 2,
+   "dexterity": 15,
+   "constitution": 8,
+   "intelligence": 2,
+   "wisdom": 12,
+   "charisma": 4
+  },
+  "modifiers": {
+   "strength": -4,
+   "dexterity": 2,
+   "constitution": -1,
+   "intelligence": -4,
+   "wisdom": 1,
+   "charisma": -3
+  },
+  "initiative_bonus": 2,
+  "saving_throws": {
+   "strength": -4,
+   "dexterity": 2,
+   "constitution": -1,
+   "intelligence": -4,
+   "wisdom": 1,
+   "charisma": -3
+  },
+  "saving_throws_all": {
+   "strength": -4,
+   "dexterity": 2,
+   "constitution": -1,
+   "intelligence": -4,
+   "wisdom": 1,
+   "charisma": -3
+  },
+  "skill_bonuses": {},
+  "skill_bonuses_all": {
+   "acrobatics": 2,
+   "animal_handling": 1,
+   "arcana": -4,
+   "athletics": -4,
+   "deception": -3,
+   "history": -4,
+   "insight": 1,
+   "intimidation": -3,
+   "investigation": -4,
+   "medicine": 1,
+   "nature": -4,
+   "perception": 1,
+   "performance": -3,
+   "persuasion": -3,
+   "religion": -4,
+   "sleight_of_hand": 2,
+   "stealth": 2,
+   "survival": 1
+  },
+  "passive_perception": 11,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "",
+   "damage_immunities": [],
+   "damage_resistances_display": "",
+   "damage_resistances": [],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "",
+   "condition_immunities": []
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": null,
+  "blindsight_range": 60,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Bite",
+    "desc": "Melee Attack Roll: +4 to hit, reach 5 ft. 1 Piercing damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_ghost",
+  "name": "Ghost",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Undead",
+   "key": "undead"
+  },
+  "size": {
+   "name": "Medium",
+   "key": "medium"
+  },
+  "challenge_rating": 4.0,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 5,
+   "unit": "feet",
+   "fly": 40,
+   "hover": true
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 5,
+   "crawl": 2,
+   "hover": true,
+   "fly": 40,
+   "burrow": 0,
+   "climb": 2,
+   "swim": 2
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "neutral",
+  "languages": {
+   "as_string": "Common plus one other language",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    }
+   ]
+  },
+  "armor_class": 11,
+  "armor_detail": "natural armor",
+  "hit_points": 45,
+  "hit_dice": "10d8",
+  "experience_points": 1100,
+  "ability_scores": {
+   "strength": 7,
+   "dexterity": 13,
+   "constitution": 10,
+   "intelligence": 10,
+   "wisdom": 12,
+   "charisma": 17
+  },
+  "modifiers": {
+   "strength": -2,
+   "dexterity": 1,
+   "constitution": 0,
+   "intelligence": 0,
+   "wisdom": 1,
+   "charisma": 3
+  },
+  "initiative_bonus": 1,
+  "saving_throws": {
+   "strength": -2,
+   "dexterity": 1,
+   "constitution": 0,
+   "intelligence": 0,
+   "wisdom": 1,
+   "charisma": 3
+  },
+  "saving_throws_all": {
+   "strength": -2,
+   "dexterity": 1,
+   "constitution": 0,
+   "intelligence": 0,
+   "wisdom": 1,
+   "charisma": 3
+  },
+  "skill_bonuses": {},
+  "skill_bonuses_all": {
+   "acrobatics": 1,
+   "animal_handling": 1,
+   "arcana": 0,
+   "athletics": -2,
+   "deception": 3,
+   "history": 0,
+   "insight": 1,
+   "intimidation": 3,
+   "investigation": 0,
+   "medicine": 1,
+   "nature": 0,
+   "perception": 1,
+   "performance": 3,
+   "persuasion": 3,
+   "religion": 0,
+   "sleight_of_hand": 1,
+   "stealth": 1,
+   "survival": 1
+  },
+  "passive_perception": 11,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "necrotic, poison",
+   "damage_immunities": [
+    {
+     "name": "Necrotic",
+     "key": "necrotic"
+    },
+    {
+     "name": "Poison",
+     "key": "poison"
+    }
+   ],
+   "damage_resistances_display": "acid, cold, fire, lightning, thunder",
+   "damage_resistances": [
+    {
+     "name": "Acid",
+     "key": "acid"
+    },
+    {
+     "name": "Cold",
+     "key": "cold"
+    },
+    {
+     "name": "Fire",
+     "key": "fire"
+    },
+    {
+     "name": "Lightning",
+     "key": "lightning"
+    },
+    {
+     "name": "Thunder",
+     "key": "thunder"
+    }
+   ],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "charmed, exhaustion, frightened, grappled, paralyzed, petrified, poisoned, prone, restrained",
+   "condition_immunities": [
+    {
+     "name": "Charmed",
+     "key": "charmed"
+    },
+    {
+     "name": "Exhaustion",
+     "key": "exhaustion"
+    },
+    {
+     "name": "Frightened",
+     "key": "frightened"
+    },
+    {
+     "name": "Grappled",
+     "key": "grappled"
+    },
+    {
+     "name": "Paralyzed",
+     "key": "paralyzed"
+    },
+    {
+     "name": "Petrified",
+     "key": "petrified"
+    },
+    {
+     "name": "Poisoned",
+     "key": "poisoned"
+    },
+    {
+     "name": "Prone",
+     "key": "prone"
+    },
+    {
+     "name": "Restrained",
+     "key": "restrained"
+    }
+   ]
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 60,
+  "blindsight_range": null,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Etherealness",
+    "desc": "The ghost casts the Etherealness spell, requiring no spell components and using Charisma as the spellcasting ability. The ghost is visible on the Material Plane while on the Border Ethereal and vice versa, but it can't affect or be affected by anything on the other plane.\n\n- **At Will:** Etherealness",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 4,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Horrific Visage",
+    "desc": "Wisdom Saving Throw: DC 13, each creature in a 60-foot Cone that can see the ghost and isn't an Undead. Failure: 10 (2d6 + 3) Psychic damage, and the target has the Frightened condition until the start of the ghost's next turn. Success: The target is immune to this ghost's Horrific Visage for 24 hours.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 2,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Multiattack",
+    "desc": "The ghost makes two Withering Touch attacks.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Possession",
+    "desc": "Charisma Saving Throw: DC 13, one Humanoid the ghost can see within 5 feet. Failure: The target is possessed by the ghost; the ghost disappears, and the target has the Incapacitated condition and loses control of its body. The ghost now controls the body, but the target retains awareness. The ghost can't be targeted by any attack, spell, or other effect, except ones that specifically target Undead. The ghost's game statistics are the same, except it uses the possessed target's Speed, as well as the target's Strength, Dexterity, and Constitution modifiers. The possession lasts until the body drops to 0 Hit Points or the ghost leaves as a Bonus Action. When the possession ends, the ghost appears in an unoccupied space within 5 feet of the target, and the target is immune to this ghost's Possession for 24 hours. Success: The target is immune to this ghost's Possession for 24 hours.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 3,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": {
+     "type": "RECHARGE_ON_ROLL",
+     "param": 6
+    }
+   },
+   {
+    "name": "Withering Touch",
+    "desc": "Melee Attack Roll: +5, reach 5 ft. 19 (3d10 + 3) Necrotic damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Withering Touch attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 5,
+      "reach": 5,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 3,
+      "damage_die_type": "D10",
+      "damage_bonus": 3,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Necrotic",
+       "key": "necrotic"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [
+   {
+    "name": "Ethereal Sight",
+    "desc": "The ghost can see 60 feet into the Ethereal Plane when it is on the Material Plane."
+   },
+   {
+    "name": "Incorporeal Movement",
+    "desc": "The ghost can move through other creatures and objects as if they were Difficult Terrain. It takes 5 (1d10) Force damage if it ends its turn inside an object."
+   }
+  ],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_goblin-warrior",
+  "name": "Goblin Warrior",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Fey",
+   "key": "fey"
+  },
+  "size": {
+   "name": "Small",
+   "key": "small"
+  },
+  "challenge_rating": 0.25,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 30,
+   "unit": "feet"
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 30,
+   "crawl": 15,
+   "hover": false,
+   "fly": 0,
+   "burrow": 0,
+   "climb": 15,
+   "swim": 15
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "chaotic neutral",
+  "languages": {
+   "as_string": "Common, Goblin",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    },
+    {
+     "name": "Goblin",
+     "key": "goblin",
+     "desc": "Typical speakers are goblinoids."
+    }
+   ]
+  },
+  "armor_class": 15,
+  "armor_detail": "natural armor",
+  "hit_points": 10,
+  "hit_dice": "3d6",
+  "experience_points": 50,
+  "ability_scores": {
+   "strength": 8,
+   "dexterity": 15,
+   "constitution": 10,
+   "intelligence": 10,
+   "wisdom": 8,
+   "charisma": 8
+  },
+  "modifiers": {
+   "strength": -1,
+   "dexterity": 2,
+   "constitution": 0,
+   "intelligence": 0,
+   "wisdom": -1,
+   "charisma": -1
+  },
+  "initiative_bonus": 2,
+  "saving_throws": {
+   "strength": -1,
+   "dexterity": 2,
+   "constitution": 0,
+   "intelligence": 0,
+   "wisdom": -1,
+   "charisma": -1
+  },
+  "saving_throws_all": {
+   "strength": -1,
+   "dexterity": 2,
+   "constitution": 0,
+   "intelligence": 0,
+   "wisdom": -1,
+   "charisma": -1
+  },
+  "skill_bonuses": {
+   "stealth": 6
+  },
+  "skill_bonuses_all": {
+   "acrobatics": 2,
+   "animal_handling": -1,
+   "arcana": 0,
+   "athletics": -1,
+   "deception": -1,
+   "history": 0,
+   "insight": -1,
+   "intimidation": -1,
+   "investigation": 0,
+   "medicine": -1,
+   "nature": 0,
+   "perception": -1,
+   "performance": -1,
+   "persuasion": -1,
+   "religion": 0,
+   "sleight_of_hand": 2,
+   "stealth": 6,
+   "survival": -1
+  },
+  "passive_perception": 9,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "",
+   "damage_immunities": [],
+   "damage_resistances_display": "",
+   "damage_resistances": [],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "",
+   "condition_immunities": []
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 60,
+  "blindsight_range": null,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Scimitar",
+    "desc": "Melee Attack Roll: +4, reach 5 ft. 5 (1d6 + 2) Slashing damage, plus 2 (1d4) Slashing damage if the attack roll had Advantage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Scimitar attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 4,
+      "reach": 5,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D6",
+      "damage_bonus": 2,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Slashing",
+       "key": "slashing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Shortbow",
+    "desc": "Ranged Attack Roll: +4, range 80/320 ft. 5 (1d6 + 2) Piercing damage, plus 2 (1d4) Piercing damage if the attack roll had Advantage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Shortbow attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 4,
+      "reach": null,
+      "range": 80,
+      "long_range": 320,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D6",
+      "damage_bonus": 2,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Piercing",
+       "key": "piercing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Nimble Escape",
+    "desc": "The goblin takes the Disengage or Hide action.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "BONUS_ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": null,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_skeleton",
+  "name": "Skeleton",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Undead",
+   "key": "undead"
+  },
+  "size": {
+   "name": "Medium",
+   "key": "medium"
+  },
+  "challenge_rating": 0.25,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 30,
+   "unit": "feet"
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 30,
+   "crawl": 15,
+   "hover": false,
+   "fly": 0,
+   "burrow": 0,
+   "climb": 15,
+   "swim": 15
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "lawful evil",
+  "languages": {
+   "as_string": "Understands Common plus one other language but can't speak",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    }
+   ]
+  },
+  "armor_class": 14,
+  "armor_detail": "natural armor",
+  "hit_points": 13,
+  "hit_dice": "2d8 + 4",
+  "experience_points": 50,
+  "ability_scores": {
+   "strength": 10,
+   "dexterity": 16,
+   "constitution": 15,
+   "intelligence": 6,
+   "wisdom": 8,
+   "charisma": 5
+  },
+  "modifiers": {
+   "strength": 0,
+   "dexterity": 3,
+   "constitution": 2,
+   "intelligence": -2,
+   "wisdom": -1,
+   "charisma": -3
+  },
+  "initiative_bonus": 3,
+  "saving_throws": {
+   "strength": 0,
+   "dexterity": 3,
+   "constitution": 2,
+   "intelligence": -2,
+   "wisdom": -1,
+   "charisma": -3
+  },
+  "saving_throws_all": {
+   "strength": 0,
+   "dexterity": 3,
+   "constitution": 2,
+   "intelligence": -2,
+   "wisdom": -1,
+   "charisma": -3
+  },
+  "skill_bonuses": {},
+  "skill_bonuses_all": {
+   "acrobatics": 3,
+   "animal_handling": -1,
+   "arcana": -2,
+   "athletics": 0,
+   "deception": -3,
+   "history": -2,
+   "insight": -1,
+   "intimidation": -3,
+   "investigation": -2,
+   "medicine": -1,
+   "nature": -2,
+   "perception": -1,
+   "performance": -3,
+   "persuasion": -3,
+   "religion": -2,
+   "sleight_of_hand": 3,
+   "stealth": 3,
+   "survival": -1
+  },
+  "passive_perception": 9,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "poison",
+   "damage_immunities": [
+    {
+     "name": "Poison",
+     "key": "poison"
+    }
+   ],
+   "damage_resistances_display": "",
+   "damage_resistances": [],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "exhaustion, poisoned",
+   "condition_immunities": [
+    {
+     "name": "Exhaustion",
+     "key": "exhaustion"
+    },
+    {
+     "name": "Poisoned",
+     "key": "poisoned"
+    }
+   ]
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 60,
+  "blindsight_range": null,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Shortbow",
+    "desc": "Ranged Attack Roll: +5, range 80/320 ft. 6 (1d6 + 3) Piercing damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Shortbow attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 5,
+      "reach": null,
+      "range": 80,
+      "long_range": 320,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D6",
+      "damage_bonus": 3,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Piercing",
+       "key": "piercing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Shortsword",
+    "desc": "Melee Attack Roll: +5, reach 5 ft. 6 (1d6 + 3) Piercing damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Shortsword attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 5,
+      "reach": 5,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D6",
+      "damage_bonus": 3,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Piercing",
+       "key": "piercing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_vampire-spawn",
+  "name": "Vampire Spawn",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Undead",
+   "key": "undead"
+  },
+  "size": {
+   "name": "Small",
+   "key": "small"
+  },
+  "challenge_rating": 5.0,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 30,
+   "unit": "feet"
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 30,
+   "crawl": 15,
+   "hover": false,
+   "fly": 0,
+   "burrow": 0,
+   "climb": 15,
+   "swim": 15
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "neutral evil",
+  "languages": {
+   "as_string": "Common plus one other language",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    }
+   ]
+  },
+  "armor_class": 16,
+  "armor_detail": "natural armor",
+  "hit_points": 90,
+  "hit_dice": "12d8 + 36",
+  "experience_points": 1800,
+  "ability_scores": {
+   "strength": 16,
+   "dexterity": 16,
+   "constitution": 16,
+   "intelligence": 11,
+   "wisdom": 10,
+   "charisma": 12
+  },
+  "modifiers": {
+   "strength": 3,
+   "dexterity": 3,
+   "constitution": 3,
+   "intelligence": 0,
+   "wisdom": 0,
+   "charisma": 1
+  },
+  "initiative_bonus": 3,
+  "saving_throws": {
+   "strength": 3,
+   "dexterity": 6,
+   "constitution": 3,
+   "intelligence": 0,
+   "wisdom": 3,
+   "charisma": 1
+  },
+  "saving_throws_all": {
+   "strength": 3,
+   "dexterity": 6,
+   "constitution": 3,
+   "intelligence": 0,
+   "wisdom": 3,
+   "charisma": 1
+  },
+  "skill_bonuses": {
+   "perception": 3,
+   "stealth": 6
+  },
+  "skill_bonuses_all": {
+   "acrobatics": 3,
+   "animal_handling": 0,
+   "arcana": 0,
+   "athletics": 3,
+   "deception": 1,
+   "history": 0,
+   "insight": 0,
+   "intimidation": 1,
+   "investigation": 0,
+   "medicine": 0,
+   "nature": 0,
+   "perception": 3,
+   "performance": 1,
+   "persuasion": 1,
+   "religion": 0,
+   "sleight_of_hand": 3,
+   "stealth": 6,
+   "survival": 0
+  },
+  "passive_perception": 13,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "",
+   "damage_immunities": [],
+   "damage_resistances_display": "necrotic",
+   "damage_resistances": [
+    {
+     "name": "Necrotic",
+     "key": "necrotic"
+    }
+   ],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "",
+   "condition_immunities": []
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 60,
+  "blindsight_range": null,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Bite",
+    "desc": "Constitution Saving Throw: DC 14, one creature within 5 feet that is willing or that has the Grappled, Incapacitated, or Restrained condition. Failure: 5 (1d4 + 3) Piercing damage plus 10 (3d6) Necrotic damage. The target's Hit Point maximum decreases by an amount equal to the Necrotic damage taken, and the vampire regains Hit Points equal to that amount.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 2,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Claw",
+    "desc": "Melee Attack Roll: +6, reach 5 ft. 8 (2d4 + 3) Slashing damage. If the target is a Medium or smaller creature, it has the Grappled condition (escape DC 13) from one of two claws.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Claw attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 6,
+      "reach": 5,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 2,
+      "damage_die_type": "D4",
+      "damage_bonus": 3,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Slashing",
+       "key": "slashing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Multiattack",
+    "desc": "The vampire makes two Claw attacks and uses Bite.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Deathless Agility",
+    "desc": "The vampire takes the Dash or Disengage action.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "BONUS_ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": null,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [
+   {
+    "name": "Spider Climb",
+    "desc": "The vampire can climb difficult surfaces, including along ceilings, without needing to make an ability check."
+   },
+   {
+    "name": "Vampire Weakness",
+    "desc": "The vampire has these weaknesses:\n\n- **Forbiddance:** The vampire can't enter a residence without an invitation from an occupant.\n- **Running Water:** The vampire takes 20 Acid damage if it ends its turn in running water.\n- **Stake to the Heart:** The vampire is destroyed if a weapon that deals Piercing damage is driven into the vampire's heart while the vampire has the Incapacitated condition.\n- **Sunlight:** The vampire takes 20 Radiant damage if it starts its turn in sunlight. While in sunlight, it has Disadvantage on attack rolls and ability checks."
+   }
+  ],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_wight",
+  "name": "Wight",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Undead",
+   "key": "undead"
+  },
+  "size": {
+   "name": "Medium",
+   "key": "medium"
+  },
+  "challenge_rating": 3.0,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 30,
+   "unit": "feet"
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 30,
+   "crawl": 15,
+   "hover": false,
+   "fly": 0,
+   "burrow": 0,
+   "climb": 15,
+   "swim": 15
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "neutral evil",
+  "languages": {
+   "as_string": "Common plus one other language",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    }
+   ]
+  },
+  "armor_class": 14,
+  "armor_detail": "natural armor",
+  "hit_points": 82,
+  "hit_dice": "11d8 + 33",
+  "experience_points": 700,
+  "ability_scores": {
+   "strength": 15,
+   "dexterity": 14,
+   "constitution": 16,
+   "intelligence": 10,
+   "wisdom": 13,
+   "charisma": 15
+  },
+  "modifiers": {
+   "strength": 2,
+   "dexterity": 2,
+   "constitution": 3,
+   "intelligence": 0,
+   "wisdom": 1,
+   "charisma": 2
+  },
+  "initiative_bonus": 4,
+  "saving_throws": {
+   "strength": 2,
+   "dexterity": 2,
+   "constitution": 3,
+   "intelligence": 0,
+   "wisdom": 1,
+   "charisma": 2
+  },
+  "saving_throws_all": {
+   "strength": 2,
+   "dexterity": 2,
+   "constitution": 3,
+   "intelligence": 0,
+   "wisdom": 1,
+   "charisma": 2
+  },
+  "skill_bonuses": {
+   "perception": 3,
+   "stealth": 4
+  },
+  "skill_bonuses_all": {
+   "acrobatics": 2,
+   "animal_handling": 1,
+   "arcana": 0,
+   "athletics": 2,
+   "deception": 2,
+   "history": 0,
+   "insight": 1,
+   "intimidation": 2,
+   "investigation": 0,
+   "medicine": 1,
+   "nature": 0,
+   "perception": 3,
+   "performance": 2,
+   "persuasion": 2,
+   "religion": 0,
+   "sleight_of_hand": 2,
+   "stealth": 4,
+   "survival": 1
+  },
+  "passive_perception": 13,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "poison",
+   "damage_immunities": [
+    {
+     "name": "Poison",
+     "key": "poison"
+    }
+   ],
+   "damage_resistances_display": "necrotic",
+   "damage_resistances": [
+    {
+     "name": "Necrotic",
+     "key": "necrotic"
+    }
+   ],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "exhaustion, poisoned",
+   "condition_immunities": [
+    {
+     "name": "Exhaustion",
+     "key": "exhaustion"
+    },
+    {
+     "name": "Poisoned",
+     "key": "poisoned"
+    }
+   ]
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 60,
+  "blindsight_range": null,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Life Drain",
+    "desc": "Constitution Saving Throw: DC 13, one creature within 5 feet. Failure: 6 (1d8 + 2) Necrotic damage, and the target's Hit Point maximum decreases by an amount equal to the damage taken. A Humanoid slain by this attack rises 24 hours later as a Zombie under the wight's control, unless the Humanoid is restored to life or its body is destroyed. The wight can have no more than twelve zombies under its control at a time.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 3,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Multiattack",
+    "desc": "The wight makes two attacks, using Necrotic Sword or Necrotic Bow in any combination. It can replace one attack with a use of Life Drain.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Necrotic Bow",
+    "desc": "Ranged Attack Roll: +4, range 150/600 ft. 6 (1d8 + 2) Piercing damage plus 4 (1d8) Necrotic damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Necrotic Bow attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 4,
+      "reach": null,
+      "range": 150,
+      "long_range": 600,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D8",
+      "damage_bonus": 2,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Piercing",
+       "key": "piercing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 2,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   },
+   {
+    "name": "Necrotic Sword",
+    "desc": "Melee Attack Roll: +4, reach 5 ft. 6 (1d8 + 2) Slashing damage plus 4 (1d8) Necrotic damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Necrotic Sword attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 4,
+      "reach": 5,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D8",
+      "damage_bonus": 2,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Slashing",
+       "key": "slashing"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 1,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [
+   {
+    "name": "Sunlight Sensitivity",
+    "desc": "While in sunlight, the wight has Disadvantage on ability checks and attack rolls."
+   }
+  ],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ },
+ {
+  "key": "srd-2024_zombie",
+  "name": "Zombie",
+  "document": {
+   "name": "System Reference Document 5.2",
+   "key": "srd-2024",
+   "type": "SOURCE",
+   "display_name": "5e 2024 Rules",
+   "publisher": {
+    "name": "Wizards of the Coast",
+    "key": "wizards-of-the-coast"
+   },
+   "gamesystem": {
+    "name": "5th Edition 2024",
+    "key": "5e-2024"
+   },
+   "permalink": "https://dnd.wizards.com/resources/systems-reference-document"
+  },
+  "type": {
+   "name": "Undead",
+   "key": "undead"
+  },
+  "size": {
+   "name": "Medium",
+   "key": "medium"
+  },
+  "challenge_rating": 0.25,
+  "proficiency_bonus": null,
+  "speed": {
+   "walk": 20,
+   "unit": "feet"
+  },
+  "speed_all": {
+   "unit": "feet",
+   "walk": 20,
+   "crawl": 10,
+   "hover": false,
+   "fly": 0,
+   "burrow": 0,
+   "climb": 10,
+   "swim": 10
+  },
+  "category": "Monsters",
+  "subcategory": null,
+  "alignment": "neutral evil",
+  "languages": {
+   "as_string": "Understands Common plus one other language but can't speak",
+   "data": [
+    {
+     "name": "Common",
+     "key": "common",
+     "desc": "Typical speakers are Humans."
+    }
+   ]
+  },
+  "armor_class": 8,
+  "armor_detail": "natural armor",
+  "hit_points": 15,
+  "hit_dice": "2d8 + 6",
+  "experience_points": 50,
+  "ability_scores": {
+   "strength": 13,
+   "dexterity": 6,
+   "constitution": 16,
+   "intelligence": 3,
+   "wisdom": 6,
+   "charisma": 5
+  },
+  "modifiers": {
+   "strength": 1,
+   "dexterity": -2,
+   "constitution": 3,
+   "intelligence": -4,
+   "wisdom": -2,
+   "charisma": -3
+  },
+  "initiative_bonus": -2,
+  "saving_throws": {
+   "strength": 1,
+   "dexterity": -2,
+   "constitution": 3,
+   "intelligence": -4,
+   "wisdom": 0,
+   "charisma": -3
+  },
+  "saving_throws_all": {
+   "strength": 1,
+   "dexterity": -2,
+   "constitution": 3,
+   "intelligence": -4,
+   "wisdom": 0,
+   "charisma": -3
+  },
+  "skill_bonuses": {},
+  "skill_bonuses_all": {
+   "acrobatics": -2,
+   "animal_handling": -2,
+   "arcana": -4,
+   "athletics": 1,
+   "deception": -3,
+   "history": -4,
+   "insight": -2,
+   "intimidation": -3,
+   "investigation": -4,
+   "medicine": -2,
+   "nature": -4,
+   "perception": -2,
+   "performance": -3,
+   "persuasion": -3,
+   "religion": -4,
+   "sleight_of_hand": -2,
+   "stealth": -2,
+   "survival": -2
+  },
+  "passive_perception": 8,
+  "resistances_and_immunities": {
+   "damage_immunities_display": "poison",
+   "damage_immunities": [
+    {
+     "name": "Poison",
+     "key": "poison"
+    }
+   ],
+   "damage_resistances_display": "",
+   "damage_resistances": [],
+   "damage_vulnerabilities_display": "",
+   "damage_vulnerabilities": [],
+   "condition_immunities_display": "exhaustion, poisoned",
+   "condition_immunities": [
+    {
+     "name": "Exhaustion",
+     "key": "exhaustion"
+    },
+    {
+     "name": "Poisoned",
+     "key": "poisoned"
+    }
+   ]
+  },
+  "normal_sight_range": 10560,
+  "darkvision_range": 60,
+  "blindsight_range": null,
+  "tremorsense_range": null,
+  "truesight_range": null,
+  "actions": [
+   {
+    "name": "Slam",
+    "desc": "Melee Attack Roll: +3, reach 5 ft. 5 (1d8 + 1) Bludgeoning damage.",
+    "crossreferences": {
+     "to": []
+    },
+    "attacks": [
+     {
+      "name": "Slam attack",
+      "attack_type": "WEAPON",
+      "to_hit_mod": 3,
+      "reach": 5,
+      "range": null,
+      "long_range": null,
+      "target_creature_only": false,
+      "damage_die_count": 1,
+      "damage_die_type": "D8",
+      "damage_bonus": 1,
+      "damage_type": null,
+      "extra_damage_die_count": null,
+      "extra_damage_die_type": null,
+      "extra_damage_bonus": null,
+      "extra_damage_type": {
+       "name": "Bludgeoning",
+       "key": "bludgeoning"
+      },
+      "distance_unit": "feet"
+     }
+    ],
+    "action_type": "ACTION",
+    "order_in_statblock": 0,
+    "legendary_action_cost": 1,
+    "limited_to_form": null,
+    "usage_limits": null
+   }
+  ],
+  "traits": [
+   {
+    "name": "Undead Fortitude",
+    "desc": "If damage reduces the zombie to 0 Hit Points, it makes a Constitution saving throw (DC 5 plus the damage taken) unless the damage is Radiant or from a Critical Hit. On a successful save, the zombie drops to 1 Hit Point instead."
+   }
+  ],
+  "creaturesets": [],
+  "environments": [],
+  "illustration": null,
+  "crossreferences": {
+   "to": []
+  }
+ }
+]

@@ -36,6 +36,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["SIM905"]  # "a b c".split() is clearer than a long list literal
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

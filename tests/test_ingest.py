@@ -62,6 +62,12 @@ def test_summoned_stat_block_does_not_parent_later_spells(by_title):
     assert "Otherworldly Steed" not in by_title["Fireball"].heading_path
 
 
+def test_small_caps_heading_is_detected(by_title):
+    # Acid Splash's heading is set in GillSans-SemiBold-SC700, not the regular cut.
+    assert by_title["Acid Splash"].heading_path == ["Spells", "Spell Descriptions", "Acid Splash"]
+    assert "Acid Splash" not in by_title["Acid Arrow"].text
+
+
 def test_spell_text_content(by_title):
     text = by_title["Fireball"].text
     assert "Level 3 Evocation" in text and "8d6 Fire damage" in text

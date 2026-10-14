@@ -90,7 +90,7 @@ def _normalize(text: str) -> str:
 
 
 def _heading_level(size: float, font: str) -> int | None:
-    if font != HEADING_FONT:
+    if not font.startswith(HEADING_FONT):  # includes the small-caps "-SC700" cut
         return None
     return HEADING_LEVELS.get(round(size, 1))
 
@@ -153,11 +153,11 @@ def extract_lines(doc: pymupdf.Document) -> list[Line]:
                     text=text,
                     size=first["size"],
                     heading_level=_heading_level(first["size"], first["font"])
-                    if len(group) == 1 or all(g[3]["font"] == HEADING_FONT for g in group)
+                    if len(group) == 1 or all(g[3]["font"].startswith(HEADING_FONT) for g in group)
                     else None,
                     is_caption=first["font"] == HEADING_FONT
                     and round(first["size"], 1) == TABLE_CAPTION_SIZE,
-                    starts_bold="Bold" in first["font"] or first["font"] == HEADING_FONT,
+                    starts_bold="Bold" in first["font"] or first["font"].startswith(HEADING_FONT),
                 )
             )
     return lines
