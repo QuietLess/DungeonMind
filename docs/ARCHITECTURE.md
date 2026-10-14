@@ -135,7 +135,8 @@ Each item has a regression test.
 - **H1 Dice limits** (`tools/dice.py`). `parse` rejects (DiceError) expressions longer than
   64 characters, more than 10 terms, or more than 100 dice in total. `distribution` (and so
   probability's expected damage) raises DiceError "too large for exact odds" when the total
-  support (Σ count × sides over all dice terms, after crit doubling) exceeds 2,000, or a
+  support (Σ count × sides over all dice terms, after crit doubling) exceeds 1,000 (about
+  1 s of exact arithmetic), or a
   keep-highest/lowest term would enumerate more than 100,000 outcomes. Probability calls with
   such damage return a tool error rather than computing.
 - **H2 Input and output size.** `RollInput.expression` and `ProbabilityInput.damage`:
@@ -148,7 +149,8 @@ Each item has a regression test.
   turn get a tool error ("too many tool calls in one turn") without running.
 - **H4 Per-call timeouts.** `route` and `answer` receive `timeout=deps.timeout_s`. Each
   `agent_step` receives `timeout` = the remaining agent budget (deadline − `clock()`), at
-  least 1 second. `ClaudeLLM` passes `timeout` to `messages.create`, builds its client with
+  least 1 second. `ClaudeLLM` passes `timeout` to `messages.create` (omitting it when None,
+  so the SDK default applies), builds its client with
   `max_retries=2` explicitly, and uses `max_tokens=1024` for `route`.
 - **C1 Failed tools can't be cited.** Citing the T-id of a record with `is_error: true` is a
   violation `cited-error-T#`. The id is removed from the text and list, and it doesn't satisfy
