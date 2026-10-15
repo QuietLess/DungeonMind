@@ -58,6 +58,8 @@
 | S3 | Cap the conversation store's size or evict old entries | M8 |
 | S4 | Scope conversation keys to a user/session with server-generated ids (shared namespace today) | M8 |
 | S5 | Locking for simultaneous writers to the conversation store (lost updates possible) | M8 |
+| S6 | Conversation store keeps one `.bak`; a second damage event overwrites it (timestamped backups) | M8 |
+| S7 | Unlink an existing `.bak` before copying (a pre-placed symlink would be followed) | M8 |
 
 ## Known limitations
 
