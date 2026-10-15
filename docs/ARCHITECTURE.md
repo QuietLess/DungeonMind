@@ -301,3 +301,22 @@ Rules for options (each one is an acceptance criterion):
 - **P2 Defaults aren't attributed to the user.** The presentation prompt says that difficulty
   Moderate and up to 3 stat blocks are defaults unless the user's message asked for them, and
   must not be described as the user's request (observed: "three stat blocks, as you asked").
+
+### M5 review fixes
+
+- **R1 Name cap respects variety.** When expanding names for a combination, names already used
+  as an earlier option's highest-XP stat block are skipped *before* taking the first
+  `NAMES_PER_CLASS`, so the cap can't hide a better-ranked option. Regression case: party
+  `[1]*6`, High, `["beast"]`, `max_stat_blocks=3`; the result must equal an uncapped search.
+- **R2 Out-of-range requests say why.** When the model's extracted request fails validation,
+  `missing` describes the broken limit (e.g. "party of at most 12 characters", "at most 3
+  stat blocks", "character levels 1–20") rather than only naming the field.
+- **R3 Store after presenting.** `store.put` runs only after `present_encounter` succeeds, so
+  a failed write-up never leaves a revision the user didn't see.
+- **S1 Safer writes.** `JsonFileStore.put` writes to a unique temporary file in the same
+  directory and retries the final replace briefly, which avoids failures when two processes
+  write at once. A lost update between two simultaneous writers is still possible and is
+  accepted for a local CLI (tracked for M8).
+- **S2 Damaged state file.** If the store file can't be read or parsed, or an entry isn't a
+  valid request, `get` returns None (treated as no earlier encounter). The encounter node adds
+  a trace warning naming the file instead of failing. A file over 1 MB is treated the same way.

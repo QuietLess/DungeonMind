@@ -44,6 +44,9 @@
 | M8-b | Hide exception/trace text from API clients; sanitise rendered answers, strip bidi characters | M8 |
 | Q1 | `"` in evidence text is escaped as `&quot;` (only the source attribute needs it); the model may echo it | when convenient |
 | Q2 | Truncate very long invalid citation ids in `violations` (a 20k-digit id is reported in full) | when convenient |
+| S3 | Cap the conversation store's size or evict old entries | M8 |
+| S4 | Scope conversation keys to a user/session with server-generated ids (shared namespace today) | M8 |
+| S5 | Locking for simultaneous writers to the conversation store (lost updates possible) | M8 |
 
 ## Known limitations
 
