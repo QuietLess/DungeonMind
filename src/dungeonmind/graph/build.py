@@ -1,17 +1,17 @@
 """LangGraph orchestrator. Behaviour contract: docs/ARCHITECTURE.md › M4 contract.
 
-The graph is a fixed DAG (route → one handler → verify). The only loop is the
-agent's tool loop, which runs as a bounded Python loop inside the `agent` node
-(max_steps turns, timeout_s wall clock), so no model output can extend it.
+The graph is a fixed DAG (route → one handler → verify; the encounter node may hand a
+question on to the agent). The only loop is the agent's tool loop, which runs as a bounded
+Python loop inside the `agent` node (max_steps turns, timeout_s wall clock), so no model
+output can extend it. M5 contract (encounter node): docs/ARCHITECTURE.md › M5 contract.
 """
 
 from __future__ import annotations
 
 import json
 import time
-import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -22,6 +22,7 @@ from dungeonmind.graph.state import (
     UNSUPPORTED_INTENTS,
     ChatState,
     CitationRef,
+    ConversationStore,
     FinalAnswer,
     Intent,
     StopReason,
@@ -29,11 +30,13 @@ from dungeonmind.graph.state import (
     ToolRecord,
     TraceEvent,
 )
+from dungeonmind.graph.store import InMemoryStore
 from dungeonmind.rag.answer import check_citations
 from dungeonmind.rag.hybrid import Evidence
+from dungeonmind.tools.encounter_builder import build_options, revise
 from dungeonmind.tools.registry import ToolRegistry
 
-# The graph has at most four node steps; this only guards against a wiring mistake.
+# The graph has at most five node steps; this only guards against a wiring mistake.
 RECURSION_LIMIT = 12
 
 MAX_STEPS_LIMIT = 10  # upper bound for Deps.max_steps
@@ -85,6 +88,7 @@ class Deps:
     max_steps: int = 6
     timeout_s: float = 60.0
     clock: Callable[[], float] = field(default=time.monotonic)
+    store: ConversationStore = field(default_factory=InMemoryStore)
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_steps <= MAX_STEPS_LIMIT:
@@ -166,6 +170,8 @@ def _after_route(state: ChatState) -> str:
     intent = state["intent"]
     if intent is Intent.RULES_QA:
         return "retrieve"
+    if intent is Intent.ENCOUNTER:
+        return "encounter"
     if intent in TOOL_INTENTS:
         return "agent"
     if intent in UNSUPPORTED_INTENTS:
@@ -343,6 +349,112 @@ def _max_steps_answer(deps: Deps) -> str:
     )
 
 
+NO_PREVIOUS_ANSWER = (
+    "There's no earlier encounter in this conversation to change. Tell me about the party "
+    "(how many characters and their levels) and the kind of encounter you want, and I'll "
+    "build one."
+)
+NO_DIRECTION_ANSWER = "Should the encounter be easier or harder?"
+_MISSING_LABELS = {
+    "party_levels": "the party: how many characters and their levels "
+    "(for example, four level-5 characters)",
+    "difficulty": "the difficulty: low, moderate or high",
+    "creature_types": "which kinds of creatures to use",
+}
+
+
+def _needs_input_answer(missing: list[str]) -> str:
+    # `missing` comes from the model: map known fields, keep the rest short.
+    items = [_MISSING_LABELS.get(m, m.replace("_", " ")[:80]) for m in missing[:5]]
+    items = items or [_MISSING_LABELS["party_levels"]]
+    return "To build this encounter I need " + "; ".join(items) + "."
+
+
+def _needs_input(state: ChatState, answer: str, detail: str, started: float) -> ChatState:
+    """A question back to the user: not an answer, so it carries no citations."""
+    return {
+        "answer": answer,
+        "citations": [],
+        "confidence": "low",
+        "insufficient_evidence": False,
+        "stop_reason": "needs_input",
+        "trace": _event(state, "encounter", detail, started),
+    }
+
+
+def _encounter_node(state: ChatState, deps: Deps) -> ChatState:
+    started = time.perf_counter()
+    conversation_id = state.get("conversation_id")
+    try:
+        previous = deps.store.get(conversation_id) if conversation_id else None
+        problem = getattr(deps.store, "last_problem", None) if conversation_id else None
+        if problem:  # S2: a damaged store counts as no earlier encounter, with a warning
+            state = {**state, "trace": _event(state, "encounter", f"warning: {problem}", started)}
+        extraction = deps.llm.extract_encounter(state["question"], previous, timeout=deps.timeout_s)
+    except Exception as e:
+        return _node_error(state, "encounter", e, started)
+
+    if extraction.kind == "other":
+        # Not a build or revise request (e.g. "what's the XP budget for…?"): the agent's tools.
+        return {"trace": _event(state, "encounter", "other: handed to the agent", started)}
+    if extraction.kind == "revise":
+        if previous is None:
+            return _needs_input(state, NO_PREVIOUS_ANSWER, "revise: no earlier request", started)
+        if extraction.direction is None:
+            return _needs_input(state, NO_DIRECTION_ANSWER, "revise: no direction", started)
+        try:
+            request = revise(previous, extraction.direction)
+        except ValueError as e:  # past Low or High: the SRD defines nothing further
+            return {
+                **_fallback(str(e), "completed"),
+                "trace": _event(state, "encounter", f"revise: {e}", started),
+            }
+    elif extraction.request is None or extraction.missing:
+        answer = _needs_input_answer(extraction.missing)
+        return _needs_input(state, answer, f"build: missing {extraction.missing}", started)
+    else:
+        request = extraction.request
+
+    record: ToolRecord | None = None
+    try:
+        result = build_options(request, deps.registry.catalog)
+        record = ToolRecord(
+            id="T1",
+            name="encounter_builder",
+            arguments=request.model_dump(mode="json"),
+            output={"result": asdict(result)},
+            is_error=False,
+        )
+        revision = extraction.direction if extraction.kind == "revise" else None
+        final = deps.llm.present_encounter(
+            state["question"], request, record, revision=revision, timeout=deps.timeout_s
+        )
+    except Exception as e:
+        return {
+            **_node_error(state, "encounter", e, started),
+            "tool_calls": [record] if record else [],
+        }
+    detail = f"{extraction.kind}: {len(result.options)} options"
+    if conversation_id:
+        # R3: only a request the user saw becomes the one "make it harder" revises. The answer
+        # is already written, so a failed save is a warning, not an error.
+        try:
+            deps.store.put(conversation_id, request)
+        except Exception as e:
+            detail += f"; warning: not saved ({_describe(e)})"
+    return {
+        **_final_fields(final),
+        "stop_reason": "completed",
+        "tool_calls": [record],
+        "trace": _event(state, "encounter", detail, started),
+    }
+
+
+def _after_encounter(state: ChatState) -> str:
+    # The node sets stop_reason whenever it finished the turn itself.
+    return "verify" if "stop_reason" in state else "agent"
+
+
 def _unsupported_node(state: ChatState) -> ChatState:
     started = time.perf_counter()
     detail = f"{state['intent'].value} arrives in M6"
@@ -358,6 +470,17 @@ def _decline_node(state: ChatState) -> ChatState:
         **_fallback(DECLINE_ANSWER, "completed"),
         "trace": _event(state, "decline", "out of scope", started),
     }
+
+
+def _is_answer(state: ChatState) -> bool:
+    """A completed answer to a question, subject to the no-citations check and the note."""
+    if state.get("stop_reason") != "completed":
+        return False
+    intent = state.get("intent")
+    if intent is Intent.RULES_QA or intent in TOOL_INTENTS:
+        return True
+    # Encounter: the builder's write-up or the agent's answer, not a revise-limit message.
+    return intent is Intent.ENCOUNTER and ("steps" in state or bool(state.get("tool_calls")))
 
 
 def _verify_node(state: ChatState) -> ChatState:
@@ -386,9 +509,7 @@ def _verify_node(state: ChatState) -> ChatState:
     citations = [refs[cid] for cid in cited]
 
     confidence = state.get("confidence", "low")
-    answered = state.get("stop_reason") == "completed" and state.get("intent") in TOOL_INTENTS | {
-        Intent.RULES_QA
-    }
+    answered = _is_answer(state)
     if answered and not citations and not state.get("insufficient_evidence", True):
         # An uncited answer breaks the contract: downgrade rather than present it as grounded.
         violations.append("no-citations")
@@ -415,14 +536,18 @@ def build_graph(deps: Deps) -> Any:
     graph.add_node("retrieve", lambda s: _retrieve_node(s, deps))
     graph.add_node("answer", lambda s: _answer_node(s, deps))
     graph.add_node("agent", lambda s: _agent_node(s, deps))
+    graph.add_node("encounter", lambda s: _encounter_node(s, deps))
     graph.add_node("unsupported", _unsupported_node)
     graph.add_node("decline", _decline_node)
     graph.add_node("verify", _verify_node)
 
     graph.add_edge(START, "route")
     graph.add_conditional_edges(
-        "route", _after_route, ["retrieve", "agent", "unsupported", "decline", "verify"]
+        "route",
+        _after_route,
+        ["retrieve", "agent", "encounter", "unsupported", "decline", "verify"],
     )
+    graph.add_conditional_edges("encounter", _after_encounter, ["agent", "verify"])
     graph.add_conditional_edges("retrieve", _after_retrieve, ["answer", "verify"])
     for node in ("answer", "agent", "unsupported", "decline"):
         graph.add_edge(node, "verify")
@@ -438,9 +563,10 @@ def run_chat(
 ) -> ChatState:
     initial: ChatState = {
         "question": question,
-        "conversation_id": conversation_id or uuid.uuid4().hex,
         "campaign_id": campaign_id,
         "error_type": None,
         "trace": [],
     }
+    if conversation_id:  # only a given id reaches the conversation store
+        initial["conversation_id"] = conversation_id
     return build_graph(deps).invoke(initial, config={"recursion_limit": RECURSION_LIMIT})

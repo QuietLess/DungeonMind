@@ -11,6 +11,7 @@ __pycache__/
 data/raw/
 data/processed/
 data/index/
+data/state/
 
 # Local agent instructions (personal, not part of the project)
 claude.md

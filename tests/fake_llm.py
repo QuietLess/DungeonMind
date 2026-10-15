@@ -6,9 +6,17 @@ import copy
 from collections.abc import Iterable, Iterator
 from typing import Any
 
-from dungeonmind.graph.state import AgentTurn, FinalAnswer, RouteDecision, ToolCall
+from dungeonmind.graph.state import (
+    AgentTurn,
+    EncounterExtraction,
+    FinalAnswer,
+    RouteDecision,
+    ToolCall,
+    ToolRecord,
+)
 from dungeonmind.rag.hybrid import Evidence
 from dungeonmind.schemas import Chunk, EntityType
+from dungeonmind.tools.encounter_builder import EncounterRequest
 
 
 class FakeLLM:
@@ -18,9 +26,12 @@ class FakeLLM:
     - `final`: the FinalAnswer returned by `answer` (or an Exception to raise).
     - `turns`: AgentTurns (or Exceptions) handed out one per `agent_step` call, in order.
     - `on_step`: optional hook run at the start of each `agent_step` (e.g. to advance a clock).
+    - `extraction`: what `extract_encounter` returns (or an Exception to raise).
+    - `presentation`: the FinalAnswer `present_encounter` returns (or an Exception to raise).
 
     The keyword-only `timeout` each method receives is recorded in `timeouts` as
-    (method name, timeout), in call order, so `calls` payloads stay unchanged.
+    (method name, timeout), in call order, so `calls` payloads stay unchanged. Likewise the
+    keyword-only `revision` that `present_encounter` receives is recorded in `revisions`.
     """
 
     def __init__(
@@ -29,13 +40,18 @@ class FakeLLM:
         final: FinalAnswer | Exception | None = None,
         turns: Iterable[AgentTurn | Exception] = (),
         on_step: Any = None,
+        extraction: EncounterExtraction | Exception | None = None,
+        presentation: FinalAnswer | Exception | None = None,
     ) -> None:
         self._route = route
         self._final = final
         self._turns: Iterator[AgentTurn | Exception] = iter(turns)
         self._on_step = on_step
+        self._extraction = extraction
+        self._presentation = presentation
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.timeouts: list[tuple[str, float | None]] = []
+        self.revisions: list[str | None] = []
 
     # --- LLM protocol -------------------------------------------------------------------------
 
@@ -78,6 +94,50 @@ class FakeLLM:
         if isinstance(turn, Exception):
             raise turn
         return turn
+
+    def extract_encounter(
+        self,
+        question: str,
+        previous: EncounterRequest | None,
+        *,
+        timeout: float | None = None,
+    ) -> EncounterExtraction:
+        self.calls.append(
+            ("extract_encounter", {"question": question, "previous": copy.deepcopy(previous)})
+        )
+        self.timeouts.append(("extract_encounter", timeout))
+        if self._extraction is None:
+            raise AssertionError("FakeLLM.extract_encounter called but nothing was scripted")
+        if isinstance(self._extraction, Exception):
+            raise self._extraction
+        return self._extraction
+
+    def present_encounter(
+        self,
+        question: str,
+        request: EncounterRequest,
+        record: ToolRecord,
+        *,
+        revision: str | None = None,
+        timeout: float | None = None,
+    ) -> FinalAnswer:
+        self.revisions.append(revision)
+        self.calls.append(
+            (
+                "present_encounter",
+                {
+                    "question": question,
+                    "request": copy.deepcopy(request),
+                    "record": copy.deepcopy(record),
+                },
+            )
+        )
+        self.timeouts.append(("present_encounter", timeout))
+        if self._presentation is None:
+            raise AssertionError("FakeLLM.present_encounter called but nothing was scripted")
+        if isinstance(self._presentation, Exception):
+            raise self._presentation
+        return self._presentation
 
     # --- helpers for assertions ---------------------------------------------------------------
 
