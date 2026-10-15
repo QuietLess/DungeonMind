@@ -28,7 +28,7 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan).
 | Structured lookup | "Level-3 fire spells", "undead CR 3–8 that can't fly" | ✅ M3 + M4 |
 | Odds and dice | "+7 vs AC 18 with advantage?" → exactly 75% | ✅ M3 + M4 |
 | One chat entry point | Any question → routed to the right path, cited, traced | ✅ M4 |
-| Encounter planning | "Hard undead encounter for four level-5s, no flyers" → 2–3 options | M5 |
+| Encounter planning | "Hard undead encounter for four level-5s, no flyers" → 2–3 options | ✅ M5 |
 | Campaign memory | "What did we promise Elara?" → only that campaign's notes | M6 |
 | Session prep | "Turn my notes into 5 scenes" | M6 |
 

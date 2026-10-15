@@ -15,7 +15,7 @@ not a chat-with-a-PDF demo.
 | M2 — Hybrid retrieval, benchmark, cited answers | ✅ |
 | M3 — Structured tools: spells, monsters, dice, probability, encounter budget | ✅ |
 | M4 — LangGraph orchestrator with bounded workflows | ✅ |
-| M5 — Encounter builder | ⬜ |
+| M5 — Encounter builder | ✅ |
 | M6 — Isolated campaign memory | ⬜ |
 | M7 — 200+ question eval suite and CI regression gates | ⬜ |
 | M8 — FastAPI, Docker, tracing, metrics, CI/CD | ⬜ |
@@ -42,10 +42,14 @@ setx ANTHROPIC_API_KEY "sk-ant-..."         # Windows; open a new terminal after
 uv run dungeonmind chat "What is the probability my +7 attack hits AC 18 with advantage?" --trace
 uv run dungeonmind chat "Which undead between CR 3 and CR 5 can't fly?"
 uv run dungeonmind chat "How does the Ready action work?"
+uv run dungeonmind chat "I have four level-5 characters. Build a hard ruined-temple encounter with undead, but no flying creatures." --conversation temple
+uv run dungeonmind chat "make it easier" --conversation temple
 ```
 
-`chat` is the main entry point. `ask` is the simpler rules-only path from M2. Each `chat`
-question costs roughly 2–5¢ on Claude Opus 5.5.
+`chat` is the main entry point. `ask` is the simpler rules-only path from M2. A `chat`
+question costs roughly 2–5¢ on Claude Opus 5.5, and an encounter build about 8–10¢ (two calls
+plus a longer write-up). `--conversation NAME` remembers the last encounter request so
+"make it harder/easier" revises it; it's stored in `data/state/` (git-ignored).
 
 Design docs: [SPEC](docs/SPEC.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROADMAP](docs/ROADMAP.md)
 
@@ -53,10 +57,20 @@ Design docs: [SPEC](docs/SPEC.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [RO
 
 ```
 question → route ─┬─ rules_qa ──────────────→ retrieve → answer ─┐
-                  ├─ lookup / probability / encounter → agent ───┤→ verify → answer + citations
+                  ├─ lookup / probability ───→ agent ────────────┤
+                  ├─ encounter ──→ extract → builder → present ──┤→ verify → answer + citations
                   ├─ campaign_memory / session_prep → "later" ───┤
                   └─ out_of_scope ───────────→ decline ──────────┘
 ```
+
+- **Encounter:** Claude extracts the request (party levels, difficulty, creature types, no
+  flyers, theme) and asks if the party's levels are missing. Then a deterministic builder
+  picks the monsters. It applies the 2024 XP budget for the requested difficulty band, uses at
+  most 3 stat blocks and 2 creatures per character, keeps CR at or below the party's highest
+  level, gives each option a variety of roles (boss / controller / ranged / frontline), and
+  cites each monster's SRD page. Claude only writes the result up. The same request always
+  gives the same options, a build takes under 0.2 s, and "make it harder/easier" revises the
+  remembered request one step.
 
 - **Route:** Claude classifies the question and flags when the user is asking about older
   editions (the answer then says it covers 2024 rules only).
@@ -70,9 +84,9 @@ question → route ─┬─ rules_qa ──────────────
 - **Untrusted text:** retrieved passages and tool output are treated as data. Evidence is
   escaped in prompts, and terminal output is stripped of control characters.
 
-Built test-first: the graph's 61 contract tests were written against a scripted fake LLM
-before the implementation, followed by backend and security review. All 294 tests run
-offline in about 14 s.
+Built test-first: contract tests are written against a scripted fake LLM before each
+implementation, followed by backend and security review. All 474 tests run
+offline in about 17 s.
 
 ## Structured tools
 

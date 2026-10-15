@@ -6,7 +6,7 @@
 | M2 RAG baseline | Retrieval modes, benchmark, cited answers | Benchmark + initial Recall@K | ✅ |
 | M3 Structured tools | Open5e search, dice, probability, encounter budget | Tool schemas + tests | ✅ |
 | M4 Orchestrator | Intent routing + bounded LangGraph workflow, `chat` CLI | No uncontrolled agent loop; contract tests pass | ✅ |
-| M5 Encounter builder | End-to-end planning workflow | Repeatable, cited, constraint-aware results | ⬜ |
+| M5 Encounter builder | End-to-end planning workflow | Repeatable, cited, constraint-aware results | ✅ |
 | M6 Campaign memory | Isolated campaign RAG/state | No cross-campaign retrieval in tests | ⬜ |
 | M7 Evaluation | 200+ question suite + regression gates | Metrics tracked per version | ⬜ |
 | M8 Production | FastAPI, Docker, tracing, metrics, CI/CD | Deployable demo + monitored runs | ⬜ |
@@ -30,6 +30,17 @@
   per-call timeouts, failed-tool and malformed-citation checks, evidence escaping, terminal
   sanitising, linear-time citation scan) also went in test-first. 294 tests; coverage of the
   M4 code: build.py and llm.py 100%; tools 95–100% except the network-only Open5e sync (32%).
+
+- **M5:** encounter requests go to a dedicated node. Claude extracts the request (and asks when
+  party levels are missing); a deterministic builder picks 2–3 options inside the requested
+  2024 difficulty band with role variety and SRD page citations; Claude writes them up.
+  `--conversation` remembers the request so "make it harder/easier" revises it. Built
+  test-first. Backend review checked 8,700+ generated requests against the rules (0
+  violations) and against an uncapped search, which found two ranking gaps (name cap, class
+  cap), both fixed with regression tests. Security review covered the file store (no path
+  traversal; damaged-file handling, backups and temp-file cleanup added). Two presentation
+  bugs from the live check (revisions not explained; defaults described as the user's
+  request) are fixed. 474 tests; M5 code coverage 99% (builder 100%).
 
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
@@ -56,9 +67,14 @@
   `chat` uses the same citation check, so this applies to both.
 - Retrieval benchmark is small (n=43); differences under ~0.05 are noise.
 - Routing adds one model call (about 1.7–4.8 s observed) before any work starts.
+- An encounter build takes about 20 s and 8–10¢ on Opus (extraction plus a long write-up).
+  Model choice per step is a pending decision (Haiku would be much cheaper; needs measuring).
+- Encounter options may share their lower stat blocks; variety is only enforced on each
+  option's highest-XP stat block. Tactics in the write-up are suggestions from roles, not rules.
+- Roles are a heuristic from stat-block text ("Melee or Ranged" attacks count as ranged).
 - Retrieval sometimes misses a relevant rule for unusual phrasings (e.g. a 2014-framed
   grappling question didn't retrieve Unarmed Strike).
 
 ## Next
 
-- M5 encounter builder.
+- M6 campaign memory (isolated per-campaign notes and retrieval).
