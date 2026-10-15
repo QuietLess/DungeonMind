@@ -389,3 +389,22 @@ def test_c_no_other_edition_note_on_needs_input():
     state = run_chat("Build a 2014-style encounter.", _deps(llm, RecordingStore()))
     assert state["stop_reason"] == "needs_input"
     assert not state["answer"].startswith(OTHER_EDITION_NOTE)
+
+
+# --- P1 revisions are explained (docs/ARCHITECTURE.md › M5 fixes from the live check) --------
+
+
+def test_p1_revise_passes_the_direction_to_present_encounter():
+    moderate = REQUEST.model_copy(update={"difficulty": "moderate"})
+    store = RecordingStore({"conv-1": REQUEST})
+    llm = _llm(EncounterExtraction(kind="revise", direction="easier"))
+    state = run_chat("Make it easier.", _deps(llm, store), conversation_id="conv-1")
+    assert state["tool_calls"][0]["arguments"]["difficulty"] == "moderate"
+    assert _payload(llm, "present_encounter")["request"] == moderate
+    assert llm.revisions == ["easier"]
+
+
+def test_p1_build_passes_no_revision_to_present_encounter():
+    llm = _llm(_build())
+    run_chat(Q, _deps(llm, RecordingStore()), conversation_id="conv-1")
+    assert llm.revisions == [None]

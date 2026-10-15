@@ -30,7 +30,8 @@ class FakeLLM:
     - `presentation`: the FinalAnswer `present_encounter` returns (or an Exception to raise).
 
     The keyword-only `timeout` each method receives is recorded in `timeouts` as
-    (method name, timeout), in call order, so `calls` payloads stay unchanged.
+    (method name, timeout), in call order, so `calls` payloads stay unchanged. Likewise the
+    keyword-only `revision` that `present_encounter` receives is recorded in `revisions`.
     """
 
     def __init__(
@@ -50,6 +51,7 @@ class FakeLLM:
         self._presentation = presentation
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.timeouts: list[tuple[str, float | None]] = []
+        self.revisions: list[str | None] = []
 
     # --- LLM protocol -------------------------------------------------------------------------
 
@@ -116,8 +118,10 @@ class FakeLLM:
         request: EncounterRequest,
         record: ToolRecord,
         *,
+        revision: str | None = None,
         timeout: float | None = None,
     ) -> FinalAnswer:
+        self.revisions.append(revision)
         self.calls.append(
             (
                 "present_encounter",
