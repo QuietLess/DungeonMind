@@ -387,6 +387,9 @@ def _encounter_node(state: ChatState, deps: Deps) -> ChatState:
     conversation_id = state.get("conversation_id")
     try:
         previous = deps.store.get(conversation_id) if conversation_id else None
+        problem = getattr(deps.store, "last_problem", None) if conversation_id else None
+        if problem:  # S2: a damaged store counts as no earlier encounter, with a warning
+            state = {**state, "trace": _event(state, "encounter", f"warning: {problem}", started)}
         extraction = deps.llm.extract_encounter(state["question"], previous, timeout=deps.timeout_s)
     except Exception as e:
         return _node_error(state, "encounter", e, started)
@@ -422,10 +425,9 @@ def _encounter_node(state: ChatState, deps: Deps) -> ChatState:
             output={"result": asdict(result)},
             is_error=False,
         )
-        if conversation_id:
-            deps.store.put(conversation_id, request)
+        revision = extraction.direction if extraction.kind == "revise" else None
         final = deps.llm.present_encounter(
-            state["question"], request, record, timeout=deps.timeout_s
+            state["question"], request, record, revision=revision, timeout=deps.timeout_s
         )
     except Exception as e:
         return {
@@ -433,6 +435,13 @@ def _encounter_node(state: ChatState, deps: Deps) -> ChatState:
             "tool_calls": [record] if record else [],
         }
     detail = f"{extraction.kind}: {len(result.options)} options"
+    if conversation_id:
+        # R3: only a request the user saw becomes the one "make it harder" revises. The answer
+        # is already written, so a failed save is a warning, not an error.
+        try:
+            deps.store.put(conversation_id, request)
+        except Exception as e:
+            detail += f"; warning: not saved ({_describe(e)})"
     return {
         **_final_fields(final),
         "stop_reason": "completed",

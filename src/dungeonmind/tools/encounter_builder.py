@@ -227,13 +227,26 @@ def _counts(others: list[int], budget: int, slots: int) -> list[tuple[tuple[int,
 
 
 def _expand(
-    combo: tuple[int, ...], classes: list[list[_Candidate]], counts: tuple[int, ...]
+    combo: tuple[int, ...],
+    classes: list[list[_Candidate]],
+    counts: tuple[int, ...],
+    used_tops: set[str],
 ) -> Iterator[list[tuple[_Candidate, int]]]:
-    """Every name choice for a class multiset, each paired with its counts."""
+    """Every name choice for a class multiset, each paired with its counts.
+
+    In the highest-XP classes, names already used as an earlier option's highest-XP stat block
+    are skipped before the NAMES_PER_CLASS cap, since variety (rule 4) would reject them anyway.
+    """
     distinct = sorted(set(combo))
-    choices = [
-        itertools.combinations(classes[c][:NAMES_PER_CLASS], combo.count(c)) for c in distinct
-    ]
+    top_xp = max(classes[c][0].xp for c in distinct)
+
+    def names(c: int) -> list[_Candidate]:
+        pool = classes[c]
+        if pool[0].xp == top_xp:
+            pool = [cand for cand in pool if cand.monster.name not in used_tops]
+        return pool[:NAMES_PER_CLASS]
+
+    choices = [itertools.combinations(names(c), combo.count(c)) for c in distinct]
     for picked in itertools.product(*choices):
         slots = sorted(
             (cand for group in picked for cand in group), key=lambda c: (c.xp, c.sort_key)
@@ -322,7 +335,7 @@ def build_options(request: EncounterRequest, catalog: Catalog, max_options: int 
             break
         concrete = []
         for _, combo, counts in group:
-            for picked in _expand(combo, classes, counts):
+            for picked in _expand(combo, classes, counts, chosen_tops):
                 concrete.append(picked)
                 expansions += 1
         concrete.sort(key=lambda p: sorted(c.monster.name.lower() for c, _ in p))

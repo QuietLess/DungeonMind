@@ -9,7 +9,7 @@ and the graph turns that into an honest error answer.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 import anthropic
 from pydantic import ValidationError
@@ -185,6 +185,10 @@ Cite T1 inline for every fact you take from it, e.g. "Total 4,350 XP [T1]", and 
 them. Say that the SRD has no habitat data, so the theme only shaped the write-up, not \
 the choice of monsters.
 
+Difficulty Moderate and up to 3 stat blocks are defaults. Unless the user's message asked \
+for them, don't describe them as the user's request (never "Moderate, as you asked" or \
+"three stat blocks, as you requested"); they are not the user's choice.
+
 If T1 has no options, explain its note plainly, suggest what to change (difficulty, \
 creature types, exclusions), and set `insufficient_evidence` to true.
 
@@ -274,10 +278,18 @@ class ClaudeLLM:
         request: EncounterRequest,
         record: ToolRecord,
         *,
+        revision: Literal["easier", "harder"] | None = None,
         timeout: float | None = None,
     ) -> FinalAnswer:
+        note = ""
+        if revision is not None:
+            note = (
+                f"The user asked to make the previous encounter {revision}. The request below "
+                f"already reflects that change, so present these options as the {revision} "
+                "version.\n\n"
+            )
         content = (
-            f"<request>\n{_json_block(request.model_dump(mode='json'))}\n</request>\n\n"
+            f"{note}<request>\n{_json_block(request.model_dump(mode='json'))}\n</request>\n\n"
             f'<tool_result id="{record["id"]}" name="{record["name"]}">\n'
             f"{_json_block(record['output'])}\n</tool_result>\n\n"
             f"Question: {question}"
@@ -335,6 +347,29 @@ def _json_block(data: Any) -> str:
     return text.replace("<", "\\u003c").replace(">", "\\u003e")
 
 
+_LIMITS = {
+    "party_levels": "a party of 1 to 12 characters",
+    "difficulty": "the difficulty: low, moderate or high",
+    "creature_types": "known creature types",
+    "exclude_flying": "whether to exclude flying creatures (yes or no)",
+    "exclude_names": "at most 20 excluded names of up to 200 characters each",
+    "max_stat_blocks": "at most 3 stat blocks (1 to 3)",
+    "theme": "a theme of at most 200 characters",
+}
+
+
+def _limit(err: Any) -> str:
+    """The limit a request validation error broke, phrased for asking the user."""
+    loc = err.get("loc") or ("party_levels",)
+    name = str(loc[0])
+    if name == "party_levels":
+        if len(loc) > 1:
+            return "character levels 1–20"
+        if err.get("type") == "too_long":
+            return "a party of at most 12 characters"
+    return _LIMITS.get(name, name.replace("_", " ")[:80])
+
+
 def _extraction(data: dict[str, Any]) -> EncounterExtraction:
     kind = data["kind"]
     if kind not in ("build", "revise", "other"):
@@ -349,8 +384,8 @@ def _extraction(data: dict[str, Any]) -> EncounterExtraction:
             request = EncounterRequest.model_validate(data["request"])
         except ValidationError as e:
             # An out-of-range field (say, level 25) is something to ask about, not guess.
-            fields = {str(err["loc"][0]) for err in e.errors() if err["loc"]}
-            missing += sorted(fields - set(missing)) or ["party_levels"]
+            broken = [_limit(err) for err in e.errors()]
+            missing += sorted(set(broken) - set(missing)) or [_LIMITS["party_levels"]]
     return EncounterExtraction(kind=kind, request=request, direction=direction, missing=missing)
 
 
