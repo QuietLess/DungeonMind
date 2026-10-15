@@ -320,6 +320,11 @@ Rules for options (each one is an acceptance criterion):
 - **S2 Damaged state file.** If the store file can't be read or parsed, or an entry isn't a
   valid request, `get` returns None (treated as no earlier encounter). The encounter node adds
   a trace warning naming the file instead of failing. A file over 1 MB is treated the same way.
-- S2 detail: `put` on a damaged file starts from an empty store (keeping other valid entries
+- S2 detail: `put` on a file it couldn't read copies it to `<name>.bak` first, then starts
+  from an empty store (keeping other valid entries
   when only one entry was invalid). If `put` fails after a successful write-up, the answer is
   still returned and the trace notes "not saved".
+- Builder caps: `MAX_CLASSES = 64` (the catalog has about 50 (XP, role) classes up to CR 20,
+  so none are dropped in practice; 48 dropped the 25 XP top-up class), `NAMES_PER_CLASS = 4`
+  after skipping already-used top stat blocks, `MAX_EXPANSIONS = 5,000`. Worst case measured
+  0.15 s.

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -58,8 +59,11 @@ class JsonFileStore:
         return None
 
     def put(self, conversation_id: str, request: EncounterRequest) -> None:
-        # A damaged file holds nothing usable, so it is replaced; valid entries are kept.
-        data, _ = self._load()
+        data, problem = self._load()
+        if problem is not None:
+            # A file we couldn't read is replaced, but its bytes are kept: it may be a valid
+            # store that was just too large, or a read that failed during another write.
+            shutil.copyfile(self.path, self.backup_path)
         data[conversation_id] = request.model_dump(mode="json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Write a unique sibling file and swap it in (S1): a crash never leaves half a file, and
@@ -73,13 +77,18 @@ class JsonFileStore:
             suffix=".tmp",
             delete=False,
         ) as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
             tmp = Path(f.name)
         try:
+            with tmp.open("w", encoding="utf-8", newline="\n") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
             self._replace(tmp)
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
+
+    @property
+    def backup_path(self) -> Path:
+        return self.path.with_name(self.path.name + ".bak")
 
     def _replace(self, tmp: Path) -> None:
         # On Windows the replace fails while another process has the target open; retry briefly.
@@ -100,7 +109,8 @@ class JsonFileStore:
             if self.path.stat().st_size > MAX_FILE_BYTES:
                 return {}, f"larger than {MAX_FILE_BYTES // (1024 * 1024)} MB"
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, ValueError) as e:
+        # RecursionError: deeply nested JSON exhausts the parser's stack.
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError) as e:
             return {}, f"unreadable: {type(e).__name__}"
         if not isinstance(data, dict):
             return {}, "not a JSON object of conversations"

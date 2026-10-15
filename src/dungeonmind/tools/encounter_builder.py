@@ -7,9 +7,10 @@ Search, and why it is bounded: candidates are grouped into classes by (XP, prima
 Monsters in one class are interchangeable for everything except the name tie-break, so the
 search runs over multisets of at most 3 classes and only expands names at the end.
 
-- At most MAX_CLASSES classes are kept (the highest-XP ones; low-XP classes matter only to
-  low-level parties, which have few classes anyway). That caps the multisets at
-  C(48 + 2, 3) ≈ 20k.
+- At most MAX_CLASSES classes are kept (the highest-XP ones). The SRD catalog has about 50
+  classes up to CR 20, so 64 keeps them all in practice: cheap classes such as the 25 XP
+  Goblin Minion top a mixed-level party up to its exact budget, and an earlier cap of 48
+  dropped them. The cap bounds the multisets at C(64 + 2, 3) ≈ 46k.
 - Counts depend only on the multiset's XP values, so the best counts (most XP inside the band,
   then fewest creatures) are computed once per XP multiset, by a loop of at most
   (2 × party size)² ≤ 576 steps.
@@ -40,7 +41,7 @@ from dungeonmind.tools.encounter import (
 Role = Literal["boss", "controller", "ranged", "frontline"]
 ROLE_ORDER: tuple[Role, ...] = ("boss", "controller", "ranged", "frontline")
 
-MAX_CLASSES = 48
+MAX_CLASSES = 64
 NAMES_PER_CLASS = 4
 MAX_EXPANSIONS = 5_000
 
