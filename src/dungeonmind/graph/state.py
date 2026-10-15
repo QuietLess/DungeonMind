@@ -138,9 +138,13 @@ class LLM(Protocol):
         request: EncounterRequest,
         record: ToolRecord,
         *,
+        revision: Literal["easier", "harder"] | None = None,
         timeout: float | None = None,
     ) -> FinalAnswer:
-        """Write up the builder's options (tool record T1) with citations."""
+        """Write up the builder's options (tool record T1) with citations.
+
+        `revision` is set when the request is the previous one made easier or harder.
+        """
         ...
 
 

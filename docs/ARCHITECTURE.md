@@ -289,3 +289,15 @@ Rules for options (each one is an acceptance criterion):
   `request.model_dump(mode="json")`.
 - The other-edition note (behaviour 10) also applies to completed encounter answers that
   present options, not to needs_input answers or revise-limit messages.
+
+### M5 fixes from the live check
+
+- **P1 Revisions are explained.** `present_encounter` takes keyword-only
+  `revision: Literal["easier", "harder"] | None = None`. The encounter node passes the
+  direction on a revise and None on a build. When it's set, the adapter's user message says the
+  previous encounter was made easier/harder and the request already reflects that, so the
+  write-up presents the new options (observed bug: "make it easier" built Moderate options but
+  the write-up said it couldn't make it easier).
+- **P2 Defaults aren't attributed to the user.** The presentation prompt says that difficulty
+  Moderate and up to 3 stat blocks are defaults unless the user's message asked for them, and
+  must not be described as the user's request (observed: "three stat blocks, as you asked").
