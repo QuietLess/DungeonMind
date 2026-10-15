@@ -595,3 +595,27 @@ def test_r1_capped_search_equals_an_uncapped_search(full, monkeypatch):
     uncapped = build_options(R1_REQUEST, full)
     assert _shape(capped) == _shape(uncapped)
     assert asdict(capped) == asdict(uncapped)
+
+
+# --- Re-review: the class cap must not drop cheap top-up creatures -----------------------------
+
+
+@needs_snapshot
+@pytest.mark.parametrize(
+    ("levels", "best_xp"),
+    [
+        ([13, 9, 12, 20, 13, 12, 18, 14, 3, 13, 17, 8], 57_925),
+        ([13, 10, 4, 8, 4, 18, 8, 20, 11, 3, 13], 39_875),
+    ],
+)
+def test_class_cap_keeps_cheap_creatures_that_fill_the_budget(full, levels, best_xp, monkeypatch):
+    # With 48 classes the 25 XP Goblin Minion class was dropped, so the best options stopped
+    # 25 XP short (57,900 / 39,850). The result must match a search with every cap lifted.
+    request = _req(levels, "moderate")
+    capped = build_options(request, full)
+    monkeypatch.setattr(encounter_builder, "MAX_CLASSES", 10_000)
+    monkeypatch.setattr(encounter_builder, "NAMES_PER_CLASS", 10_000)
+    monkeypatch.setattr(encounter_builder, "MAX_EXPANSIONS", 10_000_000)
+    uncapped = build_options(request, full)
+    assert uncapped.options[0].total_xp == best_xp
+    assert asdict(capped) == asdict(uncapped)
