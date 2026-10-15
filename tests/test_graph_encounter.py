@@ -5,9 +5,11 @@ builder over the 8-creature fixture catalog. The store classes are imported lazi
 module fails each test rather than the whole file.
 """
 
+import json
 import random
 from pathlib import Path
 
+import pytest
 from fake_llm import FakeLLM, FakeRetriever, final, final_turn
 
 from dungeonmind.graph.build import OTHER_EDITION_NOTE, Deps, run_chat
@@ -408,3 +410,83 @@ def test_p1_build_passes_no_revision_to_present_encounter():
     llm = _llm(_build())
     run_chat(Q, _deps(llm, RecordingStore()), conversation_id="conv-1")
     assert llm.revisions == [None]
+
+
+# --- R3 store after presenting (docs/ARCHITECTURE.md › M5 review fixes) ----------------------
+
+
+def test_r3_failed_presentation_on_build_does_not_store_the_request():
+    store = RecordingStore()
+    llm = _llm(_build(), presentation=_PresentFailed("down"))
+    state = run_chat(Q, _deps(llm, store), conversation_id="conv-1")
+    assert state["stop_reason"] == "error"
+    assert store.puts == []
+    assert store.get("conv-1") is None
+
+
+def test_r3_failed_presentation_on_revise_keeps_the_previous_request():
+    moderate = REQUEST.model_copy(update={"difficulty": "moderate"})
+    store = RecordingStore({"conv-1": moderate})
+    llm = _llm(EncounterExtraction(kind="revise", direction="harder"), _PresentFailed("down"))
+    state = run_chat("Make it harder.", _deps(llm, store), conversation_id="conv-1")
+    assert state["stop_reason"] == "error"
+    assert store.puts == []
+    assert store.get("conv-1") == moderate
+
+
+# --- S2 damaged state file (docs/ARCHITECTURE.md › M5 review fixes) --------------------------
+
+
+def _write_damaged(path: Path, kind: str) -> None:
+    good = REQUEST.model_dump(mode="json")
+    if kind == "malformed":
+        path.write_text('{"conv-1": {"party_levels": [5, 5', encoding="utf-8")
+    elif kind == "list":
+        path.write_text("[]", encoding="utf-8")
+    elif kind == "invalid-entry":
+        bad = {**good, "party_levels": [99], "difficulty": "apocalyptic"}
+        path.write_text(json.dumps({"conv-1": bad}), encoding="utf-8")
+    elif kind == "too-big":  # valid JSON with a valid entry, but over 1 MB
+        data = {"conv-1": good, "padding": "x" * (1024 * 1024 + 10)}
+        path.write_text(json.dumps(data), encoding="utf-8")
+    else:
+        raise AssertionError(kind)
+
+
+DAMAGED = ["malformed", "list", "invalid-entry", "too-big"]
+
+
+@pytest.mark.parametrize("kind", DAMAGED)
+def test_s2_json_file_store_get_returns_none_for_a_damaged_file(tmp_path, kind):
+    path = tmp_path / "conversations.json"
+    _write_damaged(path, kind)
+    assert _store_module().JsonFileStore(path).get("conv-1") is None
+
+
+def _warns_about(state, path: Path) -> bool:
+    return any(path.name in str(e.get("detail", "")) for e in state["trace"])
+
+
+@pytest.mark.parametrize("kind", DAMAGED)
+def test_s2_build_with_a_damaged_file_completes_and_warns(tmp_path, kind):
+    path = tmp_path / "conversations.json"
+    _write_damaged(path, kind)
+    llm = _llm(_build())
+    deps = _deps(llm, _store_module().JsonFileStore(path))
+    state = run_chat(Q, deps, conversation_id="conv-1")
+    assert state["stop_reason"] == "completed"
+    assert _payload(llm, "extract_encounter")["previous"] is None
+    assert state["tool_calls"][0]["name"] == "encounter_builder"
+    assert _warns_about(state, path), state["trace"]
+
+
+@pytest.mark.parametrize("kind", DAMAGED)
+def test_s2_revise_with_a_damaged_file_needs_input_and_warns(tmp_path, kind):
+    path = tmp_path / "conversations.json"
+    _write_damaged(path, kind)
+    llm = _llm(EncounterExtraction(kind="revise", direction="harder"))
+    deps = _deps(llm, _store_module().JsonFileStore(path))
+    state = run_chat("Make it harder.", deps, conversation_id="conv-1")
+    _assert_needs_input(state, llm)
+    assert "no earlier encounter" in state["answer"].lower()
+    assert _warns_about(state, path), state["trace"]

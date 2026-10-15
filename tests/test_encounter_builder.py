@@ -13,6 +13,7 @@ from isolated import run_isolated
 from pydantic import ValidationError
 
 from dungeonmind.rag.ingest import read_jsonl
+from dungeonmind.tools import encounter_builder
 from dungeonmind.tools.catalog import Catalog, Monster
 from dungeonmind.tools.encounter import XP_BUDGET_PER_CHARACTER, Difficulty, format_cr
 from dungeonmind.tools.encounter_builder import (
@@ -564,3 +565,33 @@ def test_c_final_tiebreak_is_sorted_lowercased_names():
     )
     result = build_options(_req([5], "moderate"), cat)
     assert [_names(o) for o in result.options] == [{"ash"}, {"Zed"}]
+
+
+# --- R1 name cap respects variety (docs/ARCHITECTURE.md › M5 review fixes) -------------------
+
+R1_REQUEST = EncounterRequest(
+    party_levels=[1] * 6, difficulty="high", creature_types=["beast"], max_stat_blocks=3
+)
+
+
+def _shape(result) -> list[list[tuple[str, int]]]:
+    return [sorted((m.name, m.count) for m in opt.monsters) for opt in result.options]
+
+
+@needs_snapshot
+def test_r1_third_option_is_not_hidden_by_the_name_cap(full):
+    # Verified against the snapshot: an uncapped search ranks this 5-creature option third;
+    # the capped search used to return Ape + 4 Black Bears + 2 Constrictor Snakes (7).
+    third = _shape(build_options(R1_REQUEST, full))[2]
+    assert third == [("Ape", 1), ("Constrictor Snake", 2), ("Giant Toad", 2)]
+
+
+@needs_snapshot
+def test_r1_capped_search_equals_an_uncapped_search(full, monkeypatch):
+    capped = build_options(R1_REQUEST, full)
+    monkeypatch.setattr(encounter_builder, "NAMES_PER_CLASS", 10_000)
+    monkeypatch.setattr(encounter_builder, "MAX_CLASSES", 10_000)
+    monkeypatch.setattr(encounter_builder, "MAX_EXPANSIONS", 10_000_000)
+    uncapped = build_options(R1_REQUEST, full)
+    assert _shape(capped) == _shape(uncapped)
+    assert asdict(capped) == asdict(uncapped)

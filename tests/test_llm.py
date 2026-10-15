@@ -588,7 +588,9 @@ def test_m5_extract_invalid_model_request_becomes_missing(field, bad):
     result = ClaudeLLM(client=client).extract_encounter("q", None)
     assert result.kind == "build"
     assert result.request is None
-    assert field in result.missing
+    # R2 lets `missing` describe the limit instead of the field name, so check loosely.
+    keyword = {"party_levels": "level", "creature_types": "type"}[field]
+    assert keyword in " ".join(result.missing).lower()
 
 
 def test_m5_present_returns_final_answer():
@@ -660,3 +662,32 @@ def test_p2_present_prompt_says_defaults_are_not_the_users_request():
     assert "stat block" in system
     assert "moderate" in system
     assert re.search(r"\bnot\b[^.]{0,120}\buser", system) or "as the user's request" in system
+
+
+# --- R2 out-of-range requests say why (docs/ARCHITECTURE.md › M5 review fixes) ---------------
+
+
+def _missing_text(**overrides) -> str:
+    request = {**ENC_REQUEST_JSON, **overrides}
+    client = FakeClient(response([text(extract_json(request=request))]))
+    result = ClaudeLLM(client=client).extract_encounter("q", None)
+    assert result.kind == "build" and result.request is None
+    return " ".join(result.missing).lower()
+
+
+def test_r2_too_many_characters_names_the_party_limit():
+    text_ = _missing_text(party_levels=[5] * 13)
+    assert "12" in text_
+    assert "at most" in text_ or "up to" in text_ or "maximum" in text_
+
+
+def test_r2_too_many_stat_blocks_names_the_limit():
+    text_ = _missing_text(max_stat_blocks=4)
+    assert "3" in text_
+    assert "stat block" in text_
+
+
+def test_r2_level_out_of_range_names_the_level_range():
+    text_ = _missing_text(party_levels=[25, 5])
+    assert "20" in text_
+    assert "level" in text_
