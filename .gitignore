@@ -22,3 +22,7 @@ CLAUDE.md
 
 # Personal handoff note (not part of the public repo)
 docs/DungeonMind_handoff.md
+
+# Web UI (M7): dependencies and build output
+web/node_modules/
+web/dist/

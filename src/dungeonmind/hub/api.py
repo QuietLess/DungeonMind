@@ -8,11 +8,12 @@ Errors are always `{"detail": <plain message>}`; unexpected ones never show thei
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, StrictInt
 
 from dungeonmind.hub.auth import SESSION_DAYS
@@ -25,6 +26,27 @@ CSRF_HEADER = "X-DungeonMind"
 MAX_BODY_BYTES = 64 * 1024
 UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 INTERNAL_ERROR = "Something went wrong. Please try again."
+DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
+# UI2: the UI needs nothing from other origins; remote images can't load even if a renderer
+# bug ever produced one (defence in depth for H1).
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; "
+        "connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+        "form-action 'self'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+}
+NO_BUILD_PAGE = (
+    "<!doctype html><title>DungeonMind</title><h1>DungeonMind</h1>"
+    "<p>The web UI hasn't been built yet. Run <code>uv run npm --prefix web install</code> and "
+    "<code>uv run npm --prefix web run build</code>, then restart <code>dungeonmind serve</code>."
+    "</p><p>The API is available under <code>/api</code>.</p>"
+)
 
 
 class _In(BaseModel):
@@ -92,6 +114,13 @@ def _plain(errors: list[dict[str, Any]]) -> str:
     return f"{field}: {message}" if field else message
 
 
+def _servable(path: str) -> bool:
+    """W2: never hidden files (any segment starting with '.') or source maps from web/dist."""
+    parts = [p for p in path.split("/") if p]
+    hidden = any(p.startswith(".") for p in parts)
+    return bool(parts) and not hidden and not path.lower().endswith(".map")  # APFS ignores case
+
+
 def client_of(request: Request) -> str:
     """The client address, for per-client rate limits (F4, F5)."""
     return request.client.host if request.client else "unknown"
@@ -109,12 +138,11 @@ def current_user(request: Request) -> User:
 Me = Annotated[User, Depends(current_user)]
 
 
-def create_app(hub: Hub) -> FastAPI:
+def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     app = FastAPI(title="DungeonMind", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.hub = hub
 
-    @app.middleware("http")
-    async def guard(request: Request, call_next):
+    def refuse(request: Request) -> JSONResponse | None:
         if request.url.path.startswith("/api") and request.method in UNSAFE:
             length = request.headers.get("content-length")
             if length is None and request.headers.get("transfer-encoding"):
@@ -123,7 +151,15 @@ def create_app(hub: Hub) -> FastAPI:
                 return JSONResponse({"detail": "Request body is too large (64 KB max)."}, 413)
             if request.headers.get(CSRF_HEADER) != "1":
                 return JSONResponse({"detail": f"Missing {CSRF_HEADER} header."}, 403)
-        return await call_next(request)
+        return None
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        response = refuse(request) or await call_next(request)
+        response.headers.update(SECURITY_HEADERS)
+        if request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store"  # W4: private notes aren't cached
+        return response
 
     @app.exception_handler(HubError)
     async def hub_error(request: Request, exc: HubError):
@@ -135,7 +171,9 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unexpected(request: Request, exc: Exception):
-        return JSONResponse({"detail": INTERNAL_ERROR}, 500)
+        # Runs outside the http middleware, so it adds the headers itself (W1).
+        headers = {**SECURITY_HEADERS, "Cache-Control": "no-store"}
+        return JSONResponse({"detail": INTERNAL_ERROR}, 500, headers=headers)
 
     def set_session(request: Request, response: Response, token: str) -> None:
         response.set_cookie(
@@ -289,4 +327,23 @@ def create_app(hub: Hub) -> FastAPI:
 
     app.include_router(public)
     app.include_router(private)
+
+    # --- the web UI (UI1): files from web/dist, index.html for every app route ---------------
+
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    def web(path: str):
+        if path == "api" or path.startswith("api/"):
+            return JSONResponse({"detail": "Not found."}, 404)
+        if web_dist is None or not (web_dist / "index.html").is_file():
+            return HTMLResponse(NO_BUILD_PAGE)
+        root = web_dist.resolve()
+        if _servable(path):
+            try:
+                candidate = (root / path).resolve()
+            except (ValueError, OSError):  # e.g. a NUL byte in the path (W1)
+                candidate = root
+            if candidate.is_file() and candidate.is_relative_to(root):
+                return FileResponse(candidate)
+        return FileResponse(root / "index.html", headers={"Cache-Control": "no-cache"})
+
     return app

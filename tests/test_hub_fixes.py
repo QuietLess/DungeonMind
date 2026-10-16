@@ -236,7 +236,7 @@ def test_f7_expired_sessions_are_purged_on_login(tmp_path):
 
 
 def test_f8_runs_that_fail_before_the_model_are_refunded_up_to_three_a_day(tmp_path):
-    def failing(question, search_notes, store, conversation_id):
+    def failing(question, search_notes, store, conversation_id, history=()):
         raise RuntimeError("engine broke before calling the model")
 
     hub = make_hub(tmp_path, engine=failing, daily_message_limit=1)
@@ -251,7 +251,7 @@ def test_f8_runs_that_fail_before_the_model_are_refunded_up_to_three_a_day(tmp_p
 def test_f8_model_errors_are_billed_so_they_are_not_refunded(tmp_path):
     """A run that reached the model (stop_reason error from the graph) costs money: it counts."""
 
-    def model_failed(question, search_notes, store, conversation_id):
+    def model_failed(question, search_notes, store, conversation_id, history=()):
         return {
             "answer": "x",
             "citations": [],

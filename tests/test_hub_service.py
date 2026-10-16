@@ -399,7 +399,7 @@ def test_3_chat_engine_receives_exactly_the_readable_entries(world, viewer_name)
     expected = {e.id for e in made if _readable(viewer, viewer_name == "dm", e)}
     got = []
 
-    def spy(question, search_notes, store, conversation_id):
+    def spy(question, search_notes, store, conversation_id, history=()):
         got.extend(h.entry_id for h in search_notes("shared words", 50))
         return {
             "answer": "ok",

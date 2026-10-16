@@ -9,7 +9,7 @@ from dungeonmind.hub.api import CSRF_HEADER, SESSION_COOKIE, create_app
 H = {CSRF_HEADER: "1"}
 
 
-def _ok_engine(question, search_notes, store, conversation_id):
+def _ok_engine(question, search_notes, store, conversation_id, history=()):
     return {
         "answer": f"echo: {question}",
         "citations": [],
@@ -265,7 +265,7 @@ def test_22_validation_errors_are_plain_messages(table):
 
 
 def test_22_unexpected_errors_hide_their_text(tmp_path):
-    def exploding(question, search_notes, store, conversation_id):
+    def exploding(question, search_notes, store, conversation_id, history=()):
         raise RuntimeError("boom /secret/path")
 
     hub = make_hub(tmp_path, engine=exploding)

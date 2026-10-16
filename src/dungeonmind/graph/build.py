@@ -38,7 +38,7 @@ from dungeonmind.rag.hybrid import Evidence
 from dungeonmind.tools.encounter_builder import build_options, revise
 from dungeonmind.tools.registry import ToolRegistry
 
-# The graph has at most five node steps; this only guards against a wiring mistake.
+# The graph has at most six node steps; this only guards against a wiring mistake.
 RECURSION_LIMIT = 12
 
 MAX_STEPS_LIMIT = 10  # upper bound for Deps.max_steps
@@ -75,6 +75,9 @@ NO_NOTES_ANSWER = (
     "board, or ask your DM."
 )
 CAMPAIGN_NOTES_K = {"memory": 8, "prep": 12}
+HISTORY_EXCHANGES = 3  # M7 thread context: earlier exchanges given to `contextualize`
+HISTORY_CHARS = 1_000  # per question and per answer
+STANDALONE_CHARS = 200
 CAMPAIGN_SRD_K = 4
 DECLINE_ANSWER = (
     "DungeonMind covers running D&D with the 2024 rules (SRD 5.2.1): rules questions, "
@@ -161,6 +164,35 @@ def _hits(evidence: list[Evidence], first_index: int) -> list[dict[str, Any]]:
 
 
 # --- nodes ------------------------------------------------------------------------------------
+
+
+def _contextualize_node(state: ChatState, deps: Deps) -> ChatState:
+    """Turn a follow-up into a standalone question (M7 UI8); a no-op without history.
+
+    Any failure keeps the original question: context improves answers but is never required.
+    """
+    history = state.get("history") or []
+    if not history:
+        return {}
+    started = time.perf_counter()
+    question = state["question"]
+    try:
+        rewrite = deps.llm.standalone_question(question, history, timeout=deps.timeout_s)
+    except Exception as e:
+        return {
+            "trace": _event(
+                state, "contextualize", f"warning: kept original ({_describe(e)})", started
+            )
+        }
+    rewrite = rewrite.strip() if isinstance(rewrite, str) else ""
+    if not rewrite or len(rewrite) > STANDALONE_CHARS:
+        detail = "warning: unusable rewrite; kept original"
+        return {"trace": _event(state, "contextualize", detail, started)}
+    return {
+        "question": rewrite,
+        "original_question": question,
+        "trace": _event(state, "contextualize", f"standalone: {rewrite}", started),
+    }
 
 
 def _route_node(state: ChatState, deps: Deps) -> ChatState:
@@ -591,6 +623,7 @@ def _verify_node(state: ChatState) -> ChatState:
 
 def build_graph(deps: Deps) -> Any:
     graph = StateGraph(ChatState)
+    graph.add_node("contextualize", lambda s: _contextualize_node(s, deps))
     graph.add_node("route", lambda s: _route_node(s, deps))
     graph.add_node("retrieve", lambda s: _retrieve_node(s, deps))
     graph.add_node("answer", lambda s: _answer_node(s, deps))
@@ -600,7 +633,8 @@ def build_graph(deps: Deps) -> Any:
     graph.add_node("decline", _decline_node)
     graph.add_node("verify", _verify_node)
 
-    graph.add_edge(START, "route")
+    graph.add_edge(START, "contextualize")
+    graph.add_edge("contextualize", "route")
     graph.add_conditional_edges(
         "route",
         _after_route,
@@ -619,9 +653,15 @@ def run_chat(
     deps: Deps,
     conversation_id: str | None = None,
     campaign_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> ChatState:
+    recent = [
+        {"question": h["question"][:HISTORY_CHARS], "answer": h["answer"][:HISTORY_CHARS]}
+        for h in (history or [])[-HISTORY_EXCHANGES:]
+    ]
     initial: ChatState = {
         "question": question,
+        "history": recent,
         "campaign_id": campaign_id,
         "error_type": None,
         "trace": [],

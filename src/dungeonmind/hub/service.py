@@ -693,6 +693,7 @@ class Hub:
         question = _text(text, "Message", models.QUESTION_CHARS)
         with self.storage.campaign(cid) as db:
             thread_id = self._own_thread(db, user, tid)["id"]
+            history = _history(db, thread_id)
         self._count_message(user)
         self._save_message(cid, thread_id, "user", question, {})
 
@@ -708,7 +709,9 @@ class Hub:
         try:
             if self.engine is None:
                 raise RuntimeError("no chat engine configured")
-            state = self.engine(question, search_notes, thread_store, f"thread-{thread_id}")
+            state = self.engine(
+                question, search_notes, thread_store, f"thread-{thread_id}", history
+            )
         except Exception:
             # The engine failed before producing a state: nothing was billed, so refund (F8).
             # A graph "error" state may already have cost a model call and is not refunded.
@@ -755,6 +758,23 @@ class Hub:
             )
             row = db.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()
         return message_from_row(row)
+
+
+def _history(db, thread_id: int, exchanges: int = 3) -> list[dict[str, str]]:
+    """The thread's last answered exchanges (UI8), oldest first; failed answers are skipped."""
+    rows = db.execute(
+        "SELECT role, text, meta FROM messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
+        (thread_id, exchanges * 4),
+    ).fetchall()[::-1]
+    pairs: list[dict[str, str]] = []
+    for question, answer in zip(rows, rows[1:], strict=False):
+        if (
+            question["role"] == "user"
+            and answer["role"] == "assistant"
+            and json.loads(answer["meta"]).get("stop_reason") != "error"
+        ):
+            pairs.append({"question": question["text"], "answer": answer["text"]})
+    return pairs[-exchanges:]
 
 
 def _invite_code(code: Any) -> str:

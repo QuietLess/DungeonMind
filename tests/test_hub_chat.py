@@ -141,7 +141,7 @@ def test_17_failed_run_saves_apology_without_error_text(tmp_path):
 
 
 def test_17_engine_exception_also_saves_apology(tmp_path):
-    def exploding(question, search_notes, store, conversation_id):
+    def exploding(question, search_notes, store, conversation_id, history=()):
         raise RuntimeError("boom /secret")
 
     hub = make_hub(tmp_path, engine=exploding)
@@ -184,7 +184,7 @@ def test_thread_title_is_limited(setup):
 
 
 def _spy_engine(log):
-    def engine(question, search_notes, store, conversation_id):
+    def engine(question, search_notes, store, conversation_id, history=()):
         if question == "save":
             store.put(conversation_id, EncounterRequest(party_levels=[5, 5, 5, 5]))
         log.append((conversation_id, store.get(conversation_id)))
@@ -219,7 +219,7 @@ def test_16_encounter_state_is_per_thread_and_survives_restart(tmp_path):
 def test_13_search_notes_is_bound_to_campaign_and_viewer(tmp_path):
     seen = []
 
-    def engine(question, search_notes, store, conversation_id):
+    def engine(question, search_notes, store, conversation_id, history=()):
         seen.extend(h.text for h in search_notes("Velkor", 50))
         return {
             "answer": "ok",
@@ -267,3 +267,31 @@ def test_19_limit_counts_across_campaigns(tmp_path):
     hub.ask(dm, a.id, hub.create_thread(dm, a.id).id, "one")
     with pytest.raises(RateLimited):
         hub.ask(dm, b.id, hub.create_thread(dm, b.id).id, "two")
+
+
+# --- UI8: thread history reaches the engine ---------------------------------------------------
+
+
+def test_ui8_engine_gets_the_last_three_exchanges_of_this_thread_only(tmp_path):
+    seen = []
+
+    def engine(question, search_notes, store, conversation_id, history=()):
+        seen.append(list(history))
+        return {
+            "answer": f"answer to {question}",
+            "citations": [],
+            "confidence": "low",
+            "insufficient_evidence": True,
+            "stop_reason": "completed",
+            "trace": [],
+        }
+
+    hub = make_hub(tmp_path, engine=engine)
+    camp, dm, p1, *_ = party(hub)
+    mine = hub.create_thread(p1, camp.id)
+    other = hub.create_thread(p1, camp.id)
+    hub.ask(p1, camp.id, other.id, "unrelated question")
+    for i in range(5):
+        hub.ask(p1, camp.id, mine.id, f"q{i}")
+    assert seen[1] == []  # first question in `mine`: nothing from the other thread
+    assert seen[-1] == [{"question": f"q{i}", "answer": f"answer to q{i}"} for i in (1, 2, 3)]

@@ -729,3 +729,19 @@ def test_answer_campaign_unusable_response_raises():
     client = FakeClient(response([text("{")], stop_reason="end_turn"))
     with pytest.raises((RuntimeError, ValueError)):
         ClaudeLLM(client=client).answer_campaign("q", _notes(), [], mode="memory")
+
+
+# --- standalone_question (M7 UI8) ---
+
+
+def test_standalone_question_sends_history_as_data_and_returns_the_rewrite():
+    client = FakeClient(response([text(json.dumps({"question": "Who is Elara's brother?"}))]))
+    history = [{"question": "Who is Elara?", "answer": "A spy <b>[N1]</b>."}]
+    out = ClaudeLLM(client=client).standalone_question("And her brother?", history, timeout=5.0)
+    assert out == "Who is Elara's brother?"
+    call = client.calls[0]
+    content = call["messages"][0]["content"]
+    assert "<history>" in content and content.rstrip().endswith("New message: And her brother?")
+    assert "<b>" not in content  # history is a JSON block with < > escaped
+    assert "not instructions" in str(call["system"])
+    assert call["timeout"] == 5.0
