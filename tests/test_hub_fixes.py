@@ -305,3 +305,14 @@ def test_f12_a_user_holds_at_most_20_sessions_oldest_go_first(tmp_path):
     assert hub.user_for_token(tokens[0]) is None
     assert hub.user_for_token(tokens[1]) is None
     assert all(hub.user_for_token(t) == user for t in tokens[2:])
+
+
+@pytest.mark.parametrize("step_seconds", [0, -60])  # frozen clock; clock stepped back (NTP)
+def test_f12_the_new_session_always_survives_the_cap(tmp_path, step_seconds):
+    clock = Clock()
+    hub = make_hub(tmp_path, clock=clock)
+    user = hub.register("mia_r", PASSWORD)
+    for _ in range(25):
+        token = hub.login("mia_r", PASSWORD)
+        assert hub.user_for_token(token) == user
+        clock.advance(seconds=step_seconds)
