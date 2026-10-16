@@ -17,12 +17,15 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import anthropic
 from pydantic import BaseModel
 
 from dungeonmind.rag.hybrid import Evidence
+
+if TYPE_CHECKING:
+    from dungeonmind.graph.state import NoteHit
 
 DEFAULT_MODEL = "claude-opus-5-5"
 DEFAULT_EFFORT = "medium"
@@ -72,15 +75,15 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
-# Any bracketed marker that starts with an evidence (E#) or tool-result (T#) id. Canonical
-# markers are [E3] or [E1, T2]; anything else that starts like one ([E1-E9], [E1 ], [T2;E1]) is
-# malformed. This is the project's one citation-marker regex. It deliberately doesn't match the
-# whitespace before a marker: a leading `\s*` is rescanned from every position of a long space
-# run (quadratic time on model output), so check_citations trims that whitespace itself. The
+# Any bracketed marker that starts with an evidence (E#), tool-result (T#) or campaign-note (N#) id.
+# Canonical markers are [E3] or [E1, T2]; anything else that starts like one ([E1-E9], [E1 ],
+# [T2;E1]) is malformed. This is the project's one citation-marker regex. It deliberately doesn't
+# match the whitespace before a marker: a leading `\s*` is rescanned from every position of a long
+# space run (quadratic time on model output), so check_citations trims that whitespace itself. The
 # quantifiers are possessive for the same reason: `\d+` and `[^…]*` both match digits, and an
 # unclosed "[E1111…" would otherwise be retried at every split point.
-INLINE_CITATION = re.compile(r"\[([ET]\d++[^\[\]\n]*+)\]")
-_CANONICAL_IDS = re.compile(r"[ET]\d+(?:\s*,\s*[ET]\d+)*")
+INLINE_CITATION = re.compile(r"\[([ETN]\d++[^\[\]\n]*+)\]")
+_CANONICAL_IDS = re.compile(r"[ETN]\d+(?:\s*,\s*[ETN]\d+)*")
 MALFORMED = "malformed-citation"
 
 
@@ -105,28 +108,53 @@ class Answer:
     latency_ms: float = 0.0
 
 
+# Every block the model reads (SRD evidence, campaign notes) is rendered here, so stored or
+# user-written text can never close a block or forge another id (S1, M6-a).
+
+
 def format_evidence(evidence: list[Evidence]) -> tuple[str, dict[str, Evidence]]:
     """Render evidence as numbered blocks; return the text and the id → evidence map."""
     id_map = {f"E{i}": ev for i, ev in enumerate(evidence, start=1)}
     blocks = [
-        f'<evidence id="{eid}" source="{_escape(ev.chunk.citation)}">\n'
-        f"{_escape(ev.chunk.text)}\n</evidence>"
+        f'<evidence id="{eid}" source="{_escape_attr(ev.chunk.citation)}">\n'
+        f"{_escape_text(ev.chunk.text)}\n</evidence>"
         for eid, ev in id_map.items()
     ]
     return "\n\n".join(blocks), id_map
 
 
-def _escape(text: str) -> str:
-    """Escape markup so stored text can't close an evidence block or forge another id."""
-    return (
-        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+def format_notes(notes: list[NoteHit]) -> str:
+    """Render campaign entries as numbered N blocks; lore entries are marked canon."""
+    return "\n\n".join(
+        f'<note id="N{i}" source="{_escape_attr(n.source)}" canon="{str(n.canon).lower()}">\n'
+        f"{_escape_text(n.text)}\n</note>"
+        for i, n in enumerate(notes, start=1)
     )
+
+
+def _escape_text(text: str) -> str:
+    """Block bodies: escape markup only; quotes stay readable (Q1)."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _escape_attr(text: str) -> str:
+    """Attribute values also escape the quote that would end them."""
+    return _escape_text(text).replace('"', "&quot;")
 
 
 def evidence_message(question: str, evidence: list[Evidence]) -> str:
     """The user turn for a rules answer: the numbered evidence set, then the question."""
     evidence_text, _ = format_evidence(evidence)
     return f"<evidence_set>\n{evidence_text}\n</evidence_set>\n\nQuestion: {question}"
+
+
+def campaign_message(question: str, notes: list[NoteHit], evidence: list[Evidence]) -> str:
+    """The user turn for a campaign answer: notes (N#), SRD evidence (E#), then the question."""
+    evidence_text, _ = format_evidence(evidence)
+    return (
+        f"<campaign_notes>\n{format_notes(notes)}\n</campaign_notes>\n\n"
+        f"<evidence_set>\n{evidence_text}\n</evidence_set>\n\nQuestion: {question}"
+    )
 
 
 def check_citations(

@@ -173,3 +173,81 @@ def test_s2_chat_output_has_no_control_characters(chat_env):
     for ch in ("\x07", "\x00", "\x7f", "\x9b", "\x1b]"):
         assert ch not in result.output, repr(ch)
     assert "Grapple" in result.output and "done [E1]." in result.output
+
+
+# --- M6-b: stored text printed by `search` and `ask --show-evidence` is cleaned --------------
+
+
+def test_m6b_search_output_has_no_control_characters(monkeypatch):
+    from fake_llm import evidence
+
+    ev = evidence("evil", text="Rule\x1b]0;pwned\x07 text")
+    ev.chunk.heading_path[-1] = "Head\x1b[31m"
+    retriever = SimpleNamespace(by_id={}, retrieve=lambda *a, **k: [ev])
+    monkeypatch.setattr(cli, "load_retriever", lambda *a, **k: retriever)
+    result = CliRunner().invoke(cli.app, ["search", "x", "--full"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "\x1b" not in result.output and "\x07" not in result.output
+    assert "Rule]0;pwned text" in result.output
+
+
+def test_m6b_show_evidence_output_has_no_control_characters(monkeypatch):
+    from fake_llm import evidence
+
+    ev = evidence("evil")
+    ev.chunk.heading_path[-1] = "Head\x1b]0;pwned\x07"
+    retriever = SimpleNamespace(by_id={}, retrieve=lambda *a, **k: [ev])
+    monkeypatch.setattr(cli, "load_retriever", lambda *a, **k: retriever)
+
+    class Boom:
+        def answer(self, *a, **k):
+            raise RuntimeError("stop after printing evidence")
+
+    monkeypatch.setattr("dungeonmind.rag.answer.AnswerGenerator", lambda *a, **k: Boom())
+    result = CliRunner().invoke(cli.app, ["ask", "x", "--show-evidence"], env=WIDE)
+    assert "\x1b" not in result.output and "\x07" not in result.output
+    assert "Head]0;pwned" in result.output
+
+
+# --- 9 and F6: serve -----------------------------------------------------------------------
+
+
+@pytest.fixture
+def serve_env(monkeypatch):
+    rec = SimpleNamespace(run=None)
+    monkeypatch.setattr("dungeonmind.hub.app.build_hub", lambda *a, **k: object())
+    monkeypatch.setattr("dungeonmind.hub.api.create_app", lambda hub: "app")
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: setattr(rec, "run", kw))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-placeholder")
+    return rec
+
+
+def test_9_serve_binds_localhost_without_access_log_by_default(serve_env):
+    result = CliRunner().invoke(cli.app, ["serve"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert serve_env.run["host"] == "127.0.0.1"
+    assert serve_env.run["access_log"] is False
+    assert "Warning" not in result.output
+
+
+def test_9_serving_on_all_interfaces_warns_about_plain_http(serve_env):
+    result = CliRunner().invoke(cli.app, ["serve", "--host", "0.0.0.0"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "isn't encrypted" in _flat(result.output)
+
+
+def test_hub_reset_password_cli(tmp_path):
+    from hub_support import PASSWORD
+
+    from dungeonmind.hub.service import Hub
+
+    Hub(tmp_path, scrypt_n=2**4).register("mia_r", PASSWORD)
+    new = "a new long password"
+    result = CliRunner().invoke(
+        cli.app,
+        ["hub", "reset-password", "mia_r", "--root", str(tmp_path)],
+        input=f"{new}\n{new}\n",
+        env=WIDE,
+    )
+    assert result.exit_code == 0, result.output
+    assert Hub(tmp_path, scrypt_n=2**4).login("mia_r", new)

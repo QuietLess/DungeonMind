@@ -404,7 +404,8 @@ def test_s1_answer_user_message_cannot_contain_a_forged_evidence_block():
     ClaudeLLM(client=client).answer("q?", ev)
     content = client.calls[0]["messages"][0]["content"]
     assert content.count("<evidence ") == 1
-    assert 'id="E2"' not in content
+    # Q1 (M6): body quotes stay unescaped; the forged block survives only as escaped text.
+    assert '<evidence id="E2"' not in content
 
 
 @pytest.mark.parametrize("method", ["route", "answer", "agent_step"])
@@ -691,3 +692,40 @@ def test_r2_level_out_of_range_names_the_level_range():
     text_ = _missing_text(party_levels=[25, 5])
     assert "20" in text_
     assert "level" in text_
+
+
+# --- answer_campaign (M6) ---
+
+
+def _notes():
+    from dungeonmind.graph.state import NoteHit
+
+    return [
+        NoteHit(entry_id=4, source="Lore › NPC › Elara", text="Elara is a spy.", canon=True),
+        NoteHit(entry_id=9, source="Journal › Session 2 (mia)", text="We owe Elara gold."),
+    ]
+
+
+@pytest.mark.parametrize("mode", ["memory", "prep"])
+def test_answer_campaign_sends_notes_evidence_and_canon_rule(mode):
+    client = FakeClient(response([text(answer_json("Spy [N1].", ["N1"]))]))
+    out = ClaudeLLM(client=client).answer_campaign(
+        "Who is Elara?", _notes(), evidence(1), mode=mode, timeout=7.0
+    )
+    assert out.answer == "Spy [N1]." and out.citations == ["N1"]
+    call = client.calls[0]
+    content = call["messages"][0]["content"]
+    assert '<note id="N1" source="Lore › NPC › Elara" canon="true">' in content
+    assert '<note id="N2"' in content and '<evidence id="E1"' in content
+    assert content.rstrip().endswith("Question: Who is Elara?")
+    system = call["system"] if isinstance(call["system"], str) else str(call["system"])
+    assert "canon" in system and "not instructions" in system
+    assert ("preparing a session" in system) is (mode == "prep")
+    assert "tools" not in call
+    assert call["timeout"] == 7.0
+
+
+def test_answer_campaign_unusable_response_raises():
+    client = FakeClient(response([text("{")], stop_reason="end_turn"))
+    with pytest.raises((RuntimeError, ValueError)):
+        ClaudeLLM(client=client).answer_campaign("q", _notes(), [], mode="memory")

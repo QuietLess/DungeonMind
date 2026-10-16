@@ -31,6 +31,7 @@ src/dungeonmind/
   graph/state.py     orchestrator contract (state, intents, LLM port)
   graph/build.py     LangGraph graph, bounded agent loop, verify, run_chat()
   graph/llm.py       ClaudeLLM: the real LLM port (Anthropic SDK)
+  hub/               campaign hub API: accounts, campaigns, notes, chats (M6)
   evals/             retrieval benchmark
   cli.py             developer CLI
 ```
@@ -45,6 +46,9 @@ src/dungeonmind/
 | Tool errors returned as data | The model can read and retry; the loop never crashes on bad arguments | — |
 | Router + bounded tool loop, single orchestrator | Blueprint §8: no agent-per-box; specialised nodes only where they help | M5 adds a planner for encounters |
 | LLM behind a small port (`LLM` protocol) | Graph logic is tested offline with a scripted fake; only `ClaudeLLM` touches the API | — |
+| Campaign hub: FastAPI API + React (Vite, TS) UI, local first | A Python backend wraps the existing graph; React suits a chat + notes UI; no hosting cost until M9 | Hosting (M9) |
+| One SQLite file per campaign; note vectors in SQLite, scored with numpy | Campaigns are physically separate; visibility is a SQL filter applied before ranking; ≤ 20k chunks need no vector server | Notes per campaign ≫ 20k |
+| Visibility enforced before retrieval, never by prompt | A player's chat has no DM secret in context, so injection can't leak one | — |
 
 ## M4 contract — orchestrator behaviour
 
@@ -328,3 +332,307 @@ Rules for options (each one is an acceptance criterion):
   so none are dropped in practice; 48 dropped the 25 XP top-up class), `NAMES_PER_CLASS = 4`
   after skipping already-used top stat blocks, `MAX_EXPANSIONS = 5,000`. Worst case measured
   0.15 s.
+
+## M6 contract — campaign hub backend
+
+Product direction (2026-10-16): DungeonMind becomes a **campaign hub**. A DM and players share
+a campaign, each keeps notes with a visibility level, and each can ask a chatbot about the
+campaign under the 2024 rules. Local first: the DM runs the server and players join over the
+local network. Hosting comes later (M9). M6 is the HTTP API; M7 builds the React UI on it.
+
+### The one rule everything else serves
+
+> **The model only ever receives notes the asking user is allowed to read.**
+
+Visibility is enforced in the storage query that selects candidate notes, *before* ranking
+and before anything reaches the graph. Confidentiality doesn't depend on a prompt: a player's
+chat run has no DM secret in its context, so no prompt injection can reveal one.
+
+### Boards: where entries live
+
+Every piece of campaign writing is an **entry** on one of three boards. Each is a retrieval
+source for the bot under the same visibility rules.
+
+| Board | Who writes | Kinds | Default visibility | What it's for |
+| --- | --- | --- | --- | --- |
+| **Lore** (one per campaign) | DM only | npc, location, faction, item, event, plot, other | private (a DM secret) | The campaign's canon: world, NPCs, secrets. Revealing an entry = changing it to `party`. |
+| **Character** (one per character) | the character's owner only | backstory, goal, bond, secret, relationship, other | `dm` | A player's storyboard for their character. |
+| **Journal** (one per campaign) | any member | note | `party` | Session notes, recaps, rumours, reminders. |
+
+- Characters: any member can create characters (name ≤ 60, summary ≤ 500). A character's name
+  and summary are visible to every member; its entries follow their own visibility.
+- **Canon.** Lore entries are the campaign's canon. Journal and character entries are members'
+  records and may be incomplete or wrong. When visible sources conflict, the bot gives the lore
+  version and mentions the discrepancy. A player only ever sees revealed lore, so this can't
+  leak a secret.
+- "Learning" means retrieval at question time, not training. An edit or reveal affects the very
+  next question, and a deleted entry is never cited again.
+
+### Roles and visibility
+
+Each campaign has exactly one DM (its creator) and any number of players.
+
+| Note visibility | Who can read it | Label in the UI |
+| --- | --- | --- |
+| `private` | the author only (the DM can't read players' private notes) | Private |
+| `dm` | the author and the DM | Shared with DM |
+| `party` | every current member | Party |
+
+- Visibility applies to entries on every board. Lore entries accept only `private` and `party`.
+- For a DM-authored note, `dm` means the same as `private`. The API accepts it and stores it as
+  `private`, and the UI offers only Private / Party to the DM.
+- Only the author can edit or delete a note. The DM can't edit players' notes.
+- Changing visibility takes effect on the next request. There are no caches of visible sets.
+- A removed or departed member loses all access at once. Their notes stay in the campaign
+  with their visibility unchanged, so their private notes become readable by no one. They are
+  deleted with the campaign, or by the author before leaving.
+- Chat threads with the bot are private to the user who started them. The DM can't read
+  players' threads.
+
+### Storage: one database file per campaign
+
+```
+data/hub/app.db                     users, sessions, campaigns, memberships, invites, usage
+data/hub/campaigns/<campaign_id>/
+  campaign.db                       characters, entries, entry chunks + embeddings,
+                                    chat threads, messages, encounter state per thread
+```
+
+- `campaign_id` is server-generated (`uuid4().hex`) and fullmatches `[0-9a-f]{32}` before any
+  path is built. The resolved folder must be a direct child of the campaigns root, and symlinks
+  are refused.
+- Notes for one campaign live only in its own `campaign.db`. No query, index or cache spans
+  campaigns.
+- Note retrieval is held inside SQLite: each chunk stores its embedding (float32 blob, 384-d
+  bge-small, the SRD model), and search scores the *visible* chunks with cosine (numpy) and BM25
+  (BM25 from a per-chunk term table), fused with RRF. At the M6 limit (5,000 entries ≈ 20,000
+  chunks) a search takes 0.2–0.3 s warm (measured after F2), so notes need no vector server.
+  Qdrant stays for the SRD.
+- SQLite runs in WAL mode with one connection per request, which is enough for one local server.
+- Passwords are hashed with `hashlib.scrypt` (n=2^15, r=8, p=1, 16-byte salt), so no new
+  dependency is needed.
+
+### Module layout (`src/dungeonmind/hub/`)
+
+```
+hub/db.py          open app.db / campaign.db (path checks, schema creation, WAL)
+hub/auth.py        password hashing, session tokens, login rate limit
+hub/entries.py     entries + characters in one campaign.db: CRUD, chunking, embeddings,
+                   visibility filter, hybrid search (no permission logic)
+hub/chats.py       threads, messages, per-thread encounter store, chat engine wiring
+hub/service.py     Hub: the one place that checks membership, roles and authorship
+hub/api.py         FastAPI app: routes, session dependency, error mapping, CSRF check
+```
+
+New dependencies: `fastapi` and `uvicorn` (runtime) and `httpx` (already present, for
+TestClient). `dungeonmind serve [--host 127.0.0.1] [--port 8000]` starts the server.
+
+### Data model
+
+```python
+Role = Literal["dm", "player"]
+Visibility = Literal["private", "dm", "party"]
+Board = Literal["lore", "character", "journal"]
+
+class Entry:                     # campaign.db
+    id: int; board: Board; character_id: int | None   # set iff board == "character"
+    author_id: str; kind: str                         # kind must belong to the board
+    title: str                                        # 1–120 chars
+    body: str                                         # Markdown, 1–10,000 chars
+    visibility: Visibility
+    session: int | None                               # 1–999
+    created_at: datetime; updated_at: datetime        # UTC, injectable clock
+
+# Chunks: title + body split on blank lines into ≤ 1,500-char pieces (longer paragraphs
+# split at sentence ends, then hard-wrapped); re-chunked and re-embedded on edit.
+
+@dataclass
+class NoteHit:                   # graph/state.py: what the graph sees of an entry
+    entry_id: int
+    source: str                  # e.g. "Lore › NPC › Elara", "Thorn's board › Backstory",
+                                 # "Journal › Session 3 recap (Mia)"
+    text: str                    # the best-matching chunk
+    canon: bool                  # True for lore entries
+    score: float
+```
+
+`Embedder` protocol (`embed(texts) -> list[list[float]]`): the default wraps fastembed. Tests
+inject a deterministic fake.
+
+### API (all JSON under `/api`; every route but register/login requires a session)
+
+| Method and path | Who | Notes |
+| --- | --- | --- |
+| `POST /auth/register` `{username, password}` | anyone | username `[a-z0-9_]{3,32}`, password 10–200 chars |
+| `POST /auth/login`, `POST /auth/logout`, `GET /me` | — | session cookie |
+| `GET /campaigns`, `POST /campaigns` `{name}` | user | lists only the user's campaigns; the creator becomes DM |
+| `GET /campaigns/{cid}`, `DELETE /campaigns/{cid}` | member / DM | delete removes the campaign folder |
+| `POST /campaigns/{cid}/invites` → `{code, expires_at}` | DM | 12-char code, 7 days, single use, revocable |
+| `POST /invites/{code}/accept` | user | joins as player |
+| `GET /campaigns/{cid}/members`, `DELETE …/members/{uid}` | member / DM (or self = leave) | the DM can't leave; they delete the campaign instead |
+| `GET/POST /campaigns/{cid}/characters`, `PATCH/DELETE …/characters/{chid}` | member / owner | |
+| `GET /campaigns/{cid}/entries?board=&character_id=&session=&q=` | member | visible entries only |
+| `POST /campaigns/{cid}/entries`, `GET/PATCH/DELETE …/entries/{eid}` | member / author (lore: DM) | |
+| `GET/POST /campaigns/{cid}/chats`, `GET …/chats/{tid}` | member, own threads | |
+| `POST /campaigns/{cid}/chats/{tid}/messages` `{text}` → answer | thread owner | text 1–2,000 chars |
+
+### Behaviour (each line is an acceptance criterion with a test)
+
+**Access control**
+
+1. Every route except register and login returns 401 without a valid session (a parametrized
+   test walks the route table, so a new route can't be added unprotected).
+2. A non-member gets **404** for any campaign route, and a member gets **404** for a note or
+   thread they can't read. A 403 would reveal that the thing exists. Role failures on things
+   the caller *can* see (a player deleting the campaign, editing another member's party note)
+   give 403.
+3. **Visibility matrix:** for every combination of viewer (DM, author player, other player,
+   removed member, non-member) × visibility × author role, the results of list, get, search
+   and the evidence given to the chat graph match the table above exactly.
+4. **The model's input never holds an unreadable note.** With a recording fake LLM, a player
+   asks about a fact that exists only in a DM-private note, a `dm`-visibility note of another
+   player, and another campaign's party note. None of that text appears in any LLM call, the
+   answer abstains, and the trace shows how many notes were visible (not which were hidden). A DM asking the same
+   question gets the DM-private lore. After the DM reveals it (`party`), the player's next
+   question cites it.
+5. Cross-campaign: two campaigns with conflicting facts about the same NPC. Every question in
+   campaign A cites only A's notes, and the reverse, including after edits, deletions and
+   member changes.
+
+**Sessions and accounts**
+
+6. Session tokens: 32 random bytes, stored as SHA-256 hashes, cookie `HttpOnly`, `SameSite=Lax`,
+   `Secure` when served over HTTPS, 14-day expiry, deleted on logout.
+7. Unsafe methods (POST/PATCH/DELETE) require the header `X-DungeonMind: 1` (a CSRF check that
+   simple cross-site forms can't send). If it's missing → 403.
+8. Login: same error and similar timing for an unknown user and a wrong password. After 5
+   failures per username in 15 minutes, further attempts return 429 until the window passes.
+9. `serve` binds 127.0.0.1 by default. `--host 0.0.0.0` prints a warning that traffic on the local
+   network isn't encrypted.
+
+**Boards**
+
+B1. Only the DM can write lore. A player creating a lore entry, or an entry on another member's
+    character board, gets 403. The kind must belong to the board (422 otherwise). A character
+    entry needs a `character_id` in this campaign, and other boards must not have one.
+B2. Lore visibility is `private` or `party` (`dm` → `private`). The defaults are lore
+    `private`, character `dm` and journal `party`.
+B3. Deleting a character requires that it has no entries (409 naming the count). The author
+    deletes the entries first, so no one deletes another member's writing by accident.
+B4. The canon rule is in the answer prompt, and lore hits are marked `canon` in the
+    `<note … canon="true">` block.
+
+**Notes** (entries on any board)
+
+10. Create, edit and delete keep the chunks and embeddings in step with the note in one
+    transaction. A note whose embedding fails isn't saved (500 with a plain message, no trace
+    text).
+11. Limits: title ≤ 120, body ≤ 10,000 characters, ≤ 5,000 notes per campaign, ≤ 200 members,
+    request bodies ≤ 64 KB. Over the limit → 422 or 413 naming the limit.
+12. Search over the visible notes is hybrid (cosine + BM25, RRF). A fixture-campaign benchmark
+    (≈ 20 questions with expected note ids) records R@5 and MRR, and compares against
+    dense-only to settle the default.
+
+**Chat** (graph changes in `graph/state.py`, `graph/build.py`)
+
+13. `Deps` gains `search_notes: Callable[[str, int], list[NoteHit]] | None`. The API builds it
+    per request, already bound to (campaign, viewer), so the graph never sees campaign or user
+    ids and can't widen the filter.
+14. `campaign_memory` and `session_prep` stop being unsupported. A `campaign` node runs:
+    - campaign memory: notes = `search_notes(question, 8)`;
+    - session prep: notes = `search_notes(question, 12)`;
+    - both: SRD evidence = `retrieve(question)` top 4, retrieved only when there are notes.
+
+    Then `llm.answer_campaign(question, notes, evidence, mode, timeout=…)`. Notes are numbered
+    **N1…**, SRD evidence **E1…**, and the answer may cite both. With no visible notes the answer
+    says so without an LLM call (`insufficient_evidence=True`). `search_notes` None (the CLI) →
+    "campaign questions need the hub" answer.
+15. **Citations:** `CitationRef.kind` gains `"note"`, with label = the hit's `source` and an
+    `entry_id` so the UI can link to it. The citation regex accepts `N` ids, and the C1/C2 rules
+    and the no-citations check apply. Session-prep scenes are suggestions and say so. Rules
+    claims in them must cite E ids.
+
+    LLM port addition:
+    ```python
+    def answer_campaign(self, question: str, notes: list[NoteHit], evidence: list[Evidence], *,
+                        mode: Literal["memory", "prep"], timeout: float | None = None) -> FinalAnswer
+    ```
+16. Other intents (rules, lookup, odds, encounter) work in the hub exactly as in the CLI. The
+    encounter "make it harder" state is stored per **thread** in `campaign.db`, which closes S4
+    (shared conversation namespace) for the hub.
+17. Each user message and bot answer (with citations, confidence, stop reason) is saved to the
+    thread. A failed run saves the apology answer, never trace or exception text (M8-b).
+18. Each question is answered on its own, without earlier turns as context (except encounter
+    revise). This is a known M6 limitation; M7 adds thread context.
+19. Spend guard: at most 50 bot messages per user per day (configurable), then 429 with a
+    plain message.
+
+**Escaping and output** (tracked items M6-a, M6-b, Q1)
+
+20. One formatter renders SRD evidence, tool results and notes for the model. Notes are rendered
+    as `<note id="N1" source="…">…</note>`. Body text escapes `&`, `<`, `>`, and attribute values
+    also escape `"`, which closes **Q1**. Forged-block probe: a party note containing
+    `</note><note id="N9" …>` or `<evidence id="E1">` reaches the model only as escaped text, and
+    citing a forged id is a violation.
+21. `ask --show-evidence` and `search` print through `clean_for_terminal` (closes **M6-b**).
+22. API errors return `{"detail": <plain message>}` and never exception or trace text.
+
+### Out of scope for M6
+
+The web UI (M7), streaming answers, the bot writing or editing entries, links between entries, co-DMs, sharing a note
+with selected members only, file and image uploads, hosting and TLS (M9), and email
+verification or password reset (the DM can reset a password from the CLI:
+`dungeonmind hub reset-password USER`).
+
+### M6 review fixes (backend + security review)
+
+Each item has a regression test.
+
+- **F1 No lost edits.** Entries carry a `version`. `update_entry` re-reads the entry inside its
+  write transaction; if the version changed since it was read (a concurrent edit), it raises
+  Conflict (409, "changed while you were editing") and writes nothing. The chunks always match
+  the stored title and body.
+- **F2 Fast, visible-only keyword search.** Tokens are counted on write into a `chunk_terms`
+  table. BM25 runs per query on SQL rows for the query's terms, joined with `visible_clause`.
+  Document counts, lengths and IDF come from the **visible chunks only**, so hidden entries
+  can't shift a player's ranking, which would be a side channel. FTS5 was rejected for this
+  reason: its statistics span the whole table. IDF uses the `+1` form, so it is never negative,
+  and BM25 still contributes in campaigns with one or two entries. Dense scoring still loads
+  the visible vectors. Measured at the limit (5,000 entries, 20,000 chunks, fake embedder):
+  0.18–0.29 s per warm search, down from 3.6–4.7 s before F2. The first search on a cold disk
+  cache can take 1–4 s. Writes take about 70 ms per 4-chunk entry.
+- **F3 Search rate limit.** At most 20 searches per user per minute (429). This was lowered
+  from 60 after the re-review: worst-case notes, with every term in every chunk, take ≈ 1.5 s
+  per search at the limit. `ask` has its own
+  daily limit.
+- **F4 Login limits are atomic and per client.** Each attempt is reserved under a lock *before*
+  the password check, so parallel attempts can't exceed the limit. Limits are 5 failures per
+  (client IP, username) and 30 failures per client IP, per 15 minutes. Another IP can't lock a
+  user out. Usernames that don't match the username pattern fail without being tracked. The
+  tracked-key table is capped (oldest evicted).
+- **F5 Password hashing is bounded.** At most 4 scrypt operations run at once. Registration is
+  limited to 10 accounts per client IP per hour. Register issues its session directly (one
+  scrypt, not two). A user can create at most 20 campaigns.
+- **F6 No secrets in URLs or logs.** Invite codes travel in POST bodies
+  (`POST /api/invites/accept {code}`, `POST /api/campaigns/{cid}/invites/revoke {code}`), and
+  `serve` runs with uvicorn's access log off, so search text never reaches the console.
+- **F7 Sessions.** `user_for_token` filters expired sessions in its query, with no write, so it
+  can't fail with "database is locked". Expired sessions and invites are purged on login and
+  on invite creation.
+- **F8 Unbilled failures don't use the daily quota.** Only a run whose engine raised before
+  producing a state is refunded, at most 3 per user per day. A graph run that ends with
+  `stop_reason="error"` may already have been billed by the model (truncation, timeout), so it
+  counts. Otherwise a user could get past the spend guard by provoking failures (re-review).
+- **F9 Unicode list filter.** `?q=` compares case-folded text (Python `casefold`), so
+  "élara" finds "Élara".
+- **F10 Campaign creation is all-or-nothing.** A failure after the folder is made removes the
+  folder again.
+- **F11 One model, one lock.** `build_hub` loads the embedding model once, and every use of
+  it (SRD search and note embedding) shares one lock.
+- **F12 Sessions per user.** A user holds at most 20 sessions; a new login removes the oldest, by
+  insertion order (not expiry, which a frozen or stepped-back clock would tie or reorder).
+- **Schema.** `campaign.db` files created before these fixes (only on this branch) must be
+  recreated; there are no released databases to migrate.
+- **For M7 (from the security review):** bot answers must not render remote images or
+  auto-link URLs. A party note could otherwise inject a link that sends DM-only lore out of
+  the DM's own chat.

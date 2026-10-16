@@ -10,6 +10,7 @@ from dungeonmind.graph.state import (
     AgentTurn,
     EncounterExtraction,
     FinalAnswer,
+    NoteHit,
     RouteDecision,
     ToolCall,
     ToolRecord,
@@ -28,6 +29,7 @@ class FakeLLM:
     - `on_step`: optional hook run at the start of each `agent_step` (e.g. to advance a clock).
     - `extraction`: what `extract_encounter` returns (or an Exception to raise).
     - `presentation`: the FinalAnswer `present_encounter` returns (or an Exception to raise).
+    - `campaign`: the FinalAnswer `answer_campaign` returns (or an Exception to raise).
 
     The keyword-only `timeout` each method receives is recorded in `timeouts` as
     (method name, timeout), in call order, so `calls` payloads stay unchanged. Likewise the
@@ -42,6 +44,7 @@ class FakeLLM:
         on_step: Any = None,
         extraction: EncounterExtraction | Exception | None = None,
         presentation: FinalAnswer | Exception | None = None,
+        campaign: FinalAnswer | Exception | None = None,
     ) -> None:
         self._route = route
         self._final = final
@@ -49,6 +52,7 @@ class FakeLLM:
         self._on_step = on_step
         self._extraction = extraction
         self._presentation = presentation
+        self._campaign = campaign
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.timeouts: list[tuple[str, float | None]] = []
         self.revisions: list[str | None] = []
@@ -139,6 +143,33 @@ class FakeLLM:
             raise self._presentation
         return self._presentation
 
+    def answer_campaign(
+        self,
+        question: str,
+        notes: list[NoteHit],
+        evidence: list[Evidence],
+        *,
+        mode: str,
+        timeout: float | None = None,
+    ) -> FinalAnswer:
+        self.calls.append(
+            (
+                "answer_campaign",
+                {
+                    "question": question,
+                    "notes": copy.deepcopy(list(notes)),
+                    "evidence": list(evidence),
+                    "mode": mode,
+                },
+            )
+        )
+        self.timeouts.append(("answer_campaign", timeout))
+        if self._campaign is None:
+            raise AssertionError("FakeLLM.answer_campaign called but nothing was scripted")
+        if isinstance(self._campaign, Exception):
+            raise self._campaign
+        return self._campaign
+
     # --- helpers for assertions ---------------------------------------------------------------
 
     def names(self) -> list[str]:
@@ -173,6 +204,28 @@ def final(
         confidence=confidence,  # type: ignore[arg-type]
         insufficient_evidence=insufficient,
     )
+
+
+def note(entry_id: int, text: str = "", source: str | None = None, canon: bool = False) -> NoteHit:
+    return NoteHit(
+        entry_id=entry_id,
+        source=source or f"Journal › Note {entry_id}",
+        text=text or f"Campaign note {entry_id}.",
+        canon=canon,
+        score=1.0,
+    )
+
+
+class FakeNotes:
+    """`search_notes` stub: scripted hits per query (default: none); records (query, k)."""
+
+    def __init__(self, by_query: dict[str, list[NoteHit]] | None = None) -> None:
+        self.by_query = by_query or {}
+        self.calls: list[tuple[str, int]] = []
+
+    def __call__(self, query: str, k: int) -> list[NoteHit]:
+        self.calls.append((query, k))
+        return list(self.by_query.get(query, []))[:k]
 
 
 def evidence(slug: str, text: str | None = None, page: int = 100) -> Evidence:

@@ -1,11 +1,13 @@
 # DungeonMind
 
-**An agentic RAG Game Master copilot for D&D (SRD 5.2.1 / 2024 rules).**
+**A campaign hub for D&D groups (SRD 5.2.1 / 2024 rules), with a grounded chatbot.**
 
-DungeonMind answers rules questions with citations, looks up spells and monsters
-from structured data, does dice and encounter maths with deterministic tools, and
-keeps campaign notes isolated per campaign. It is a grounded, tool-using assistant,
-not a chat-with-a-PDF demo.
+A DM and their players share a campaign. The DM keeps the world's lore (NPCs, places,
+factions, secrets) on a lore board; each player keeps a storyboard for their character; everyone
+writes in the journal. Every entry is private, shared with the DM, or visible to the party, and
+the chatbot answers each person only from the entries *they* may read, plus the rules with SRD
+page citations. Dice, odds and encounter maths are done in code. It is a grounded, tool-using
+assistant, not a chat-with-a-PDF demo.
 
 ## Status
 
@@ -16,9 +18,10 @@ not a chat-with-a-PDF demo.
 | M3 — Structured tools: spells, monsters, dice, probability, encounter budget | ✅ |
 | M4 — LangGraph orchestrator with bounded workflows | ✅ |
 | M5 — Encounter builder | ✅ |
-| M6 — Isolated campaign memory | ⬜ |
-| M7 — 200+ question eval suite and CI regression gates | ⬜ |
-| M8 — FastAPI, Docker, tracing, metrics, CI/CD | ⬜ |
+| M6 — Campaign hub backend: boards, visibility, per-campaign storage, API | ✅ |
+| M7 — Campaign hub web UI (React) | ⬜ |
+| M8 — 200+ question eval suite and CI regression gates | ⬜ |
+| M9 — Docker, hosting, tracing, metrics, CI/CD | ⬜ |
 
 ## Quickstart
 
@@ -50,6 +53,30 @@ uv run dungeonmind chat "make it easier" --conversation temple
 question costs roughly 2–5¢ on Claude Opus 5.5, and an encounter build about 8–10¢ (two calls
 plus a longer write-up). `--conversation NAME` remembers the last encounter request so
 "make it harder/easier" revises it; it's stored in `data/state/` (git-ignored).
+
+### Campaign hub (M6: API; the web UI arrives in M7)
+
+```bash
+uv run dungeonmind serve                    # http://127.0.0.1:8000, data in data/hub/
+uv run dungeonmind serve --host 0.0.0.0     # let players on your network join (plain HTTP)
+uv run dungeonmind hub reset-password USER  # set a forgotten password
+uv run dungeonmind eval-notes               # note-search benchmark (local, no API calls)
+```
+
+The API lives under `/api` (accounts, campaigns, invites, characters, entries, search, chats).
+Browsers must send the header `X-DungeonMind: 1` on POST/PATCH/DELETE. Each campaign is
+stored in its own `data/hub/campaigns/<id>/campaign.db`.
+
+| Board | Who writes | Default visibility | Used for |
+| --- | --- | --- | --- |
+| Lore | DM only | private (revealing = set to party) | canon: NPCs, places, factions, secrets |
+| Character | that character's player | shared with DM | backstory, goals, bonds, secrets |
+| Journal | anyone | party | session notes, recaps, rumours |
+
+Private = only the author (the DM can't read players' private entries); shared with DM = the
+author and the DM; party = every member. Chat threads are private to whoever started them.
+Each user can ask 50 questions a day by default (`serve --daily-limit`) and run 20 searches a
+minute.
 
 Design docs: [SPEC](docs/SPEC.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROADMAP](docs/ROADMAP.md)
 
@@ -168,7 +195,7 @@ src/dungeonmind/
   tools/      spell/monster catalog (Open5e), dice, probability, encounters, tool registry
   schemas/    Chunk and shared models
   graph/      orchestrator: contract (state.py), LangGraph graph (build.py), Claude adapter (llm.py)
-  memory/     per-campaign memory (M6)
+  hub/        campaign hub: storage, accounts, boards, visibility-filtered search, chats, API
   evals/      retrieval benchmark dataset and runner
 scripts/      data acquisition
 tests/        unit + fixture tests against the real SRD

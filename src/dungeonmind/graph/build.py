@@ -4,6 +4,7 @@ The graph is a fixed DAG (route → one handler → verify; the encounter node m
 question on to the agent). The only loop is the agent's tool loop, which runs as a bounded
 Python loop inside the `agent` node (max_steps turns, timeout_s wall clock), so no model
 output can extend it. M5 contract (encounter node): docs/ARCHITECTURE.md › M5 contract.
+M6 contract (campaign node): docs/ARCHITECTURE.md › M6 contract.
 """
 
 from __future__ import annotations
@@ -17,14 +18,15 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from dungeonmind.graph.state import (
+    CAMPAIGN_INTENTS,
     LLM,
     TOOL_INTENTS,
-    UNSUPPORTED_INTENTS,
     ChatState,
     CitationRef,
     ConversationStore,
     FinalAnswer,
     Intent,
+    NoteSearch,
     StopReason,
     ToolCall,
     ToolRecord,
@@ -63,11 +65,17 @@ SEARCH_RULES_TOOL: dict[str, Any] = {
     },
 }
 
-UNSUPPORTED_ANSWER = (
-    "Campaign memory (your own notes, sessions and prep) arrives in a later milestone. "
-    "For now DungeonMind answers rules, spell and monster lookups, odds and encounter "
-    "questions from the 2024 SRD 5.2.1."
+NEEDS_HUB_ANSWER = (
+    "Questions about your campaign need the campaign hub (`dungeonmind serve`), where your "
+    "boards and journal live. Here DungeonMind answers rules, spell and monster lookups, odds "
+    "and encounter questions from the 2024 SRD 5.2.1."
 )
+NO_NOTES_ANSWER = (
+    "None of the campaign notes you can see cover that. Add it to your journal or character "
+    "board, or ask your DM."
+)
+CAMPAIGN_NOTES_K = {"memory": 8, "prep": 12}
+CAMPAIGN_SRD_K = 4
 DECLINE_ANSWER = (
     "DungeonMind covers running D&D with the 2024 rules (SRD 5.2.1): rules questions, "
     "spell and monster lookups, odds and encounter budgets. That question is outside "
@@ -89,6 +97,8 @@ class Deps:
     timeout_s: float = 60.0
     clock: Callable[[], float] = field(default=time.monotonic)
     store: ConversationStore = field(default_factory=InMemoryStore)
+    # M6: entries the asking user may read, already bound to (campaign, viewer) by the hub.
+    search_notes: NoteSearch | None = None
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_steps <= MAX_STEPS_LIMIT:
@@ -108,12 +118,15 @@ def _describe(error: Exception) -> str:
     return f"error: {type(error).__name__}: {error}"
 
 
+_KIND_BY_PREFIX = {"T": "tool", "N": "note"}
+
+
 def _final_fields(final: FinalAnswer) -> ChatState:
     # Citations are carried unchecked and unlabelled until verify resolves them against the state.
     return {
         "answer": final.answer,
         "citations": [
-            CitationRef(id=cid, kind="tool" if cid.startswith("T") else "srd", label="")
+            CitationRef(id=cid, kind=_KIND_BY_PREFIX.get(cid[:1], "srd"), label="")  # type: ignore
             for cid in final.citations
         ],
         "confidence": final.confidence,
@@ -174,8 +187,8 @@ def _after_route(state: ChatState) -> str:
         return "encounter"
     if intent in TOOL_INTENTS:
         return "agent"
-    if intent in UNSUPPORTED_INTENTS:
-        return "unsupported"
+    if intent in CAMPAIGN_INTENTS:
+        return "campaign"
     return "decline"
 
 
@@ -455,12 +468,52 @@ def _after_encounter(state: ChatState) -> str:
     return "verify" if "stop_reason" in state else "agent"
 
 
-def _unsupported_node(state: ChatState) -> ChatState:
+def _campaign_node(state: ChatState, deps: Deps) -> ChatState:
+    """Answer from the campaign entries the asking user may read (M6 behaviour 14).
+
+    `deps.search_notes` is already bound to one campaign and viewer, so nothing here can widen
+    what is visible; with no visible entries the model isn't called at all.
+    """
     started = time.perf_counter()
-    detail = f"{state['intent'].value} arrives in M6"
+    mode = "prep" if state["intent"] is Intent.SESSION_PREP else "memory"
+    if deps.search_notes is None:
+        return {
+            **_fallback(NEEDS_HUB_ANSWER, "completed"),
+            "trace": _event(state, "campaign", "no campaign hub", started),
+        }
+    question = state["question"]
+    try:
+        notes = deps.search_notes(question, CAMPAIGN_NOTES_K[mode])
+    except Exception as e:
+        return _node_error(state, "campaign", e, started)
+    if not notes:
+        return {
+            **_fallback(NO_NOTES_ANSWER, "completed"),
+            "notes": [],
+            "trace": _event(state, "campaign", f"{mode}: 0 visible notes", started),
+        }
+    detail = f"{mode}: {len(notes)} visible notes"
+    try:
+        evidence = deps.retrieve(question)[:CAMPAIGN_SRD_K]
+    except Exception as e:  # the notes can still answer; rules claims just can't be cited
+        evidence = []
+        detail += f"; warning: SRD search failed ({_describe(e)})"
+    try:
+        final = deps.llm.answer_campaign(
+            question, notes, evidence, mode=mode, timeout=deps.timeout_s
+        )
+    except Exception as e:
+        return {
+            **_node_error(state, "campaign", e, started),
+            "notes": notes,
+            "evidence": evidence,
+        }
     return {
-        **_fallback(UNSUPPORTED_ANSWER, "completed"),
-        "trace": _event(state, "unsupported", detail, started),
+        **_final_fields(final),
+        "notes": notes,
+        "evidence": evidence,
+        "stop_reason": "completed",
+        "trace": _event(state, "campaign", f"{detail}, {len(evidence)} SRD chunks", started),
     }
 
 
@@ -479,6 +532,8 @@ def _is_answer(state: ChatState) -> bool:
     intent = state.get("intent")
     if intent is Intent.RULES_QA or intent in TOOL_INTENTS:
         return True
+    if intent in CAMPAIGN_INTENTS:  # a model answer from visible notes, not a fallback
+        return bool(state.get("notes"))
     # Encounter: the builder's write-up or the agent's answer, not a revise-limit message.
     return intent is Intent.ENCOUNTER and ("steps" in state or bool(state.get("tool_calls")))
 
@@ -495,6 +550,10 @@ def _verify_node(state: ChatState) -> ChatState:
     refs |= {
         tid: CitationRef(id=tid, kind="tool", label=f"{r['name']} tool")
         for tid, r in records.items()
+    }
+    refs |= {
+        f"N{i}": CitationRef(id=f"N{i}", kind="note", label=n.source, entry_id=n.entry_id)
+        for i, n in enumerate(state.get("notes", []), start=1)
     }
 
     def problem(cid: str) -> str | None:
@@ -514,7 +573,7 @@ def _verify_node(state: ChatState) -> ChatState:
         # An uncited answer breaks the contract: downgrade rather than present it as grounded.
         violations.append("no-citations")
         confidence = "low"
-    if answered and state.get("other_edition"):
+    if answered and state.get("other_edition") and state.get("intent") not in CAMPAIGN_INTENTS:
         answer = OTHER_EDITION_NOTE + answer
 
     detail = f"{len(citations)} citations, {len(violations)} violations"
@@ -537,7 +596,7 @@ def build_graph(deps: Deps) -> Any:
     graph.add_node("answer", lambda s: _answer_node(s, deps))
     graph.add_node("agent", lambda s: _agent_node(s, deps))
     graph.add_node("encounter", lambda s: _encounter_node(s, deps))
-    graph.add_node("unsupported", _unsupported_node)
+    graph.add_node("campaign", lambda s: _campaign_node(s, deps))
     graph.add_node("decline", _decline_node)
     graph.add_node("verify", _verify_node)
 
@@ -545,11 +604,11 @@ def build_graph(deps: Deps) -> Any:
     graph.add_conditional_edges(
         "route",
         _after_route,
-        ["retrieve", "agent", "encounter", "unsupported", "decline", "verify"],
+        ["retrieve", "agent", "encounter", "campaign", "decline", "verify"],
     )
     graph.add_conditional_edges("encounter", _after_encounter, ["agent", "verify"])
     graph.add_conditional_edges("retrieve", _after_retrieve, ["answer", "verify"])
-    for node in ("answer", "agent", "unsupported", "decline"):
+    for node in ("answer", "agent", "campaign", "decline"):
         graph.add_edge(node, "verify")
     graph.add_edge("verify", END)
     return graph.compile()
