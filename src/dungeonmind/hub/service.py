@@ -12,7 +12,9 @@ import json
 import re
 import secrets
 import shutil
+import threading
 import uuid
+from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -59,6 +61,7 @@ INVITE_DAYS = 7
 INVITE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no 0/o, 1/l/i
 INVITE_LENGTH = 12
 MAX_SEARCH_K = 50
+SEARCHES_PER_MINUTE = 60
 LOGIN_FAILED = "Wrong username or password."
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
@@ -113,18 +116,25 @@ class Hub:
         self.clock = clock
         self.scrypt_n = scrypt_n
         self.daily_message_limit = daily_message_limit
-        self._limiter = auth.LoginLimiter()
+        self._limiter = auth.Limiter(auth.LOGIN_WINDOW)
+        self._registrations = auth.Limiter(auth.REGISTER_WINDOW)
+        self._searches: dict[str, deque[datetime]] = {}
+        self._search_lock = threading.Lock()
         # Verified against for unknown usernames, so both failures cost the same time (8).
         self._dummy_hash = auth.hash_password(secrets.token_urlsafe(16), scrypt_n)
 
     # --- accounts --------------------------------------------------------------------------
 
-    def register(self, username: str, password: str) -> User:
+    def register(self, username: str, password: str, client: str = "local") -> User:
         if not isinstance(username, str) or not re.fullmatch(models.USERNAME, username):
             raise Invalid("Usernames are 3–32 characters: lowercase letters, digits and _.")
         low, high = models.PASSWORD_CHARS
         if not isinstance(password, str) or not low <= len(password) <= high:
             raise Invalid(f"Passwords must be {low}–{high} characters.")
+        if not self._registrations.reserve(
+            [(f"register:{client}", auth.REGISTRATIONS_PER_CLIENT)], self.clock()
+        ):
+            raise RateLimited("Too many new accounts from this device. Try again later.")
         user = User(id=uuid.uuid4().hex, username=username)
         hashed = auth.hash_password(password, self.scrypt_n)
         with self.storage.app(immediate=True) as db:
@@ -136,45 +146,53 @@ class Hub:
             )
         return user
 
-    def login(self, username: str, password: str) -> str:
+    def login(self, username: str, password: str, client: str = "local") -> str:
         now = self.clock()
-        name = username if isinstance(username, str) else ""
-        if self._limiter.blocked(name, now):
+        if not isinstance(username, str) or not re.fullmatch(models.USERNAME, username):
+            raise AuthFailed(LOGIN_FAILED)  # can't be an account; not worth tracking (F4)
+        # Reserve the attempt before the password check, keyed per client (F4).
+        keys = [
+            (f"{client}|{username}", auth.LOGIN_FAILURES_PER_USER),
+            (f"client:{client}", auth.LOGIN_FAILURES_PER_CLIENT),
+        ]
+        if not self._limiter.reserve(keys, now):
             raise RateLimited("Too many failed sign-in attempts. Try again in 15 minutes.")
         with self.storage.app() as db:
             row = db.execute(
-                "SELECT id, password_hash FROM users WHERE username = ?", (name,)
+                "SELECT id, username, password_hash FROM users WHERE username = ?", (username,)
             ).fetchone()
         ok = isinstance(password, str) and auth.verify_password(
             password, row["password_hash"] if row else self._dummy_hash
         )
         if row is None or not ok:
-            self._limiter.failed(name, now)
-            raise AuthFailed(LOGIN_FAILED)
-        self._limiter.succeeded(name)
+            raise AuthFailed(LOGIN_FAILED)  # the reserved attempt stays counted
+        self._limiter.release(keys, now)
+        return self.new_session(User(id=row["id"], username=row["username"]))
+
+    def new_session(self, user: User) -> str:
+        """A fresh session token for `user` (F5: register uses this, no second scrypt)."""
+        now = self.clock()
         token = auth.new_token()
         expires = now + timedelta(days=auth.SESSION_DAYS)
         with self.storage.app() as db:
+            db.execute("DELETE FROM sessions WHERE expires_at <= ?", (_iso(now),))  # F7
             db.execute(
                 "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-                (auth.token_hash(token), row["id"], _iso(expires)),
+                (auth.token_hash(token), user.id, _iso(expires)),
             )
         return token
 
     def user_for_token(self, token: str) -> User | None:
         if not isinstance(token, str) or not token or len(token) > 200:
             return None
-        with self.storage.app() as db:
+        with self.storage.app() as db:  # read-only: expired sessions are purged at login (F7)
             row = db.execute(
-                "SELECT u.id, u.username, s.expires_at FROM sessions s "
-                "JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
-                (auth.token_hash(token),),
+                "SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id "
+                "WHERE s.token_hash = ? AND s.expires_at > ?",
+                (auth.token_hash(token), _iso(self.clock())),
             ).fetchone()
-            if row is None:
-                return None
-            if datetime.fromisoformat(row["expires_at"]) <= self.clock():
-                db.execute("DELETE FROM sessions WHERE token_hash = ?", (auth.token_hash(token),))
-                return None
+        if row is None:
+            return None
         return User(id=row["id"], username=row["username"])
 
     def logout(self, token: str) -> None:
@@ -192,7 +210,6 @@ class Hub:
                 raise NotFound("No such user.")
             db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed, row["id"]))
             db.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
-        self._limiter.succeeded(username)
 
     # --- membership ------------------------------------------------------------------------
 
@@ -227,16 +244,26 @@ class Hub:
         cid = uuid.uuid4().hex
         now = _iso(self.clock())
         self.storage.create_campaign_db(cid)
-        with self.storage.app(immediate=True) as db:
-            db.execute(
-                "INSERT INTO campaigns (id, name, dm_id, created_at) VALUES (?, ?, ?, ?)",
-                (cid, name, user.id, now),
-            )
-            db.execute(
-                "INSERT INTO memberships (campaign_id, user_id, role, joined_at) "
-                "VALUES (?, ?, 'dm', ?)",
-                (cid, user.id, now),
-            )
+        try:  # all-or-nothing (F10): a failed insert removes the new folder again
+            with self.storage.app(immediate=True) as db:
+                owned = db.execute(
+                    "SELECT COUNT(*) FROM memberships WHERE user_id = ? AND role = 'dm'",
+                    (user.id,),
+                ).fetchone()[0]
+                if owned >= models.MAX_CAMPAIGNS_PER_USER:
+                    raise Invalid(f"You can run at most {models.MAX_CAMPAIGNS_PER_USER} campaigns.")
+                db.execute(
+                    "INSERT INTO campaigns (id, name, dm_id, created_at) VALUES (?, ?, ?, ?)",
+                    (cid, name, user.id, now),
+                )
+                db.execute(
+                    "INSERT INTO memberships (campaign_id, user_id, role, joined_at) "
+                    "VALUES (?, ?, 'dm', ?)",
+                    (cid, user.id, now),
+                )
+        except BaseException:
+            shutil.rmtree(self.storage.campaign_folder(cid), ignore_errors=True)
+            raise
         return self._member(user, cid)
 
     def campaigns(self, user: User) -> list[Campaign]:
@@ -264,8 +291,10 @@ class Hub:
     def create_invite(self, user: User, cid: str) -> Invite:
         self._dm(user, cid)
         code = "".join(secrets.choice(INVITE_ALPHABET) for _ in range(INVITE_LENGTH))
-        expires = self.clock() + timedelta(days=INVITE_DAYS)
+        now = self.clock()
+        expires = now + timedelta(days=INVITE_DAYS)
         with self.storage.app() as db:
+            db.execute("DELETE FROM invites WHERE expires_at <= ?", (_iso(now),))  # F7
             db.execute(
                 "INSERT INTO invites (code_hash, campaign_id, expires_at) VALUES (?, ?, ?)",
                 (auth.token_hash(code), cid, _iso(expires)),
@@ -479,7 +508,7 @@ class Hub:
                     now,
                 ),
             )
-            store.replace_chunks(db, cur.lastrowid, chunks)
+            store.replace_chunks(db, cur.lastrowid, title, chunks)
             row = store.get_entry(db, cur.lastrowid)
         return store.entry_from_row(row)
 
@@ -563,13 +592,15 @@ class Hub:
             current = store.get_entry(db, row["id"])
             if current is None or current["author_id"] != user.id:
                 raise NotFound("Entry not found.")
+            if current["version"] != row["version"]:  # F1: someone saved in between
+                raise Conflict("This entry changed while you were editing. Reload and try again.")
             db.execute(
                 "UPDATE entries SET title = ?, body = ?, kind = ?, visibility = ?, session = ?, "
-                "updated_at = ? WHERE id = ?",
+                "version = version + 1, updated_at = ? WHERE id = ?",
                 (title, body, kind, visibility, session, _iso(self.clock()), row["id"]),
             )
             if chunks is not None:
-                store.replace_chunks(db, row["id"], chunks)
+                store.replace_chunks(db, row["id"], title, chunks)
             return store.entry_from_row(store.get_entry(db, row["id"]))
 
     def delete_entry(self, user: User, cid: str, eid: int) -> None:
@@ -585,12 +616,24 @@ class Hub:
         if isinstance(k, bool) or not isinstance(k, int) or not 1 <= k <= MAX_SEARCH_K:
             raise Invalid(f"k must be 1–{MAX_SEARCH_K}.")
         query = _text(query, "Search text", models.QUESTION_CHARS)
+        self._count_search(user)
         return self._search(cid, self._viewer(user, camp), query, k)
 
+    def _count_search(self, user: User) -> None:
+        """At most SEARCHES_PER_MINUTE direct searches per user (F3); chat has its own limit."""
+        now = self.clock()
+        with self._search_lock:
+            times = self._searches.setdefault(user.id, deque())
+            while times and now - times[0] >= timedelta(minutes=1):
+                times.popleft()
+            if len(times) >= SEARCHES_PER_MINUTE:
+                raise RateLimited("Too many searches. Wait a minute and try again.")
+            times.append(now)
+
     def _search(self, cid: str, viewer: Viewer, query: str, k: int) -> list[NoteHit]:
+        if self.embedder is None:
+            raise StorageError("Search isn't available.")
         with self.storage.campaign(cid) as db:
-            if self.embedder is None:
-                raise StorageError("Search isn't available.")
             return store.search(db, viewer, self.embedder, query, k)
 
     # --- chats -----------------------------------------------------------------------------
@@ -660,6 +703,8 @@ class Hub:
         except Exception:
             state = {"stop_reason": "error"}
         fields = reply_fields(state)
+        if fields["stop_reason"] == "error":
+            self._refund_message(user)  # F8: a failed run doesn't use up the quota
         text_out = fields.pop("text")
         return self._save_message(cid, thread_id, "assistant", text_out, fields)
 
@@ -677,6 +722,14 @@ class Hub:
             db.execute(
                 "INSERT INTO usage (user_id, day, count) VALUES (?, ?, 1) "
                 "ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1",
+                (user.id, day),
+            )
+
+    def _refund_message(self, user: User) -> None:
+        day = self.clock().astimezone(UTC).date().isoformat()
+        with self.storage.app(immediate=True) as db:
+            db.execute(
+                "UPDATE usage SET count = MAX(count - 1, 0) WHERE user_id = ? AND day = ?",
                 (user.id, day),
             )
 

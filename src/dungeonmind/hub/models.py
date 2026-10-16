@@ -35,6 +35,7 @@ QUESTION_CHARS = 2_000
 THREAD_TITLE_CHARS = 120
 MAX_ENTRIES = 5_000
 MAX_MEMBERS = 200
+MAX_CAMPAIGNS_PER_USER = 20  # campaigns a user runs as DM
 
 
 @dataclass(frozen=True)

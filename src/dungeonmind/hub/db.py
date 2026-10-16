@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS entries (
     body TEXT NOT NULL,
     visibility TEXT NOT NULL CHECK (visibility IN ('private', 'dm', 'party')),
     session INTEGER,
+    version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -85,8 +86,19 @@ CREATE TABLE IF NOT EXISTS chunks (
     seq INTEGER NOT NULL,
     text TEXT NOT NULL,
     vector BLOB NOT NULL,
+    length INTEGER NOT NULL,
     PRIMARY KEY (entry_id, seq)
 );
+-- Term counts per chunk, written with the chunk, so keyword search never re-tokenizes and its
+-- statistics can be computed over the visible chunks only (F2).
+CREATE TABLE IF NOT EXISTS chunk_terms (
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    term TEXT NOT NULL,
+    tf INTEGER NOT NULL,
+    PRIMARY KEY (entry_id, seq, term)
+);
+CREATE INDEX IF NOT EXISTS chunk_terms_term ON chunk_terms (term);
 CREATE TABLE IF NOT EXISTS threads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id TEXT NOT NULL,
@@ -114,9 +126,15 @@ class StorageError(HubError):
     status = 500
 
 
+def _casefold(value: str | None) -> str | None:
+    return value.casefold() if isinstance(value, str) else value
+
+
 def _connect(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None)
     conn.row_factory = sqlite3.Row
+    # Unicode-aware case folding for list filters (SQLite's lower() is ASCII-only).
+    conn.create_function("casefold", 1, _casefold, deterministic=True)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     return conn

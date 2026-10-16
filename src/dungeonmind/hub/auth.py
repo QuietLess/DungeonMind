@@ -16,9 +16,15 @@ SALT_BYTES = 16
 SCRYPT_MAXMEM = 64 * 1024 * 1024
 
 SESSION_DAYS = 14
-LOGIN_FAILURES = 5
 LOGIN_WINDOW = timedelta(minutes=15)
-MAX_TRACKED_USERNAMES = 10_000
+LOGIN_FAILURES_PER_USER = 5  # per (client, username)
+LOGIN_FAILURES_PER_CLIENT = 30
+REGISTER_WINDOW = timedelta(hours=1)
+REGISTRATIONS_PER_CLIENT = 10
+MAX_TRACKED_KEYS = 10_000
+SCRYPT_SLOTS = 4  # scrypt at n=2^15 uses ~32 MB; bound how many run at once (F5)
+
+_scrypt_slots = threading.BoundedSemaphore(SCRYPT_SLOTS)
 
 
 def _b64(raw: bytes) -> str:
@@ -28,9 +34,10 @@ def _b64(raw: bytes) -> str:
 def hash_password(password: str, n: int) -> str:
     """`scrypt$n$r$p$salt$hash`: the parameters travel with the hash, so they can change later."""
     salt = secrets.token_bytes(SALT_BYTES)
-    digest = hashlib.scrypt(
-        password.encode(), salt=salt, n=n, r=SCRYPT_R, p=SCRYPT_P, maxmem=SCRYPT_MAXMEM
-    )
+    with _scrypt_slots:
+        digest = hashlib.scrypt(
+            password.encode(), salt=salt, n=n, r=SCRYPT_R, p=SCRYPT_P, maxmem=SCRYPT_MAXMEM
+        )
     return f"scrypt${n}${SCRYPT_R}${SCRYPT_P}${_b64(salt)}${_b64(digest)}"
 
 
@@ -40,15 +47,16 @@ def verify_password(password: str, stored: str) -> bool:
         if scheme != "scrypt":
             return False
         expected = base64.b64decode(digest)
-        actual = hashlib.scrypt(
-            password.encode(),
-            salt=base64.b64decode(salt),
-            n=int(n),
-            r=int(r),
-            p=int(p),
-            maxmem=SCRYPT_MAXMEM,
-            dklen=len(expected),
-        )
+        with _scrypt_slots:
+            actual = hashlib.scrypt(
+                password.encode(),
+                salt=base64.b64decode(salt),
+                n=int(n),
+                r=int(r),
+                p=int(p),
+                maxmem=SCRYPT_MAXMEM,
+                dklen=len(expected),
+            )
     except (ValueError, TypeError):
         return False
     return hmac.compare_digest(actual, expected)
@@ -63,33 +71,49 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-class LoginLimiter:
-    """At most LOGIN_FAILURES failed logins per username per LOGIN_WINDOW (in memory)."""
+class Limiter:
+    """Sliding-window attempt counters, in memory.
 
-    def __init__(self) -> None:
+    `reserve` checks every key and records the attempt in one locked step, before the costly
+    work runs, so parallel requests can't slip past the limit (F4). `release` takes an
+    attempt back (a successful login).
+    """
+
+    def __init__(self, window: timedelta = LOGIN_WINDOW) -> None:
+        self.window = window
         self._failures: dict[str, deque[datetime]] = {}
         self._lock = threading.Lock()
 
-    def _recent(self, username: str, now: datetime) -> deque[datetime]:
-        times = self._failures.get(username, deque())
-        while times and now - times[0] > LOGIN_WINDOW:
+    def _recent(self, key: str, now: datetime) -> deque[datetime]:
+        times = self._failures.get(key, deque())
+        while times and now - times[0] > self.window:
             times.popleft()
         return times
 
-    def blocked(self, username: str, now: datetime) -> bool:
+    def reserve(self, keys: list[tuple[str, int]], now: datetime) -> bool:
+        """Record one attempt for every key, or none if any key is at its limit."""
         with self._lock:
-            return len(self._recent(username, now)) >= LOGIN_FAILURES
+            if any(len(self._recent(key, now)) >= limit for key, limit in keys):
+                return False
+            for key, _ in keys:
+                if key not in self._failures:
+                    self._make_room(now)
+                times = self._recent(key, now)
+                times.append(now)
+                self._failures[key] = times
+            return True
 
-    def failed(self, username: str, now: datetime) -> None:
+    def release(self, keys: list[tuple[str, int]], now: datetime) -> None:
         with self._lock:
-            if username not in self._failures and len(self._failures) >= MAX_TRACKED_USERNAMES:
-                # Bound memory: forget usernames whose failures have all expired.
-                for name in [u for u, t in self._failures.items() if not self._recent(u, now)]:
-                    del self._failures[name]
-            times = self._recent(username, now)
-            times.append(now)
-            self._failures[username] = times
+            for key, _ in keys:
+                times = self._failures.get(key)
+                if times and now in times:
+                    times.remove(now)
 
-    def succeeded(self, username: str) -> None:
-        with self._lock:
-            self._failures.pop(username, None)
+    def _make_room(self, now: datetime) -> None:
+        if len(self._failures) < MAX_TRACKED_KEYS:
+            return
+        for key in [k for k in self._failures if not self._recent(k, now)]:
+            del self._failures[key]
+        while len(self._failures) >= MAX_TRACKED_KEYS:  # still full: forget the oldest key
+            del self._failures[next(iter(self._failures))]

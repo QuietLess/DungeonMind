@@ -5,28 +5,26 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from dungeonmind.rag.dense import _QUERY_PREFIX, DenseIndex
+from dungeonmind.rag.dense import DenseIndex
 
 DEFAULT_CHUNKS = Path("data/processed/srd_5.2.1_chunks.jsonl")
 SRD_K = 6
 
 
 class FastEmbedder:
-    """The hub's Embedder over the SRD index's fastembed model (one model in memory)."""
+    """The hub's Embedder over the SRD index's fastembed model (one model in memory, F11)."""
 
-    def __init__(self, dense: DenseIndex) -> None:
+    def __init__(self, dense: DenseIndex, lock: threading.Lock) -> None:
         self.dense = dense
-        self._lock = threading.Lock()
+        self.lock = lock
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        with self._lock:
+        with self.lock:
             return [v.tolist() for v in self.dense.model.embed(texts)]
 
     def embed_query(self, text: str) -> list[float]:
-        name = self.dense.model_name
-        prefix = next((p for k, p in _QUERY_PREFIX.items() if name.startswith(k)), "")
-        with self._lock:
-            return next(iter(self.dense.model.embed([prefix + text]))).tolist()
+        with self.lock:
+            return self.dense._query_vector(text)
 
 
 def build_hub(root: Path, daily_message_limit: int = 50, chunks: Path = DEFAULT_CHUNKS):
@@ -41,16 +39,22 @@ def build_hub(root: Path, daily_message_limit: int = 50, chunks: Path = DEFAULT_
     if not chunks.exists():
         raise SystemExit(f"{chunks} not found: run `dungeonmind ingest` and `dungeonmind index`.")
     dense = DenseIndex()
+    _ = dense.model  # load once at start-up, not racily on the first two requests
     srd_chunks = read_jsonl(chunks)
     retriever = HybridRetriever(srd_chunks, dense=dense)
-    srd_lock = threading.Lock()  # embedded Qdrant isn't shared across request threads
+    # One lock for the shared model and the embedded Qdrant client, used by SRD search and
+    # note embedding alike (request handlers run in a thread pool).
+    model_lock = threading.Lock()
 
     def retrieve(query: str):
-        with srd_lock:
+        with model_lock:
             return retriever.retrieve(query, k=SRD_K, mode=Mode.DENSE)
 
     registry = ToolRegistry(Catalog.load(chunks=srd_chunks))
     engine = make_engine(ClaudeLLM(), retrieve, registry)
     return Hub(
-        root, embedder=FastEmbedder(dense), engine=engine, daily_message_limit=daily_message_limit
+        root,
+        embedder=FastEmbedder(dense, model_lock),
+        engine=engine,
+        daily_message_limit=daily_message_limit,
     )

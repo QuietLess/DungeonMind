@@ -401,8 +401,14 @@ def test_3_chat_engine_receives_exactly_the_readable_entries(world, viewer_name)
 
     def spy(question, search_notes, store, conversation_id):
         got.extend(h.entry_id for h in search_notes("shared words", 50))
-        return {"answer": "ok", "citations": [], "confidence": "low",
-                "insufficient_evidence": True, "stop_reason": "completed", "trace": []}
+        return {
+            "answer": "ok",
+            "citations": [],
+            "confidence": "low",
+            "insufficient_evidence": True,
+            "stop_reason": "completed",
+            "trace": [],
+        }
 
     hub.engine = spy
     hub.ask(viewer, camp.id, hub.create_thread(viewer, camp.id).id, "anything")

@@ -322,7 +322,8 @@ def serve(
             "Note: no Anthropic credentials set; the chatbot will answer with errors.", fg="yellow"
         )
     hub = build_hub(root, daily_message_limit=daily_limit)
-    uvicorn.run(create_app(hub), host=host, port=port, log_level="info")
+    # No access log: paths and query strings carry search text (F6).
+    uvicorn.run(create_app(hub), host=host, port=port, log_level="info", access_log=False)
 
 
 @hub_app.command("reset-password")

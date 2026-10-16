@@ -244,8 +244,10 @@ def test_hub_reset_password_cli(tmp_path):
     Hub(tmp_path, scrypt_n=2**4).register("mia_r", PASSWORD)
     new = "a new long password"
     result = CliRunner().invoke(
-        cli.app, ["hub", "reset-password", "mia_r", "--root", str(tmp_path)],
-        input=f"{new}\n{new}\n", env=WIDE,
+        cli.app,
+        ["hub", "reset-password", "mia_r", "--root", str(tmp_path)],
+        input=f"{new}\n{new}\n",
+        env=WIDE,
     )
     assert result.exit_code == 0, result.output
     assert Hub(tmp_path, scrypt_n=2**4).login("mia_r", new)

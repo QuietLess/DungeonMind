@@ -405,8 +405,9 @@ data/hub/campaigns/<campaign_id>/
   campaigns.
 - Note retrieval is held inside SQLite: each chunk stores its embedding (float32 blob, 384-d
   bge-small, the SRD model), and search scores the *visible* chunks with cosine (numpy) and BM25
-  (rank-bm25), fused with RRF. At the M6 limit (5,000 notes ≈ 20,000 chunks) a brute-force
-  scan takes milliseconds, so notes need no vector server. Qdrant stays for the SRD.
+  (BM25 from a per-chunk term table), fused with RRF. At the M6 limit (5,000 entries ≈ 20,000
+  chunks) a search takes 0.2–0.3 s warm (measured after F2), so notes need no vector server.
+  Qdrant stays for the SRD.
 - SQLite runs in WAL mode with one connection per request, which is enough for one local server.
 - Passwords are hashed with `hashlib.scrypt` (n=2^15, r=8, p=1, 16-byte salt), so no new
   dependency is needed.
@@ -597,8 +598,9 @@ Each item has a regression test.
   can't shift a player's ranking, which would be a side channel. FTS5 was rejected for this
   reason: its statistics span the whole table. IDF uses the `+1` form, so it is never negative,
   and BM25 still contributes in campaigns with one or two entries. Dense scoring still loads
-  the visible vectors (≈ 0.2 s at 20k chunks). The contract figure "milliseconds" now reads
-  "well under a second at the limit".
+  the visible vectors. Measured at the limit (5,000 entries, 20,000 chunks, fake embedder):
+  0.18–0.29 s per warm search, down from 3.6–4.7 s before F2. The first search on a cold disk
+  cache can take 1–4 s. Writes take about 70 ms per 4-chunk entry.
 - **F3 Search rate limit.** At most 60 searches per user per minute (429). `ask` has its own
   daily limit.
 - **F4 Login limits are atomic and per client.** Each attempt is reserved under a lock *before*

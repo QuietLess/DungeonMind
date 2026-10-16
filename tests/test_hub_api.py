@@ -302,7 +302,10 @@ def test_f4_login_uses_the_client_address(table, monkeypatch):
     hub = dm.app.state.hub
     seen = []
     real = hub.login
-    monkeypatch.setattr(hub, "login", lambda u, p, client="local": seen.append(client) or real(u, p, client=client))
-    _client(dm.app).post("/api/auth/login", json={"username": "dm_dana", "password": PASSWORD},
-                         headers=H)
+    monkeypatch.setattr(
+        hub, "login", lambda u, p, client="local": seen.append(client) or real(u, p, client=client)
+    )
+    _client(dm.app).post(
+        "/api/auth/login", json={"username": "dm_dana", "password": PASSWORD}, headers=H
+    )
     assert seen == ["testclient"]

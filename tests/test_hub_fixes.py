@@ -1,5 +1,6 @@
 """M6 review fixes F1–F10 (docs/ARCHITECTURE.md › M6 review fixes): regression tests."""
 
+import contextlib
 import threading
 import time
 
@@ -89,8 +90,13 @@ def test_f2_search_at_scale_is_well_under_a_second(tmp_path):
     words = "harvest baron vampire crypt lantern elara duke tower river guild".split()
     body = " ".join(words * 30)  # ~1,800 chars → 2 chunks
     for i in range(1_500):
-        hub.create_entry(dm, camp.id, board="journal", title=f"Note {i} {words[i % 10]}",
-                         body=f"{body} unique{i}")
+        hub.create_entry(
+            dm,
+            camp.id,
+            board="journal",
+            title=f"Note {i} {words[i % 10]}",
+            body=f"{body} unique{i}",
+        )
     started = time.perf_counter()
     hits = hub.search(dm, camp.id, "where is the vampire baron's crypt unique77", k=8)
     elapsed = time.perf_counter() - started
@@ -131,10 +137,8 @@ def test_f4_parallel_wrong_passwords_cannot_exceed_the_limit(tmp_path, monkeypat
     monkeypatch.setattr(auth, "verify_password", counting)
 
     def attempt():
-        try:
+        with contextlib.suppress(AuthFailed, RateLimited):
             hub.login("mia_r", "wrong password!", client="10.0.0.9")
-        except (AuthFailed, RateLimited):
-            pass
 
     threads = [threading.Thread(target=attempt) for _ in range(30)]
     for t in threads:
@@ -174,7 +178,7 @@ def test_f4_malformed_usernames_fail_without_being_tracked(tmp_path):
 
 def test_f4_limiter_table_is_bounded(monkeypatch):
     monkeypatch.setattr(auth, "MAX_TRACKED_KEYS", 50)
-    limiter = auth.LoginLimiter()
+    limiter = auth.Limiter()
     now = Clock()()
     for i in range(120):
         limiter.reserve([(f"key{i}", 5)], now)

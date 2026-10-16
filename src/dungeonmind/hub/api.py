@@ -36,6 +36,10 @@ class Credentials(_In):
     password: str
 
 
+class InviteCode(_In):
+    code: str
+
+
 class CampaignIn(_In):
     name: str
 
@@ -86,6 +90,11 @@ def _plain(errors: list[dict[str, Any]]) -> str:
     field = ".".join(str(p) for p in err.get("loc", ()) if p not in ("body", "query", "path"))
     message = err.get("msg", "invalid value")
     return f"{field}: {message}" if field else message
+
+
+def client_of(request: Request) -> str:
+    """The client address, for per-client rate limits (F4, F5)."""
+    return request.client.host if request.client else "unknown"
 
 
 def current_user(request: Request) -> User:
@@ -146,13 +155,13 @@ def create_app(hub: Hub) -> FastAPI:
 
     @public.post("/auth/register", status_code=201)
     def register(body: Credentials, request: Request, response: Response):
-        user = hub.register(body.username, body.password)
-        set_session(request, response, hub.login(body.username, body.password))
+        user = hub.register(body.username, body.password, client=client_of(request))
+        set_session(request, response, hub.new_session(user))  # F5: no second scrypt
         return asdict(user)
 
     @public.post("/auth/login")
     def login(body: Credentials, request: Request, response: Response):
-        token = hub.login(body.username, body.password)
+        token = hub.login(body.username, body.password, client=client_of(request))
         set_session(request, response, token)
         user = hub.user_for_token(token)
         return asdict(user) if user else {}
@@ -188,13 +197,14 @@ def create_app(hub: Hub) -> FastAPI:
     def create_invite(cid: str, user: Me):
         return asdict(hub.create_invite(user, cid))
 
-    @private.delete("/campaigns/{cid}/invites/{code}", status_code=204)
-    def revoke_invite(cid: str, code: str, user: Me):
-        hub.revoke_invite(user, cid, code)
+    # Invite codes travel in bodies, never URLs, so they don't end up in logs (F6).
+    @private.post("/campaigns/{cid}/invites/revoke", status_code=204)
+    def revoke_invite(cid: str, body: InviteCode, user: Me):
+        hub.revoke_invite(user, cid, body.code)
 
-    @private.post("/invites/{code}/accept")
-    def accept_invite(code: str, user: Me):
-        return asdict(hub.accept_invite(user, code))
+    @private.post("/invites/accept")
+    def accept_invite(body: InviteCode, user: Me):
+        return asdict(hub.accept_invite(user, body.code))
 
     @private.get("/campaigns/{cid}/members")
     def members(cid: str, user: Me):
