@@ -629,7 +629,8 @@ Each item has a regression test.
   folder again.
 - **F11 One model, one lock.** `build_hub` loads the embedding model once, and every use of
   it (SRD search and note embedding) shares one lock.
-- **F12 Sessions per user.** A user holds at most 20 sessions; a new login removes the oldest.
+- **F12 Sessions per user.** A user holds at most 20 sessions; a new login removes the oldest, by
+  insertion order (not expiry, which a frozen or stepped-back clock would tie or reorder).
 - **Schema.** `campaign.db` files created before these fixes (only on this branch) must be
   recreated; there are no released databases to migrate.
 - **For M7 (from the security review):** bot answers must not render remote images or

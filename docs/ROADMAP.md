@@ -69,7 +69,7 @@ items previously due "M8" are now due M9.
   - Only failures that never reached the model are refunded.
 
   The notes benchmark (`eval-notes`, 20 questions) scores hybrid at R@5 1.00, MRR 0.93, and
-  dense-only at R@5 0.97, MRR 0.93; n is small. 629 tests; M6 code coverage 96% (the
+  dense-only at R@5 0.97, MRR 0.93; n is small. 631 tests; M6 code coverage 96% (the
   production wiring in `hub/app.py` is checked by a live smoke run instead).
 
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)

@@ -183,9 +183,10 @@ class Hub:
                 (auth.token_hash(token), user.id, _iso(expires)),
             )
             db.execute(  # F12: keep only the newest sessions per user
+                # Insertion order, not expiry: clocks can stand still or step back.
                 "DELETE FROM sessions WHERE user_id = ? AND token_hash NOT IN ("
                 "SELECT token_hash FROM sessions WHERE user_id = ? "
-                "ORDER BY expires_at DESC LIMIT ?)",
+                "ORDER BY rowid DESC LIMIT ?)",
                 (user.id, user.id, SESSIONS_PER_USER),
             )
         return token
