@@ -35,7 +35,7 @@ def run(embedder: Embedder, k: int = 5, path: Path = DATASET) -> dict:
             owners[char["name"]] = (player, hub.create_character(player, camp.id, **char).id)
         by_id = {}
         for raw in data["entries"]:
-            e = dict(raw)
+            e = {k: v for k, v in raw.items() if k not in ("visibility", "author")}
             author, character_id = dm, None
             if name := e.pop("character", None):
                 author, character_id = owners[name]
