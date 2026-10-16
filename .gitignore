@@ -19,3 +19,6 @@ CLAUDE.md
 .coverage
 .env.*
 !.env.example
+
+# Personal handoff note (not part of the public repo)
+docs/DungeonMind_handoff.md
