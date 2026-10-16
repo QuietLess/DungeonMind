@@ -143,3 +143,39 @@ describe("ChatPage thread switching", () => {
     expect(screen.getByRole("log", { name: /conversation/i })).toBeInTheDocument();
   });
 });
+
+describe("ChatPage stale responses (re-review)", () => {
+  it("C6: a slow load of the previous thread can't overwrite the thread now open", async () => {
+    api.threads.mockResolvedValue([
+      { id: 5, title: "Slow chat", created_at: "" },
+      { id: 9, title: "Fast chat", created_at: "" },
+    ]);
+    api.thread.mockImplementation((_cid: string, tid: number) =>
+      new Promise((resolve) =>
+        setTimeout(
+          () => resolve({ thread: { id: tid, title: "", created_at: "" },
+            messages: [{ ...older, id: tid, text: tid === 5 ? "SLOW thread text" : "FAST thread text" }] }),
+          tid === 5 ? 120 : 10,
+        ),
+      ),
+    );
+    renderChat();
+    await userEvent.click(await screen.findByRole("button", { name: "Slow chat" }));
+    await userEvent.click(screen.getByRole("button", { name: "Fast chat" }));
+    expect(await screen.findByText("FAST thread text")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByText("SLOW thread text")).toBeNull();
+  });
+
+  it("C7: a pending answer in one thread doesn't block or mark another thread", async () => {
+    threadsWithOlder();
+    api.ask.mockImplementation(() => new Promise(() => {}));
+    renderChat();
+    await userEvent.type(screen.getByLabelText("Your question"), "Who is Elara?{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: "Older chat" }));
+    await screen.findByText("An older question");
+    expect(document.querySelector(".thinking")).toBeNull();
+    await userEvent.type(screen.getByLabelText("Your question"), "Next");
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+});
