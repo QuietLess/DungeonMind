@@ -348,6 +348,26 @@ Visibility is enforced in the storage query that selects candidate notes, *befor
 and before anything reaches the graph. Confidentiality doesn't depend on a prompt: a player's
 chat run has no DM secret in its context, so no prompt injection can reveal one.
 
+### Boards: where entries live
+
+Every piece of campaign writing is an **entry** on one of three boards. Each is a retrieval
+source for the bot under the same visibility rules.
+
+| Board | Who writes | Kinds | Default visibility | What it's for |
+| --- | --- | --- | --- | --- |
+| **Lore** (one per campaign) | DM only | npc, location, faction, item, event, plot, other | private (a DM secret) | The campaign's canon: world, NPCs, secrets. Revealing an entry = changing it to `party`. |
+| **Character** (one per character) | the character's owner only | backstory, goal, bond, secret, relationship, other | `dm` | A player's storyboard for their character. |
+| **Journal** (one per campaign) | any member | note | `party` | Session notes, recaps, rumours, reminders. |
+
+- Characters: any member can create characters (name ≤ 60, summary ≤ 500). A character's name
+  and summary are visible to every member; its entries follow their own visibility.
+- **Canon.** Lore entries are the campaign's canon. Journal and character entries are members'
+  records and may be incomplete or wrong. When visible sources conflict, the bot gives the lore
+  version and mentions the discrepancy. A player only ever sees revealed lore, so this can't
+  leak a secret.
+- "Learning" means retrieval at question time, not training. An edit or reveal affects the very
+  next question, and a deleted entry is never cited again.
+
 ### Roles and visibility
 
 Each campaign has exactly one DM (its creator) and any number of players.
@@ -358,6 +378,7 @@ Each campaign has exactly one DM (its creator) and any number of players.
 | `dm` | the author and the DM | Shared with DM |
 | `party` | every current member | Party |
 
+- Visibility applies to entries on every board. Lore entries accept only `private` and `party`.
 - For a DM-authored note, `dm` means the same as `private`. The API accepts it and stores it as
   `private`, and the UI offers only Private / Party to the DM.
 - Only the author can edit or delete a note. The DM can't edit players' notes.
@@ -371,10 +392,10 @@ Each campaign has exactly one DM (its creator) and any number of players.
 ### Storage: one database file per campaign
 
 ```
-data/hub/app.db                     users, sessions, campaigns, memberships, invites
-data/campaigns/<campaign_id>/
-  campaign.db                       notes, note chunks + embeddings, chat threads, messages,
-                                    encounter state per thread
+data/hub/app.db                     users, sessions, campaigns, memberships, invites, usage
+data/hub/campaigns/<campaign_id>/
+  campaign.db                       characters, entries, entry chunks + embeddings,
+                                    chat threads, messages, encounter state per thread
 ```
 
 - `campaign_id` is server-generated (`uuid4().hex`) and fullmatches `[0-9a-f]{32}` before any
@@ -394,11 +415,12 @@ data/campaigns/<campaign_id>/
 
 ```
 hub/db.py          open app.db / campaign.db (path checks, schema creation, WAL)
-hub/auth.py        users, password hashing, sessions, login rate limit
-hub/campaigns.py   campaigns, memberships, invites, role checks
-hub/notes.py       Note CRUD, chunking, embeddings, visibility filter, search
-hub/chats.py       threads, messages, per-thread encounter store, run_chat wiring
-hub/api.py         FastAPI app: routes, auth dependency, error mapping, CSRF check
+hub/auth.py        password hashing, session tokens, login rate limit
+hub/entries.py     entries + characters in one campaign.db: CRUD, chunking, embeddings,
+                   visibility filter, hybrid search (no permission logic)
+hub/chats.py       threads, messages, per-thread encounter store, chat engine wiring
+hub/service.py     Hub: the one place that checks membership, roles and authorship
+hub/api.py         FastAPI app: routes, session dependency, error mapping, CSRF check
 ```
 
 New dependencies: `fastapi` and `uvicorn` (runtime) and `httpx` (already present, for
@@ -409,21 +431,28 @@ TestClient). `dungeonmind serve [--host 127.0.0.1] [--port 8000]` starts the ser
 ```python
 Role = Literal["dm", "player"]
 Visibility = Literal["private", "dm", "party"]
+Board = Literal["lore", "character", "journal"]
 
-class Note:                      # campaign.db
-    id: int; author_id: str; title: str          # title 1–120 chars
-    body: str                                    # Markdown, 1–10,000 chars
+class Entry:                     # campaign.db
+    id: int; board: Board; character_id: int | None   # set iff board == "character"
+    author_id: str; kind: str                         # kind must belong to the board
+    title: str                                        # 1–120 chars
+    body: str                                         # Markdown, 1–10,000 chars
     visibility: Visibility
-    session: int | None                          # 1–999
-    created_at: datetime; updated_at: datetime   # UTC, injectable clock
+    session: int | None                               # 1–999
+    created_at: datetime; updated_at: datetime        # UTC, injectable clock
 
-# Chunks: a note's title + body split on blank lines into ≤ 1,500-char pieces (longer
-# paragraphs split at sentence ends, then hard-wrapped); re-chunked and re-embedded on edit.
+# Chunks: title + body split on blank lines into ≤ 1,500-char pieces (longer paragraphs
+# split at sentence ends, then hard-wrapped); re-chunked and re-embedded on edit.
 
 @dataclass
-class NoteHit:
-    note_id: int; title: str; chunk: str; author_name: str
-    visibility: Visibility; session: int | None; score: float; rank: int
+class NoteHit:                   # graph/state.py: what the graph sees of an entry
+    entry_id: int
+    source: str                  # e.g. "Lore › NPC › Elara", "Thorn's board › Backstory",
+                                 # "Journal › Session 3 recap (Mia)"
+    text: str                    # the best-matching chunk
+    canon: bool                  # True for lore entries
+    score: float
 ```
 
 `Embedder` protocol (`embed(texts) -> list[list[float]]`): the default wraps fastembed. Tests
@@ -440,8 +469,9 @@ inject a deterministic fake.
 | `POST /campaigns/{cid}/invites` → `{code, expires_at}` | DM | 12-char code, 7 days, single use, revocable |
 | `POST /invites/{code}/accept` | user | joins as player |
 | `GET /campaigns/{cid}/members`, `DELETE …/members/{uid}` | member / DM (or self = leave) | the DM can't leave; they delete the campaign instead |
-| `GET /campaigns/{cid}/notes?q=&session=&mine=` | member | visible notes only |
-| `POST /campaigns/{cid}/notes`, `GET/PATCH/DELETE …/notes/{nid}` | member / author | |
+| `GET/POST /campaigns/{cid}/characters`, `PATCH/DELETE …/characters/{chid}` | member / owner | |
+| `GET /campaigns/{cid}/entries?board=&character_id=&session=&q=` | member | visible entries only |
+| `POST /campaigns/{cid}/entries`, `GET/PATCH/DELETE …/entries/{eid}` | member / author (lore: DM) | |
 | `GET/POST /campaigns/{cid}/chats`, `GET …/chats/{tid}` | member, own threads | |
 | `POST /campaigns/{cid}/chats/{tid}/messages` `{text}` → answer | thread owner | text 1–2,000 chars |
 
@@ -461,7 +491,9 @@ inject a deterministic fake.
 4. **The model's input never holds an unreadable note.** With a recording fake LLM, a player
    asks about a fact that exists only in a DM-private note, a `dm`-visibility note of another
    player, and another campaign's party note. None of that text appears in any LLM call, the
-   answer abstains, and the trace shows how many notes were visible (not which were hidden).
+   answer abstains, and the trace shows how many notes were visible (not which were hidden). A DM asking the same
+   question gets the DM-private lore. After the DM reveals it (`party`), the player's next
+   question cites it.
 5. Cross-campaign: two campaigns with conflicting facts about the same NPC. Every question in
    campaign A cites only A's notes, and the reverse, including after edits, deletions and
    member changes.
@@ -477,7 +509,19 @@ inject a deterministic fake.
 9. `serve` binds 127.0.0.1 by default. `--host 0.0.0.0` prints a warning that traffic on the local
    network isn't encrypted.
 
-**Notes**
+**Boards**
+
+B1. Only the DM can write lore. A player creating a lore entry, or an entry on another member's
+    character board, gets 403. The kind must belong to the board (422 otherwise). A character
+    entry needs a `character_id` in this campaign, and other boards must not have one.
+B2. Lore visibility is `private` or `party` (`dm` → `private`). The defaults are lore
+    `private`, character `dm` and journal `party`.
+B3. Deleting a character requires that it has no entries (409 naming the count). The author
+    deletes the entries first, so no one deletes another member's writing by accident.
+B4. The canon rule is in the answer prompt, and lore hits are marked `canon` in the
+    `<note … canon="true">` block.
+
+**Notes** (entries on any board)
 
 10. Create, edit and delete keep the chunks and embeddings in step with the note in one
     transaction. A note whose embedding fails isn't saved (500 with a plain message, no trace
@@ -502,10 +546,16 @@ inject a deterministic fake.
     **N1…**, SRD evidence **E1…**, and the answer may cite both. With no visible notes the answer
     says so without an LLM call (`insufficient_evidence=True`). `search_notes` None (the CLI) →
     "campaign questions need the hub" answer.
-15. **Citations:** `CitationRef.kind` gains `"note"`, with label `"<title> — <author>, session 3"`
-    and `note_id` so the UI can link to it. The citation regex accepts `N` ids, and the C1/C2
-    rules and the no-citations check apply. Session-prep scenes are suggestions and say so.
-    Rules claims in them must cite E ids.
+15. **Citations:** `CitationRef.kind` gains `"note"`, with label = the hit's `source` and an
+    `entry_id` so the UI can link to it. The citation regex accepts `N` ids, and the C1/C2 rules
+    and the no-citations check apply. Session-prep scenes are suggestions and say so. Rules
+    claims in them must cite E ids.
+
+    LLM port addition:
+    ```python
+    def answer_campaign(self, question: str, notes: list[NoteHit], evidence: list[Evidence], *,
+                        mode: Literal["memory", "prep"], timeout: float | None = None) -> FinalAnswer
+    ```
 16. Other intents (rules, lookup, odds, encounter) work in the hub exactly as in the CLI. The
     encounter "make it harder" state is stored per **thread** in `campaign.db`, which closes S4
     (shared conversation namespace) for the hub.
@@ -528,7 +578,7 @@ inject a deterministic fake.
 
 ### Out of scope for M6
 
-The web UI (M7), streaming answers, the bot writing or editing notes, co-DMs, sharing a note
+The web UI (M7), streaming answers, the bot writing or editing entries, links between entries, co-DMs, sharing a note
 with selected members only, file and image uploads, hosting and TLS (M9), and email
 verification or password reset (the DM can reset a password from the CLI:
 `dungeonmind hub reset-password USER`).

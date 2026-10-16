@@ -35,6 +35,8 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan), 
 | Session prep | "Turn my notes into 5 scenes" | M6 |
 | Private notes | A player's secret backstory, shared with the DM only; the bot never shows it to other players | M6 |
 | Join a campaign | DM creates a campaign and an invite code; players join from their own devices | M6 (API), M7 (UI) |
+| Lore board | The DM writes NPCs, places, factions and secrets on the lore board; the bot treats it as canon and reveals an entry to players only once the DM sets it to Party | M6 |
+| Character board | A player keeps their character's backstory, goals and bonds; shared with the DM by default | M6 |
 | Campaign hub UI | Notes page and chat panel in the browser; citations link to the note or SRD page | M7 |
 
 ## Requirements (from the blueprint)
