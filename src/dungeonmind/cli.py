@@ -27,6 +27,22 @@ NO_CREDENTIALS = "No valid Anthropic credentials. Set ANTHROPIC_API_KEY (see REA
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
+MODELS_HELP = (
+    "Per-step models, e.g. 'route=claude-haiku-5-5,agent=claude-sonnet-5-5:low' "
+    "(default: $DUNGEONMIND_MODELS)"
+)
+
+
+def model_config(spec: str | None):
+    """`--models`, else $DUNGEONMIND_MODELS, else the default (M8 contract M2)."""
+    from dungeonmind.graph.models import ModelConfig
+
+    try:
+        return ModelConfig.parse(spec if spec is not None else os.environ.get("DUNGEONMIND_MODELS"))
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
 def clean_for_terminal(text: str) -> str:
     """Drop control characters (keeping newline and tab) so output can't drive the terminal."""
     return _CONTROL_CHARS.sub("", text)
@@ -126,6 +142,7 @@ def chat(
         str | None,
         typer.Option(help="Conversation name; remembers the last encounter for follow-ups"),
     ] = None,
+    models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
 ) -> None:
     """Ask anything: rules Q&A, lookups and odds, or building encounters, with citations."""
     from dungeonmind.graph.build import Deps, run_chat
@@ -136,6 +153,7 @@ def chat(
 
     if conversation is not None and not 1 <= len(conversation.strip()) <= 100:
         raise typer.BadParameter("--conversation must be 1–100 characters")
+    config = model_config(models)
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         raise typer.BadParameter(NO_CREDENTIALS)
     retriever = load_retriever(Mode.DENSE)
@@ -143,7 +161,7 @@ def chat(
     # Without --conversation, Deps keeps its in-memory store and nothing persists.
     extra = {"store": JsonFileStore(CONVERSATIONS)} if conversation else {}
     deps = Deps(
-        llm=ClaudeLLM(),
+        llm=ClaudeLLM(models=config),
         retrieve=lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE),
         registry=ToolRegistry(Catalog.load(chunks=chunks)),
         max_steps=max_steps,
@@ -304,6 +322,7 @@ def serve(
     daily_limit: Annotated[
         int, typer.Option(min=1, max=10_000, help="Bot messages per user per day")
     ] = 50,
+    models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
 ) -> None:
     """Run the campaign hub API (accounts, campaigns, boards, chat)."""
     import uvicorn
@@ -321,7 +340,7 @@ def serve(
         _say(
             "Note: no Anthropic credentials set; the chatbot will answer with errors.", fg="yellow"
         )
-    hub = build_hub(root, daily_message_limit=daily_limit)
+    hub = build_hub(root, daily_message_limit=daily_limit, models=model_config(models))
     # No access log: paths and query strings carry search text (F6).
     uvicorn.run(create_app(hub), host=host, port=port, log_level="info", access_log=False)
 
@@ -365,3 +384,188 @@ def eval_notes(
         typer.echo(f"{mode:<7} {line}  misses: {', '.join(rows['misses']) or '-'}")
     if out:
         out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+
+# --- evaluation (M8) ------------------------------------------------------------------------
+
+eval_app = typer.Typer(
+    no_args_is_help=True, help="The M8 evaluation suite: validate, offline, gate, live, compare."
+)
+app.add_typer(eval_app, name="eval")
+
+
+def _srd_titles() -> set[str]:
+    return {c.title for c in read_jsonl(DEFAULT_CHUNKS)}
+
+
+def _validated_suite(categories: list[str] | None = None, limit: int | None = None):
+    from dungeonmind.evals import suite
+    from dungeonmind.evals.fixture import note_titles
+
+    if not DEFAULT_CHUNKS.exists():
+        raise typer.BadParameter(f"{DEFAULT_CHUNKS} not found — run `dungeonmind ingest` first")
+    cases = suite.load()
+    problems = suite.validate(cases, _srd_titles(), note_titles())
+    if categories:
+        cases = [c for c in cases if c.category in set(categories)]
+    if limit is not None:
+        cases = cases[:limit]
+    return cases, problems
+
+
+def _offline_report():
+    import tempfile
+    import threading
+
+    from dungeonmind.evals.fixture import build_fixture
+    from dungeonmind.evals.offline import run_offline
+    from dungeonmind.hub.app import FastEmbedder
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    cases, problems = _validated_suite()
+    retriever = load_retriever(Mode.DENSE)
+    registry = ToolRegistry(Catalog.load(chunks=list(retriever.by_id.values())))
+    with tempfile.TemporaryDirectory() as root:
+        fixture = build_fixture(Path(root), FastEmbedder(retriever.dense, threading.Lock()))
+        report = run_offline(
+            cases, fixture, retriever=retriever, modes=(Mode.DENSE,), registry=registry
+        )
+    report["valid"] = not problems
+    report["problems"] = problems
+    return report
+
+
+@eval_app.command("validate")
+def eval_validate() -> None:
+    """Check the suite: unique ids, real SRD sections and notes, numbers that match the tools."""
+    cases, problems = _validated_suite()
+    for p in problems:
+        _say(f"  {p}", fg="red")
+    if problems:
+        raise typer.Exit(1)
+    _say(f"{len(cases)} cases, valid.")
+
+
+def _print_offline(report: dict) -> None:
+    for mode, m in report.get("srd", {}).items():
+        _say(f"SRD retrieval ({mode}): R@5 {m['recall@5']:.2f}  MRR {m['mrr']:.2f}  (n={m['n']})")
+    n = report["notes"]
+    _say(f"Notes retrieval: R@5 {n['recall@5']:.2f}  MRR {n['mrr']:.2f}  (n={n['n']})")
+    _say(f"Leak rate: {report['leak_rate']:.3f}  {report['leaks'] or ''}")
+    c = report["contract"]
+    _say(f"Contract check: {len(c['violations'])} violations over {c['n']} cases")
+    for v in c["violations"][:10]:
+        _say(f"  {v}", fg="red")
+
+
+@eval_app.command("offline")
+def eval_offline(
+    label: Annotated[str | None, typer.Option(help="Save the report under evals/results/")] = None,
+) -> None:
+    """Retrieval, leak and citation-contract checks. No API calls."""
+    from dungeonmind.evals.results import save
+
+    report = _offline_report()
+    _print_offline(report)
+    if label:
+        _say(f"Saved {save({**report, 'meta': {'kind': 'offline'}}, label)}")
+
+
+@eval_app.command("gate")
+def eval_gate(
+    live: Annotated[Path | None, typer.Option(help="Also check a saved live result")] = None,
+) -> None:
+    """Regression gate: exits non-zero when any threshold in evals/gates.json is breached."""
+    import json
+
+    from dungeonmind.evals.results import gate, load_gates
+
+    report = _offline_report()
+    _print_offline(report)
+    live_report = json.loads(live.read_text(encoding="utf-8")) if live else None
+    breaches = gate(report, load_gates(), live_report)
+    for b in breaches:
+        _say(f"GATE: {b}", fg="red")
+    if breaches:
+        raise typer.Exit(1)
+    _say("Gate passed.", fg="green")
+
+
+@eval_app.command("live")
+def eval_live(
+    label: Annotated[str, typer.Option(help="Name for the saved result")] = "live",
+    models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
+    max_cost: Annotated[
+        float, typer.Option(min=0.01, max=100.0, help="Stop once spending reaches this (USD)")
+    ] = 2.0,
+    limit: Annotated[int | None, typer.Option(min=1, help="Run only the first N cases")] = None,
+    category: Annotated[list[str] | None, typer.Option(help="Only these categories")] = None,
+    estimate_only: Annotated[
+        bool, typer.Option("--estimate", help="Print the expected cost; no API calls")
+    ] = False,
+    yes: Annotated[
+        bool, typer.Option("--yes", help="Run even if the estimate exceeds the budget")
+    ] = False,
+) -> None:
+    """Run the suite against the real model. Spends money: estimates first, stops at --max-cost."""
+    import tempfile
+    import threading
+
+    from dungeonmind.evals.fixture import build_fixture
+    from dungeonmind.evals.live import estimate, make_runner, run_live
+    from dungeonmind.evals.results import save
+    from dungeonmind.graph.llm import ClaudeLLM
+    from dungeonmind.hub.app import FastEmbedder
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    config = model_config(models)
+    cases, problems = _validated_suite(category, limit)
+    if problems:
+        raise typer.BadParameter("the suite is invalid; run `dungeonmind eval validate`")
+    expected = estimate(cases, config)
+    _say(f"{len(cases)} cases, estimated cost ${expected:.2f} (budget ${max_cost:.2f}).")
+    if estimate_only:
+        return
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        raise typer.BadParameter(NO_CREDENTIALS)
+    if expected > max_cost and not yes:
+        raise typer.BadParameter(
+            f"the estimate ${expected:.2f} exceeds --max-cost ${max_cost:.2f}; raise it, "
+            "narrow with --limit/--category, or pass --yes to run until the budget stops it"
+        )
+    retriever = load_retriever(Mode.DENSE)
+    registry = ToolRegistry(Catalog.load(chunks=list(retriever.by_id.values())))
+    llm = ClaudeLLM(models=config)
+    with tempfile.TemporaryDirectory() as root:
+        fixture = build_fixture(Path(root), FastEmbedder(retriever.dense, threading.Lock()))
+        runner = make_runner(
+            fixture, llm, lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE), registry
+        )
+        report = run_live(cases, runner, max_cost=max_cost)
+    report["meta"] = {"kind": "live", "models": config.describe(), "max_cost": max_cost}
+    path = save(report, label)
+    o = report["overall"]
+    _say(
+        f"Pass rate {o['pass_rate'] * 100:.1f}% ({o['passed']}/{o['n']}), "
+        f"cost ${report['cost']['total']:.2f}, p50 {report['latency_ms']['p50']:.0f} ms"
+    )
+    for cat, row in sorted(report["categories"].items()):
+        _say(f"  {cat:<14} {row['pass_rate'] * 100:5.1f}%  (n={row['n']})")
+    if report["stopped_early"]:
+        _say(f"Budget reached: {len(report['not_run'])} cases not run.", fg="yellow")
+    _say(f"Saved {path}")
+
+
+@eval_app.command("compare")
+def eval_compare(a: Path, b: Path) -> None:
+    """Compare two saved results: pass rate per category, cost, latency."""
+    import json
+
+    from dungeonmind.evals.results import compare
+
+    for line in compare(
+        json.loads(a.read_text(encoding="utf-8")), json.loads(b.read_text(encoding="utf-8"))
+    ):
+        _say(line)

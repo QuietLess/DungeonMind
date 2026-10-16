@@ -50,14 +50,24 @@ def _case(**kw) -> Case:
         ([_case(), _case()], "duplicate"),
         ([_case(category="poetry")], "poetry"),
         ([_case(expect={"srd": ["No Such Rule"]})], "No Such Rule"),
-        ([_case(category="campaign", viewer="dm", expect={"notes": ["No Such Note"]})], "No Such Note"),
+        (
+            [_case(category="campaign", viewer="dm", expect={"notes": ["No Such Note"]})],
+            "No Such Note",
+        ),
         ([_case(category="campaign", expect={"notes": ["Elara Voss"]})], "viewer"),
         ([_case(viewer="dm")], "viewer"),
         ([_case(viewer="wizard", category="campaign")], "wizard"),
         ([_case(expect={"colour": "red"})], "colour"),
         (
-            [_case(category="probability", expect={"numbers": [50.0], "args": {
-                "roll_type": "attack", "bonus": 5, "target": 15}})],
+            [
+                _case(
+                    category="probability",
+                    expect={
+                        "numbers": [50.0],
+                        "args": {"roll_type": "attack", "bonus": 5, "target": 15},
+                    },
+                )
+            ],
             "55",
         ),
     ],
@@ -69,8 +79,10 @@ def test_v1_validation_reports_each_problem(cases, needle):
 
 def test_v1_category_minimums_are_checked_on_the_full_suite_only():
     # A subset (as used by --category) is validated without the minimums.
-    assert validate([_case(expect={"srd": ["Grappled [Condition]"]})], {"Grappled [Condition]"},
-                    set()) == []
+    assert (
+        validate([_case(expect={"srd": ["Grappled [Condition]"]})], {"Grappled [Condition]"}, set())
+        == []
+    )
 
 
 # --- fixture ----------------------------------------------------------------------------------
@@ -125,8 +137,10 @@ def test_offline_srd_retrieval_uses_the_given_retriever(fixture):
 
             return [evidence("grappled", page=1)] if "rappl" in query else []
 
-    cases = [_case(id="r-1", expect={"srd": ["Grappled"]}, question="How does grappling work?"),
-             _case(id="r-2", expect={"srd": ["Grappled"]}, question="Ready?")]
+    cases = [
+        _case(id="r-1", expect={"srd": ["Grappled"]}, question="How does grappling work?"),
+        _case(id="r-2", expect={"srd": ["Grappled"]}, question="Ready?"),
+    ]
     report = run_offline(cases, fixture, retriever=Retriever(), modes=("dense",))
     assert report["srd"]["dense"]["recall@5"] == 0.5
     assert report["srd"]["dense"]["n"] == 2

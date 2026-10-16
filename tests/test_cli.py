@@ -251,3 +251,89 @@ def test_hub_reset_password_cli(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert Hub(tmp_path, scrypt_n=2**4).login("mia_r", new)
+
+
+# --- M8: eval commands and --models (no API calls) -------------------------------------------
+
+CHUNKS_PRESENT = cli.DEFAULT_CHUNKS.exists()
+
+
+@pytest.mark.skipif(not CHUNKS_PRESENT, reason="SRD chunks missing (run ingest)")
+def test_m8_eval_validate_passes_on_the_shipped_suite():
+    result = CliRunner().invoke(cli.app, ["eval", "validate"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "valid" in result.output
+
+
+@pytest.mark.skipif(not CHUNKS_PRESENT, reason="SRD chunks missing (run ingest)")
+def test_m8_eval_live_estimate_needs_no_key_and_makes_no_calls(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr("dungeonmind.graph.llm.ClaudeLLM", lambda *a, **k: pytest.fail("no LLM"))
+    result = CliRunner().invoke(cli.app, ["eval", "live", "--estimate", "--limit", "5"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "5 cases, estimated cost $" in result.output
+
+
+@pytest.mark.skipif(not CHUNKS_PRESENT, reason="SRD chunks missing (run ingest)")
+def test_m8_eval_live_refuses_when_the_estimate_exceeds_the_budget(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-placeholder")
+    monkeypatch.setattr("dungeonmind.graph.llm.ClaudeLLM", lambda *a, **k: pytest.fail("no LLM"))
+    result = CliRunner().invoke(cli.app, ["eval", "live", "--max-cost", "0.05"], env=WIDE)
+    assert result.exit_code != 0
+    assert "exceeds --max-cost" in _flat(result.output)
+
+
+@pytest.mark.skipif(not CHUNKS_PRESENT, reason="SRD chunks missing (run ingest)")
+def test_m8_eval_live_without_credentials_stops_before_running(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    result = CliRunner().invoke(cli.app, ["eval", "live", "--limit", "1"], env=WIDE)
+    assert result.exit_code != 0
+    assert NO_CREDS in _flat(result.output)
+
+
+def test_m8_eval_compare_prints_both_results(tmp_path):
+    import json
+
+    a = {
+        "meta": {"label": "opus"},
+        "categories": {"rules": {"pass_rate": 0.9, "n": 10}},
+        "overall": {"pass_rate": 0.9},
+        "cost": {"total": 4.0},
+        "latency_ms": {"p50": 3000},
+    }
+    b = {**a, "meta": {"label": "haiku"}, "overall": {"pass_rate": 0.8}, "cost": {"total": 0.2}}
+    (tmp_path / "a.json").write_text(json.dumps(a))
+    (tmp_path / "b.json").write_text(json.dumps(b))
+    result = CliRunner().invoke(
+        cli.app, ["eval", "compare", str(tmp_path / "a.json"), str(tmp_path / "b.json")], env=WIDE
+    )
+    assert result.exit_code == 0, result.output
+    assert "opus" in result.output and "haiku" in result.output and "-10.0" in result.output
+
+
+def test_m8_bad_models_option_is_a_clear_error(chat_env):
+    result = _invoke("q", "--models", "route=gpt-5")
+    assert result.exit_code != 0
+    assert "unknown model" in _flat(result.output)
+
+
+def test_m8_models_option_reaches_the_llm(chat_env, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        "dungeonmind.graph.llm.ClaudeLLM", lambda *a, **k: seen.update(k) or object()
+    )
+    result = _invoke("q", "--models", "route=claude-haiku-5-5")
+    assert result.exit_code == 0, result.output
+    assert seen["models"].for_step("route").model == "claude-haiku-5-5"
+
+
+def test_m8_models_env_var_is_the_fallback(chat_env, monkeypatch):
+    seen = {}
+    monkeypatch.setenv("DUNGEONMIND_MODELS", "all=claude-sonnet-5-5")
+    monkeypatch.setattr(
+        "dungeonmind.graph.llm.ClaudeLLM", lambda *a, **k: seen.update(k) or object()
+    )
+    assert _invoke("q").exit_code == 0
+    assert seen["models"].for_step("campaign").model == "claude-sonnet-5-5"

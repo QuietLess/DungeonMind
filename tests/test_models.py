@@ -33,8 +33,12 @@ def _response(payload, input_tokens=1000, output_tokens=200, cache_read=0, cache
 
 
 ROUTE = {"intent": "rules_qa", "reason": "r", "other_edition": False}
-ANSWER = {"answer": "Yes [E1].", "citations": ["E1"], "confidence": "high",
-          "insufficient_evidence": False}
+ANSWER = {
+    "answer": "Yes [E1].",
+    "citations": ["E1"],
+    "confidence": "high",
+    "insufficient_evidence": False,
+}
 
 
 def _client(*payloads, **usage):
@@ -58,7 +62,9 @@ def test_m2_parse_overrides_steps_and_optional_effort():
     assert config.for_step("route").model == "claude-haiku-5-5"
     assert config.for_step("route").effort == "low"  # keeps the step's default effort
     assert (config.for_step("agent").model, config.for_step("agent").effort) == (
-        "claude-sonnet-5-5", "high")
+        "claude-sonnet-5-5",
+        "high",
+    )
     assert config.for_step("campaign").model == "claude-opus-5-5"
 
 
@@ -130,7 +136,10 @@ def test_m3_usage_log_records_step_model_tokens_latency_and_cost():
     [entry] = llm.usage_log
     assert entry["step"] == "route" and entry["model"] == "claude-haiku-5-5"
     assert (entry["input_tokens"], entry["output_tokens"], entry["cache_read_tokens"]) == (
-        1200, 80, 300)
+        1200,
+        80,
+        300,
+    )
     assert entry["cost"] == pytest.approx(cost("claude-haiku-5-5", 1200, 80, 300))
     assert entry["latency_ms"] >= 0
 

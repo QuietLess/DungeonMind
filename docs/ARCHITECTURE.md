@@ -777,6 +777,7 @@ campaign cases only), optional `history` (earlier exchanges, for follow-ups), an
 | `decline` | out of scope: the decline answer | live |
 | `other_edition` | the 2014-rules note must appear | live |
 | `no_leak` | strings that must never appear in the answer or in the evidence the model got | offline (search) + live |
+| `forbid` | strings the answer must not contain, though they may be in the evidence (injection payloads such as "PWNED", prompt text) | live |
 
 Categories and minimum counts:
 - `rules` 60

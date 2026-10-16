@@ -231,9 +231,15 @@ def create_message(
     max_tokens: int = MAX_TOKENS,
     tools: list[dict[str, Any]] | None = None,
     timeout: float | None = None,
+    fallback: bool = True,
 ) -> Any:
     """The one Messages API request shape DungeonMind uses (structured JSON output)."""
     extra: dict[str, Any] = {}
+    if fallback:
+        # On a safety-classifier decline, the API retries on a fallback model. Only some models
+        # accept it (Haiku 5.5 has no server-side fallback; M8 contract M4).
+        extra["betas"] = ["server-side-fallback-2026-07-01"]
+        extra["fallbacks"] = "default"
     if tools:
         extra["tools"] = tools
     if timeout is not None:  # None leaves the SDK's default timeout in place
@@ -244,9 +250,6 @@ def create_message(
         system=system,
         messages=messages,
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-        # On a safety-classifier decline, the API retries on a fallback model.
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
         **extra,
     )
 

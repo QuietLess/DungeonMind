@@ -9,11 +9,13 @@ and the graph turns that into an honest error answer.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Literal
 
 import anthropic
 from pydantic import ValidationError
 
+from dungeonmind.graph.models import FALLBACK_MODELS, ModelConfig, cost
 from dungeonmind.graph.state import (
     AgentTurn,
     EncounterExtraction,
@@ -25,8 +27,6 @@ from dungeonmind.graph.state import (
     ToolRecord,
 )
 from dungeonmind.rag.answer import (
-    DEFAULT_EFFORT,
-    DEFAULT_MODEL,
     MAX_TOKENS,
     OUTPUT_SCHEMA,
     SYSTEM_PROMPT,
@@ -42,6 +42,8 @@ from dungeonmind.tools.encounter import Difficulty
 from dungeonmind.tools.encounter_builder import EncounterRequest
 
 ROUTE_MAX_TOKENS = 1024  # a routing decision is a few dozen tokens
+USAGE_LOG_MAX = 5_000
+USAGE_LOG_KEEP = 1_000
 
 ROUTE_SCHEMA = {
     "type": "object",
@@ -256,19 +258,25 @@ class ClaudeLLM:
     def __init__(
         self,
         client: anthropic.Anthropic | None = None,
-        model: str = DEFAULT_MODEL,
-        effort: str = DEFAULT_EFFORT,
+        model: str | None = None,
+        effort: str | None = None,
+        models: ModelConfig | None = None,
     ) -> None:
+        """`models` picks a model and effort per step (M8). `model` overrides every step and
+        `effort` overrides the medium-effort steps, for callers that want one setting."""
         self.client = client or default_client()
-        self.model = model
-        self.effort = effort
+        self.models = models or ModelConfig.default()
+        self.model_override = model
+        self.effort_override = effort
+        # One entry per API call: step, model, tokens, latency, cost (M8 contract M3).
+        self.usage_log: list[dict[str, Any]] = []
 
     def route(self, question: str, *, timeout: float | None = None) -> RouteDecision:
         response = self._create(
+            "route",
             ROUTE_PROMPT,
             [{"role": "user", "content": question}],
             ROUTE_SCHEMA,
-            effort="low",
             max_tokens=ROUTE_MAX_TOKENS,
             timeout=timeout,
         )
@@ -283,7 +291,9 @@ class ClaudeLLM:
         self, question: str, evidence: list[Evidence], *, timeout: float | None = None
     ) -> FinalAnswer:
         messages = [{"role": "user", "content": evidence_message(question, evidence)}]
-        response = self._create(SYSTEM_PROMPT, messages, OUTPUT_SCHEMA, timeout=timeout)
+        response = self._create(
+            "rules_answer", SYSTEM_PROMPT, messages, OUTPUT_SCHEMA, timeout=timeout
+        )
         return _final_answer(_final_json(response))
 
     def agent_step(
@@ -293,7 +303,9 @@ class ClaudeLLM:
         *,
         timeout: float | None = None,
     ) -> AgentTurn:
-        response = self._create(AGENT_PROMPT, messages, OUTPUT_SCHEMA, tools=tools, timeout=timeout)
+        response = self._create(
+            "agent", AGENT_PROMPT, messages, OUTPUT_SCHEMA, tools=tools, timeout=timeout
+        )
         usage = {
             "input_tokens": response.usage.input_tokens,
             "output_tokens": response.usage.output_tokens,
@@ -318,10 +330,10 @@ class ClaudeLLM:
         prior = _json_block(previous.model_dump(mode="json")) if previous else "none"
         content = f"<previous_request>\n{prior}\n</previous_request>\n\nUser: {question}"
         response = self._create(
+            "extract_encounter",
             EXTRACT_PROMPT,
             [{"role": "user", "content": content}],
             EXTRACT_SCHEMA,
-            effort="low",
             timeout=timeout,
         )
         return _extraction(_final_json(response))
@@ -349,7 +361,9 @@ class ClaudeLLM:
             f"Question: {question}"
         )
         messages = [{"role": "user", "content": content}]
-        response = self._create(PRESENT_PROMPT, messages, OUTPUT_SCHEMA, timeout=timeout)
+        response = self._create(
+            "present_encounter", PRESENT_PROMPT, messages, OUTPUT_SCHEMA, timeout=timeout
+        )
         return _final_answer(_final_json(response))
 
     def standalone_question(
@@ -358,10 +372,10 @@ class ClaudeLLM:
         turns = [{"question": h["question"], "answer": h["answer"]} for h in history]
         content = f"<history>\n{_json_block(turns)}\n</history>\n\nNew message: {question}"
         response = self._create(
+            "contextualize",
             STANDALONE_PROMPT,
             [{"role": "user", "content": content}],
             STANDALONE_SCHEMA,
-            effort="low",
             max_tokens=ROUTE_MAX_TOKENS,
             timeout=timeout,
         )
@@ -378,30 +392,69 @@ class ClaudeLLM:
     ) -> FinalAnswer:
         system = CAMPAIGN_PROMPT + (PREP_PROMPT_EXTRA if mode == "prep" else "")
         messages = [{"role": "user", "content": campaign_message(question, notes, evidence)}]
-        response = self._create(system, messages, OUTPUT_SCHEMA, timeout=timeout)
+        response = self._create("campaign", system, messages, OUTPUT_SCHEMA, timeout=timeout)
         return _final_answer(_final_json(response))
 
     def _create(
         self,
+        step: str,
         system: str,
         messages: list[dict[str, Any]],
         schema: dict[str, Any],
-        effort: str | None = None,
         max_tokens: int = MAX_TOKENS,
         tools: list[dict[str, Any]] | None = None,
         timeout: float | None = None,
     ) -> Any:
-        return create_message(
+        configured = self.models.for_step(step)
+        model = self.model_override or configured.model
+        effort = configured.effort
+        if self.effort_override and effort != "low":
+            effort = self.effort_override
+        started = time.perf_counter()
+        response = create_message(
             self.client,
-            model=self.model,
-            effort=effort or self.effort,
+            model=model,
+            effort=effort,
             system=system,
             messages=messages,
             schema=schema,
             max_tokens=max_tokens,
             tools=tools,
             timeout=timeout,
+            fallback=model in FALLBACK_MODELS,
         )
+        self._record(step, model, response, (time.perf_counter() - started) * 1000)
+        return response
+
+    def _record(self, step: str, model: str, response: Any, latency_ms: float) -> None:
+        usage = getattr(response, "usage", None)
+
+        def tokens(name: str) -> int:
+            value = getattr(usage, name, 0) if usage is not None else 0
+            return value if isinstance(value, int) else 0
+
+        entry = {
+            "step": step,
+            "model": model,
+            "input_tokens": tokens("input_tokens"),
+            "output_tokens": tokens("output_tokens"),
+            "cache_read_tokens": tokens("cache_read_input_tokens"),
+            "cache_write_tokens": tokens("cache_creation_input_tokens"),
+            "latency_ms": latency_ms,
+        }
+        try:
+            entry["cost"] = cost(
+                model,
+                entry["input_tokens"],
+                entry["output_tokens"],
+                entry["cache_read_tokens"],
+                entry["cache_write_tokens"],
+            )
+        except ValueError:  # a model without a price (e.g. a test double): cost unknown
+            entry["cost"] = 0.0
+        self.usage_log.append(entry)
+        if len(self.usage_log) > USAGE_LOG_MAX:  # a long-running server keeps only recent calls
+            del self.usage_log[: len(self.usage_log) - USAGE_LOG_KEEP]
 
 
 def _final_json(response: Any) -> dict[str, Any]:

@@ -15,8 +15,16 @@ def _case(category="rules", viewer=None, **expect) -> Case:
 
 
 def _result(**kw):
-    base = {"answer": "", "citations": [], "intent": "rules_qa", "stop_reason": "completed",
-            "insufficient_evidence": False, "violations": [], "tools": [], "llm_inputs": ""}
+    base = {
+        "answer": "",
+        "citations": [],
+        "intent": "rules_qa",
+        "stop_reason": "completed",
+        "insufficient_evidence": False,
+        "violations": [],
+        "tools": [],
+        "llm_inputs": "",
+    }
     return {**base, **kw}
 
 
@@ -25,12 +33,26 @@ def _result(**kw):
 
 def test_l2_intent_contains_and_grounded():
     case = _case(intent="rules_qa", srd=["Grappled [Condition]"], contains=[r"escape|athletics"])
-    ok = score(case, _result(
-        answer="Use Athletics to escape [E1].",
-        citations=[{"id": "E1", "kind": "srd", "label": "SRD 5.2.1, Rules Glossary › Grappled [Condition], p. 183"}],
-    ))
-    assert ok == {"intent_ok": True, "citations_ok": True, "grounded": True, "contains_ok": True,
-                  "passed": True}
+    ok = score(
+        case,
+        _result(
+            answer="Use Athletics to escape [E1].",
+            citations=[
+                {
+                    "id": "E1",
+                    "kind": "srd",
+                    "label": "SRD 5.2.1, Rules Glossary › Grappled [Condition], p. 183",
+                }
+            ],
+        ),
+    )
+    assert ok == {
+        "intent_ok": True,
+        "citations_ok": True,
+        "grounded": True,
+        "contains_ok": True,
+        "passed": True,
+    }
 
 
 def test_l2_wrong_intent_ungrounded_and_missing_text_fail():
@@ -42,15 +64,27 @@ def test_l2_wrong_intent_ungrounded_and_missing_text_fail():
 
 def test_l2_note_grounding_matches_entry_titles_in_labels():
     case = _case(category="campaign", viewer="player", notes=["Elara Voss"])
-    ok = score(case, _result(intent="campaign_memory", citations=[
-        {"id": "N1", "kind": "note", "label": "Lore › NPC › Elara Voss", "entry_id": 2}]))
+    ok = score(
+        case,
+        _result(
+            intent="campaign_memory",
+            citations=[
+                {"id": "N1", "kind": "note", "label": "Lore › NPC › Elara Voss", "entry_id": 2}
+            ],
+        ),
+    )
     assert ok["grounded"] is True
 
 
 @pytest.mark.parametrize(
     "answer, ok",
-    [("You hit 75% of the time.", True), ("Roughly 74.6 %.", True), ("About 0.75.", False),
-     ("You hit 70% of the time.", False), ("The budget is 4,400 XP.", None)],
+    [
+        ("You hit 75% of the time.", True),
+        ("Roughly 74.6 %.", True),
+        ("About 0.75.", False),
+        ("You hit 70% of the time.", False),
+        ("The budget is 4,400 XP.", None),
+    ],
 )
 def test_l2_numbers_allow_half_a_point_of_rounding(answer, ok):
     if ok is None:
@@ -88,14 +122,20 @@ def _runner(cost_each=0.30, answer="ok"):
 
     def run(case):
         calls.append(case.id)
-        return _result(answer=answer, cost=cost_each, latency_ms=100.0,
-                       usage={"route": {"cost": cost_each, "calls": 1}})
+        return _result(
+            answer=answer,
+            cost=cost_each,
+            latency_ms=100.0,
+            usage={"route": {"cost": cost_each, "calls": 1}},
+        )
 
     return run, calls
 
 
 def test_l3_stops_before_the_next_case_once_the_budget_is_spent():
-    cases = [Case(id=f"rules-{i:02d}", category="rules", question="q", expect={}) for i in range(10)]
+    cases = [
+        Case(id=f"rules-{i:02d}", category="rules", question="q", expect={}) for i in range(10)
+    ]
     run, calls = _runner(0.30)
     report = run_live(cases, run, max_cost=1.0)
     assert len(calls) == 4  # 0.9 < 1.0 so the 4th runs; 1.2 >= 1.0 stops before the 5th
@@ -154,10 +194,20 @@ def test_l4_labels_are_safe_file_names(tmp_path, label):
 
 
 def test_m5_compare_shows_pass_rate_cost_and_latency_deltas():
-    a = {"meta": {"label": "opus"}, "categories": {"rules": {"pass_rate": 0.9, "n": 10}},
-         "overall": {"pass_rate": 0.9}, "cost": {"total": 4.0}, "latency_ms": {"p50": 3000.0}}
-    b = {"meta": {"label": "haiku"}, "categories": {"rules": {"pass_rate": 0.8, "n": 10}},
-         "overall": {"pass_rate": 0.8}, "cost": {"total": 0.2}, "latency_ms": {"p50": 900.0}}
+    a = {
+        "meta": {"label": "opus"},
+        "categories": {"rules": {"pass_rate": 0.9, "n": 10}},
+        "overall": {"pass_rate": 0.9},
+        "cost": {"total": 4.0},
+        "latency_ms": {"p50": 3000.0},
+    }
+    b = {
+        "meta": {"label": "haiku"},
+        "categories": {"rules": {"pass_rate": 0.8, "n": 10}},
+        "overall": {"pass_rate": 0.8},
+        "cost": {"total": 0.2},
+        "latency_ms": {"p50": 900.0},
+    }
     text = "\n".join(compare(a, b))
     assert "rules" in text and "-10.0" in text
     assert "4.00" in text and "0.20" in text
@@ -166,13 +216,25 @@ def test_m5_compare_shows_pass_rate_cost_and_latency_deltas():
 
 # --- G1/G2 gates ------------------------------------------------------------------------------
 
-GATES = {"srd_recall@5": 0.85, "notes_recall@5": 0.90, "leak_rate": 0.0, "contract_violations": 0,
-         "live_pass_rate": 0.85, "live_no_leak": 1.0, "live_citations_ok": 0.95}
+GATES = {
+    "srd_recall@5": 0.85,
+    "notes_recall@5": 0.90,
+    "leak_rate": 0.0,
+    "contract_violations": 0,
+    "live_pass_rate": 0.85,
+    "live_no_leak": 1.0,
+    "live_citations_ok": 0.95,
+}
 
 
 def _offline(**kw):
-    base = {"valid": True, "srd": {"dense": {"recall@5": 0.9}}, "notes": {"recall@5": 0.95},
-            "leak_rate": 0.0, "contract": {"violations": []}}
+    base = {
+        "valid": True,
+        "srd": {"dense": {"recall@5": 0.9}},
+        "notes": {"recall@5": 0.95},
+        "leak_rate": 0.0,
+        "contract": {"violations": []},
+    }
     return {**base, **kw}
 
 
@@ -201,3 +263,91 @@ def test_g2_live_thresholds():
     bad = {"overall": {"pass_rate": 0.7}, "scores": {"no_leak_ok": 0.99, "citations_ok": 0.9}}
     breaches = gate(_offline(), GATES, bad)
     assert len(breaches) == 3
+
+
+def test_l2_forbid_checks_the_answer_only():
+    case = _case(category="injection", viewer="player", forbid=["PWNED"])
+    assert score(
+        case, _result(answer="The letter asks me to misbehave.", llm_inputs="...PWNED...")
+    )["forbid_ok"]
+    assert not score(case, _result(answer="Done. pwned"))["forbid_ok"]
+
+
+# --- L1 production runner, driven by a scripted LLM (no API) -----------------------------------
+
+
+def test_l1_runner_uses_the_hub_for_viewer_cases_and_records_inputs_and_usage(tmp_path):
+    import random
+    from pathlib import Path
+
+    from fake_embedder import HashEmbedder
+    from fake_llm import FakeLLM, FakeRetriever, final
+
+    from dungeonmind.evals.fixture import build_fixture
+    from dungeonmind.evals.live import make_runner
+    from dungeonmind.graph.state import Intent, RouteDecision
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    fixture = build_fixture(tmp_path, HashEmbedder())
+    llm = FakeLLM(
+        RouteDecision(intent=Intent.CAMPAIGN_MEMORY, reason="r"),
+        campaign=final("She is loyal to the old duke [N1].", ["N1"]),
+        standalone="Who is Elara Voss loyal to?",
+    )
+    llm.usage_log = [
+        {
+            "step": "campaign",
+            "model": "claude-opus-5-5",
+            "cost": 0.01,
+            "input_tokens": 10,
+            "output_tokens": 5,
+        }
+    ]
+    registry = ToolRegistry(Catalog.load(Path(__file__).parent / "fixtures"), rng=random.Random(0))
+    run = make_runner(fixture, llm, FakeRetriever(), registry)
+
+    case = Case(
+        id="followup-01",
+        category="followup",
+        question="Who is she loyal to?",
+        viewer="player",
+        history=[{"question": "Who is Elara Voss?", "answer": "A spy."}],
+        expect={"notes": ["Elara Voss"], "contains": ["duke"], "no_leak": ["ancient vampire"]},
+    )
+    result = run(case)
+    assert result["intent"] == "campaign_memory"
+    assert "Elara" in result["llm_inputs"] and "ancient vampire" not in result["llm_inputs"]
+    assert llm.names()[0] == "standalone_question"  # the seeded history reached the graph
+    assert result["usage"] == {} and result["cost"] == 0.0  # the log is cleared per case
+    assert score(case, result)["passed"]
+
+
+def test_l1_runner_uses_run_chat_for_non_viewer_cases(tmp_path):
+    import random
+    from pathlib import Path
+
+    from fake_embedder import HashEmbedder
+    from fake_llm import FakeLLM, FakeRetriever, evidence, final
+
+    from dungeonmind.evals.fixture import build_fixture
+    from dungeonmind.evals.live import make_runner
+    from dungeonmind.graph.state import Intent, RouteDecision
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    q = "How do I escape a grapple?"
+    llm = FakeLLM(
+        RouteDecision(intent=Intent.RULES_QA, reason="r"),
+        final=final("Use Athletics to escape [E1].", ["E1"]),
+    )
+    retrieve = FakeRetriever({q: [evidence("grappled", page=183)]})
+    registry = ToolRegistry(Catalog.load(Path(__file__).parent / "fixtures"), rng=random.Random(0))
+    run = make_runner(build_fixture(tmp_path, HashEmbedder()), llm, retrieve, registry)
+    case = Case(
+        id="rules-99",
+        category="rules",
+        question=q,
+        expect={"intent": "rules_qa", "srd": ["Grappled"], "contains": ["escape"]},
+    )
+    assert score(case, run(case))["passed"]
