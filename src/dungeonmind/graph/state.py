@@ -166,6 +166,12 @@ class LLM(Protocol):
         """
         ...
 
+    def standalone_question(
+        self, question: str, history: list[dict[str, str]], *, timeout: float | None = None
+    ) -> str:
+        """Rewrite a follow-up as a question that stands on its own, given earlier turns (M7)."""
+        ...
+
     def answer_campaign(
         self,
         question: str,
@@ -202,7 +208,9 @@ class TraceEvent(TypedDict):
 
 class ChatState(TypedDict, total=False):
     # Inputs
-    question: str
+    question: str  # after `contextualize`: the standalone question every later node uses
+    original_question: str  # what the user typed, when a follow-up was rewritten (M7)
+    history: list[dict[str, str]]  # earlier exchanges of this thread: {"question", "answer"}
     conversation_id: str
     campaign_id: str | None
     # Routing

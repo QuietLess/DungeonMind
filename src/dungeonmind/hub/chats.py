@@ -17,8 +17,8 @@ from dungeonmind.graph.state import ChatState, ConversationStore, NoteSearch
 from dungeonmind.hub.models import Message, Thread
 from dungeonmind.tools.encounter_builder import EncounterRequest
 
-# engine(question, search_notes, store, conversation_id) -> final ChatState
-ChatEngine = Callable[[str, NoteSearch, ConversationStore, str], ChatState]
+# engine(question, search_notes, store, conversation_id, history) -> final ChatState
+ChatEngine = Callable[[str, NoteSearch, ConversationStore, str, list[dict[str, str]]], ChatState]
 
 APOLOGY = "Sorry, something went wrong while answering this question. Please try again."
 
@@ -28,7 +28,11 @@ def make_engine(llm, retrieve, registry, **deps_kw: Any) -> ChatEngine:
     from dungeonmind.graph.build import Deps, run_chat
 
     def engine(
-        question: str, search_notes: NoteSearch, store: ConversationStore, conversation_id: str
+        question: str,
+        search_notes: NoteSearch,
+        store: ConversationStore,
+        conversation_id: str,
+        history: list[dict[str, str]] = (),  # type: ignore[assignment]
     ) -> ChatState:
         deps = Deps(
             llm=llm,
@@ -38,7 +42,7 @@ def make_engine(llm, retrieve, registry, **deps_kw: Any) -> ChatEngine:
             search_notes=search_notes,
             **deps_kw,
         )
-        return run_chat(question, deps, conversation_id=conversation_id)
+        return run_chat(question, deps, conversation_id=conversation_id, history=list(history))
 
     return engine
 

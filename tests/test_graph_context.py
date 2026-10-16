@@ -41,7 +41,8 @@ def test_ui8_follow_up_is_rewritten_and_used_for_routing_search_and_answer():
     state = run_chat("What about her brother?", _deps(llm, notes), history=HISTORY)
 
     assert llm.calls[0] == (
-        "standalone_question", {"question": "What about her brother?", "history": HISTORY}
+        "standalone_question",
+        {"question": "What about her brother?", "history": HISTORY},
     )
     assert llm.calls[1] == ("route", {"question": standalone})
     assert notes.calls == [(standalone, 8)]

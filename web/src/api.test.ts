@@ -40,7 +40,7 @@ describe("UI5 request", () => {
 
   it("throws the API's detail message", async () => {
     mockFetch(403, { detail: "Only the DM can do that." });
-    const err = await request("POST", "/x").catch((e) => e);
+    const err = (await request("POST", "/x").catch((e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(403);
     expect(err.message).toBe("Only the DM can do that.");
@@ -56,7 +56,7 @@ describe("UI5 request", () => {
 
   it("network failures become a readable ApiError", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
-    const err = await request("GET", "/me").catch((e) => e);
+    const err = (await request("GET", "/me").catch((e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.message).toMatch(/reach the server/i);
   });

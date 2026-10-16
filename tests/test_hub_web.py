@@ -38,7 +38,9 @@ def test_ui1_assets_and_root_files_are_served(client):
     assert client.get("/favicon.svg").text == "<svg/>"
 
 
-@pytest.mark.parametrize("path", ["/../secret.txt", "/%2e%2e/secret.txt", "/assets/../../secret.txt"])
+@pytest.mark.parametrize(
+    "path", ["/../secret.txt", "/%2e%2e/secret.txt", "/assets/../../secret.txt"]
+)
 def test_ui1_paths_cannot_escape_the_dist_folder(client, path):
     r = client.get(path)
     assert "outside dist" not in r.text
@@ -66,8 +68,12 @@ def test_ui2_every_response_has_security_headers(client, path):
     h = client.get(path).headers
     csp = h["content-security-policy"]
     for directive in (
-        "default-src 'self'", "img-src 'self' data:", "script-src 'self'",
-        "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'none'",
+        "default-src 'self'",
+        "img-src 'self' data:",
+        "script-src 'self'",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
     ):
         assert directive in csp
     assert h["x-content-type-options"] == "nosniff"

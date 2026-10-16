@@ -277,8 +277,14 @@ def test_ui8_engine_gets_the_last_three_exchanges_of_this_thread_only(tmp_path):
 
     def engine(question, search_notes, store, conversation_id, history=()):
         seen.append(list(history))
-        return {"answer": f"answer to {question}", "citations": [], "confidence": "low",
-                "insufficient_evidence": True, "stop_reason": "completed", "trace": []}
+        return {
+            "answer": f"answer to {question}",
+            "citations": [],
+            "confidence": "low",
+            "insufficient_evidence": True,
+            "stop_reason": "completed",
+            "trace": [],
+        }
 
     hub = make_hub(tmp_path, engine=engine)
     camp, dm, p1, *_ = party(hub)
@@ -288,6 +294,4 @@ def test_ui8_engine_gets_the_last_three_exchanges_of_this_thread_only(tmp_path):
     for i in range(5):
         hub.ask(p1, camp.id, mine.id, f"q{i}")
     assert seen[1] == []  # first question in `mine`: nothing from the other thread
-    assert seen[-1] == [
-        {"question": f"q{i}", "answer": f"answer to q{i}"} for i in (1, 2, 3)
-    ]
+    assert seen[-1] == [{"question": f"q{i}", "answer": f"answer to q{i}"} for i in (1, 2, 3)]
