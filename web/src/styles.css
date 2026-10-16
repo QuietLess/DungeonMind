@@ -218,7 +218,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .visibility-picker { margin-bottom: 0.9rem; }
 
 /* --- chat ------------------------------------------------------------------------------------------- */
-.chat { display: grid; grid-template-columns: 240px 1fr; height: calc(100vh - 57px); }
+.chat { display: grid; grid-template-columns: 240px 1fr; height: calc(100dvh - 57px); }
+.campaign-main:focus { outline: none; }
 .thread-list { border-right: 1px solid var(--border); padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
 .thread-list ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.2rem; }
 .thread { all: unset; display: block; cursor: pointer; padding: 0.5rem 0.65rem; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: calc(100% - 1.3rem); }
@@ -266,7 +267,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
   .role-note { display: none; }
   .board { padding: 1rem; }
   .character-layout { grid-template-columns: 1fr; }
-  .chat { grid-template-columns: 1fr; height: calc(100vh - 140px); }
+  .campaign-shell { height: calc(100dvh - 53px); display: flex; flex-direction: column; }
+  .campaign-main { flex: 1; min-height: 0; overflow-y: auto; }
+  .chat { grid-template-columns: 1fr; height: 100%; }
   .thread-list { display: none; }
   .thread-picker { display: block; }
   .messages { padding: 1rem; }

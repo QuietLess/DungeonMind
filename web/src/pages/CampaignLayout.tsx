@@ -55,7 +55,7 @@ export function CampaignLayout() {
             {campaign.role === "dm" ? "You're the Dungeon Master" : "You're a player"}
           </p>
         </nav>
-        <div className="campaign-main">
+        <div className="campaign-main" tabIndex={-1}>
           <Outlet />
         </div>
       </div>

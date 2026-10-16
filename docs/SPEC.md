@@ -34,10 +34,10 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan), 
 | Campaign memory | "What did we promise Elara?" → answered only from notes the asker may read | ✅ M6 (API) |
 | Session prep | "Turn my notes into 5 scenes" | ✅ M6 (API) |
 | Private notes | A player's secret backstory, shared with the DM only; the bot never shows it to other players | ✅ M6 (API) |
-| Join a campaign | DM creates a campaign and an invite code; players join from their own devices | ✅ M6 (API), M7 (UI) |
+| Join a campaign | DM creates a campaign and an invite code; players join from their own devices | ✅ M6 (API), ✅ M7 (UI) |
 | Lore board | The DM writes NPCs, places, factions and secrets on the lore board; the bot treats it as canon and reveals an entry to players only once the DM sets it to Party | ✅ M6 (API) |
 | Character board | A player keeps their character's backstory, goals and bonds; shared with the DM by default | ✅ M6 (API) |
-| Campaign hub UI | Notes page and chat panel in the browser; citations link to the note or SRD page | M7 |
+| Campaign hub UI | Notes page and chat panel in the browser; citations link to the note or SRD page | ✅ M7 |
 
 ## Requirements (from the blueprint)
 
@@ -63,6 +63,8 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan), 
 - **M6 (campaign hub backend):** met. See `ARCHITECTURE.md` › M6 contract and review fixes. The
   visibility matrix and cross-campaign tests pass, and a recording fake LLM never receives an
   unreadable note.
+- **M7 (campaign hub UI):** met. See `ARCHITECTURE.md` › M7 contract and review fixes; checked in
+  real Chrome for DM and player, light and dark, desktop and phone width.
 
 ## Out of scope for now
 

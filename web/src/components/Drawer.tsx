@@ -42,7 +42,9 @@ export function Drawer({
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      previous?.focus();
+      // The opener may be gone (e.g. a deleted entry's card): fall back to the main region.
+      if (previous?.isConnected) previous.focus();
+      else document.querySelector<HTMLElement>("main, .campaign-main")?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

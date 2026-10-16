@@ -8,7 +8,7 @@
 | M4 Orchestrator | Intent routing + bounded LangGraph workflow, `chat` CLI | No uncontrolled agent loop; contract tests pass | ✅ |
 | M5 Encounter builder | End-to-end planning workflow | Repeatable, cited, constraint-aware results | ✅ |
 | M6 Campaign hub backend | FastAPI: accounts, campaigns, invites, boards with visibility, per-campaign storage, campaign-aware chat | Visibility matrix + cross-campaign tests pass; the model never receives an unreadable note | ✅ |
-| M7 Campaign hub UI | React (Vite, TS): login, campaigns, notes, chat with linked citations; thread context | Main journeys work in the browser for DM and player; frontend + accessibility review | ⬜ |
+| M7 Campaign hub UI | React (Vite, TS): login, campaigns, notes, chat with linked citations; thread context | Main journeys work in the browser for DM and player; frontend + accessibility review | ✅ |
 | M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ⬜ |
 | M9 Production | Docker, hosting + TLS, tracing, metrics, CI/CD | Deployable demo + monitored runs | ⬜ |
 
@@ -72,6 +72,25 @@ items previously due "M8" are now due M9.
   dense-only at R@5 0.97, MRR 0.93; n is small. 631 tests; M6 code coverage 96% (the
   production wiring in `hub/app.py` is checked by a live smoke run instead).
 
+- **M7:** `dungeonmind serve` now serves a React web app (Vite, TypeScript) on the API's
+  origin. It has sign-in, campaigns with invite codes, the lore board with Reveal, character
+  storyboards, the journal, members, and chat. Chat citations open the note (visibility is
+  checked again) or show the SRD source. Follow-ups are rewritten into standalone questions
+  using the thread's last 3 exchanges.
+  - Answers are rendered without HTML, links or images (closes H1). A strict CSP and security
+    headers cover every response.
+  - Node comes from a `uv` dev dependency, so nothing is installed system-wide.
+  - Built test-first: Python tests for serving and thread context; Vitest + Testing Library
+    for rendering, the API client, visibility, the drawer, chat and forms.
+  - A real Chrome walk-through found two bugs, both fixed with regression tests: an effect
+    that returned `scrollIntoView()` (now a Promise in Chrome) crashed chat, and a new chat
+    lost its first question.
+  - The frontend review found one CRITICAL bug, fixed: typing in a drawer lost focus after one
+    letter. It also found HIGH chat thread mix-ups, no chat switching on phones, and drafts
+    lost by a backdrop click. All fixed (D1–D4, C1–C7, F1–F3), and re-reviewed.
+  - The security review found no leaks; its four LOWs are fixed (W1–W4) and re-reviewed.
+  - 663 Python + 46 frontend tests.
+
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
 | Id | Item | Do by |
@@ -90,7 +109,9 @@ items previously due "M8" are now due M9.
 | S5 | Locking for simultaneous writers to the conversation store (lost updates possible) | M9 |
 | S6 | Conversation store keeps one `.bak`; a second damage event overwrites it (timestamped backups) | M9 |
 | S7 | Unlink an existing `.bak` before copying (a pre-placed symlink would be followed) | M9 |
-| H1 | Bot answers in the UI must not render remote images or auto-link URLs (an injected link could send DM-only lore out of the DM's own chat) | M7 |
+| H1 | ~~Bot answers in the UI must not render remote images or auto-link URLs~~ (done in M7: UI3 + CSP) | ✅ M7 |
+| U1 | Real bot answers haven't been seen in the UI yet (no API key in the dev shell); one live check with a key | next session |
+| U2 | Only one process can open the embedded SRD index: run `serve` or `chat`, not both | M9 |
 | H2 | Behind a reverse proxy every client looks like 127.0.0.1: an explicit forwarded-IP setting, a global per-username login limit, IPv6 /64 grouping | M9 |
 | H3 | The DM runs the server, so `campaign.db` is readable by them in plain text; "private" is enforced by the app, not cryptography. Document clearly, or add per-user encryption | M9 |
 | H4 | Store the embedding model name and dimension per campaign; a model change today makes every search fail | M8 |
@@ -112,12 +133,11 @@ items previously due "M8" are now due M9.
 - Retrieval sometimes misses a relevant rule for unusual phrasings (e.g. a 2014-framed
   grappling question didn't retrieve Unarmed Strike).
 
-- Hub chat answers each question on its own (no earlier turns as context, except "make it
-  harder"). M7 adds thread context.
+- Thread context covers the last 3 exchanges; older turns are not used.
+- No live updates between users: refresh to see others' new entries.
 - One DM per campaign; no co-DMs, no sharing an entry with selected members only.
 
 ## Next
 
-- M7 campaign hub web UI (React + Vite): login, campaign list, boards and journal with
-  visibility badges and a reveal button, chat with citations that open the entry or SRD page,
-  thread context. Includes H1.
+- M8 evaluation: a 200+ question suite covering rules and campaign notes, regression gates,
+  and the per-step model choice (Opus vs Haiku) with measured cost and latency.

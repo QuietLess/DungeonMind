@@ -741,5 +741,12 @@ Each item has a regression test.
 - **W4** API responses carry `Cache-Control: no-store`. Static files answer HEAD. Pages also
   send `Cross-Origin-Opener-Policy: same-origin` and a `Permissions-Policy` that denies camera,
   microphone, geolocation and payment.
+- **Re-review fixes.**
+  - C6: a slow load of a thread the user has left is ignored.
+  - C7: "thinking" and errors belong to the thread that asked. A new chat that finishes
+    creating after the user moved elsewhere doesn't pull them back.
+  - After a delete, focus returns to the page.
+  - The phone layout uses `100dvh`, so the composer stays visible.
+  - W2 compares `.map` case-insensitively; APFS would otherwise serve `a.js.MAP`.
 - **Known limitation:** the embedded SRD index can be open in one process at a time, so run
   either `serve` or `chat`/`ask`, not both. A Qdrant server (M9) removes this.

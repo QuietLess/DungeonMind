@@ -26,7 +26,10 @@ export function ChatPage() {
   const { data: threads, reload: reloadThreads } = useLoad(() => api.threads(campaign.id), [campaign.id]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
+  // Which thread is waiting for an answer ("new" while its thread is being created). Busy UI
+  // shows only in that thread, so switching away never blocks another thread (C7).
+  const [pendingFor, setPendingFor] = useState<number | "new" | null>(null);
+  const busy = pendingFor !== null && (pendingFor === threadId || (pendingFor === "new" && threadId === null));
   const [error, setError] = useState<string | null>(null);
   const [openEntry, setOpenEntry] = useState<number | null>(null);
   const [source, setSource] = useState<Citation | null>(null);
@@ -49,10 +52,14 @@ export function ChatPage() {
     setMessages([]);
     setError(null);
     if (threadId === null) return;
+    let live = true; // C6: a slow load of a thread you've left is ignored
     api
       .thread(campaign.id, threadId)
-      .then((t) => setMessages(t.messages))
-      .catch((e) => setError(message(e)));
+      .then((t) => live && setMessages(t.messages))
+      .catch((e) => live && setError(message(e)));
+    return () => {
+      live = false;
+    };
   }, [campaign.id, threadId]);
 
   useEffect(() => {
@@ -64,16 +71,24 @@ export function ChatPage() {
   const send = async (question: string) => {
     const q = question.trim();
     if (!q || busy) return;
-    setBusy(true);
+    let target: number | null = threadId;
+    setPendingFor(target ?? "new");
     setError(null);
+    const done = () => setPendingFor((p) => (p === target || p === "new" ? null : p));
     try {
-      let target = threadId;
       if (target === null) {
         const thread = await api.createThread(campaign.id, q.slice(0, 60));
         target = thread.id;
+        reloadThreads();
+        if (current.current !== null) {
+          // The user moved to another thread meanwhile: don't pull them back (re-review).
+          setPendingFor((p) => (p === "new" ? null : p));
+          await api.ask(campaign.id, target, q).catch(() => undefined);
+          return;
+        }
+        setPendingFor(thread.id);
         created.current = thread.id;
         current.current = thread.id;
-        reloadThreads();
         navigate(`${base}/${thread.id}`, { replace: true });
       }
       const pending: Message = {
@@ -88,9 +103,9 @@ export function ChatPage() {
         setAnnouncement(`Answer: ${reply.text.slice(0, 300)}`);
       }
     } catch (e) {
-      setError(message(e));
+      if (current.current === target) setError(message(e));
     } finally {
-      setBusy(false);
+      done();
     }
   };
 

@@ -117,7 +117,8 @@ def _plain(errors: list[dict[str, Any]]) -> str:
 def _servable(path: str) -> bool:
     """W2: never hidden files (any segment starting with '.') or source maps from web/dist."""
     parts = [p for p in path.split("/") if p]
-    return bool(parts) and not any(p.startswith(".") for p in parts) and not path.endswith(".map")
+    hidden = any(p.startswith(".") for p in parts)
+    return bool(parts) and not hidden and not path.lower().endswith(".map")  # APFS ignores case
 
 
 def client_of(request: Request) -> str:
