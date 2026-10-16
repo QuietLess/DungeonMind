@@ -97,11 +97,13 @@ def test_f2_search_at_scale_is_well_under_a_second(tmp_path):
             title=f"Note {i} {words[i % 10]}",
             body=f"{body} unique{i}",
         )
-    started = time.perf_counter()
-    hits = hub.search(dm, camp.id, "where is the vampire baron's crypt unique77", k=8)
-    elapsed = time.perf_counter() - started
+    timings = []
+    for _ in range(3):  # best of three: robust to a busy machine, still catches a regression
+        started = time.perf_counter()
+        hits = hub.search(dm, camp.id, "where is the vampire baron's crypt unique77", k=8)
+        timings.append(time.perf_counter() - started)
     assert hits[0].text.endswith("unique77")
-    assert elapsed < 1.0, elapsed
+    assert min(timings) < 1.0, timings
 
 
 # --- F3: search rate limit --------------------------------------------------------------------
@@ -111,7 +113,7 @@ def test_f3_searches_are_rate_limited_per_user(tmp_path):
     clock = Clock()
     hub = make_hub(tmp_path, clock=clock)
     camp, dm, p1, *_ = party(hub)
-    for _ in range(60):
+    for _ in range(20):
         hub.search(p1, camp.id, "anything")
     with pytest.raises(RateLimited):
         hub.search(p1, camp.id, "anything")
@@ -233,15 +235,32 @@ def test_f7_expired_sessions_are_purged_on_login(tmp_path):
 # --- F8: failed runs refund the quota ---------------------------------------------------------
 
 
-def test_f8_failed_runs_do_not_use_the_daily_quota(tmp_path):
+def test_f8_runs_that_fail_before_the_model_are_refunded_up_to_three_a_day(tmp_path):
     def failing(question, search_notes, store, conversation_id):
-        raise RuntimeError("LLM down")
+        raise RuntimeError("engine broke before calling the model")
 
     hub = make_hub(tmp_path, engine=failing, daily_message_limit=1)
     camp, dm, *_ = party(hub)
     thread = hub.create_thread(dm, camp.id)
-    for _ in range(3):
+    for _ in range(4):  # 1 allowed + 3 refunds
         assert hub.ask(dm, camp.id, thread.id, "hello").stop_reason == "error"
+    with pytest.raises(RateLimited):
+        hub.ask(dm, camp.id, thread.id, "hello")
+
+
+def test_f8_model_errors_are_billed_so_they_are_not_refunded(tmp_path):
+    """A run that reached the model (stop_reason error from the graph) costs money: it counts."""
+
+    def model_failed(question, search_notes, store, conversation_id):
+        return {"answer": "x", "citations": [], "confidence": "low",
+                "insufficient_evidence": True, "stop_reason": "error", "trace": []}
+
+    hub = make_hub(tmp_path, engine=model_failed, daily_message_limit=1)
+    camp, dm, *_ = party(hub)
+    thread = hub.create_thread(dm, camp.id)
+    hub.ask(dm, camp.id, thread.id, "make the answer so long it gets truncated")
+    with pytest.raises(RateLimited):
+        hub.ask(dm, camp.id, thread.id, "again")
 
 
 # --- F9: unicode filter -----------------------------------------------------------------------
@@ -264,3 +283,19 @@ def test_f10_failed_campaign_insert_leaves_no_folder(tmp_path):
     with pytest.raises(Exception):  # noqa: B017 - any storage error; the folder is the point
         hub.create_campaign(ghost, "Ashvale")
     assert list((tmp_path / "campaigns").iterdir()) == []
+
+
+# --- F12: sessions per user are capped ---------------------------------------------------------
+
+
+def test_f12_a_user_holds_at_most_20_sessions_oldest_go_first(tmp_path):
+    clock = Clock()
+    hub = make_hub(tmp_path, clock=clock)
+    user = hub.register("mia_r", PASSWORD)
+    tokens = []
+    for _ in range(22):
+        tokens.append(hub.login("mia_r", PASSWORD))
+        clock.advance(seconds=1)
+    assert hub.user_for_token(tokens[0]) is None
+    assert hub.user_for_token(tokens[1]) is None
+    assert all(hub.user_for_token(t) == user for t in tokens[2:])

@@ -601,7 +601,9 @@ Each item has a regression test.
   the visible vectors. Measured at the limit (5,000 entries, 20,000 chunks, fake embedder):
   0.18–0.29 s per warm search, down from 3.6–4.7 s before F2. The first search on a cold disk
   cache can take 1–4 s. Writes take about 70 ms per 4-chunk entry.
-- **F3 Search rate limit.** At most 60 searches per user per minute (429). `ask` has its own
+- **F3 Search rate limit.** At most 20 searches per user per minute (429). This was lowered
+  from 60 after the re-review: worst-case notes, with every term in every chunk, take ≈ 1.5 s
+  per search at the limit. `ask` has its own
   daily limit.
 - **F4 Login limits are atomic and per client.** Each attempt is reserved under a lock *before*
   the password check, so parallel attempts can't exceed the limit. Limits are 5 failures per
@@ -617,14 +619,19 @@ Each item has a regression test.
 - **F7 Sessions.** `user_for_token` filters expired sessions in its query, with no write, so it
   can't fail with "database is locked". Expired sessions and invites are purged on login and
   on invite creation.
-- **F8 Failed runs don't use the daily quota.** A run that ends with `stop_reason="error"`
-  refunds its count.
+- **F8 Unbilled failures don't use the daily quota.** Only a run whose engine raised before
+  producing a state is refunded, at most 3 per user per day. A graph run that ends with
+  `stop_reason="error"` may already have been billed by the model (truncation, timeout), so it
+  counts. Otherwise a user could get past the spend guard by provoking failures (re-review).
 - **F9 Unicode list filter.** `?q=` compares case-folded text (Python `casefold`), so
   "élara" finds "Élara".
 - **F10 Campaign creation is all-or-nothing.** A failure after the folder is made removes the
   folder again.
 - **F11 One model, one lock.** `build_hub` loads the embedding model once, and every use of
   it (SRD search and note embedding) shares one lock.
+- **F12 Sessions per user.** A user holds at most 20 sessions; a new login removes the oldest.
+- **Schema.** `campaign.db` files created before these fixes (only on this branch) must be
+  recreated; there are no released databases to migrate.
 - **For M7 (from the security review):** bot answers must not render remote images or
   auto-link URLs. A party note could otherwise inject a link that sends DM-only lore out of
   the DM's own chat.

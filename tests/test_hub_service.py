@@ -666,3 +666,16 @@ def test_chunking_packs_paragraphs_and_splits_long_ones_at_sentences_then_hard_w
     wrapped = chunk_body(f"Intro. {unbroken} Outro.")
     assert all(len(c) <= CHUNK_CHARS for c in wrapped)
     assert "".join(wrapped).replace(" ", "") == f"Intro.{unbroken}Outro."
+
+
+def test_12_notes_benchmark_runs_every_mode_on_the_fixture():
+    from fake_embedder import HashEmbedder
+
+    from dungeonmind.evals import notes
+
+    report = notes.run(HashEmbedder(), k=5)
+    assert set(report) == {"dense", "bm25", "hybrid"}
+    for rows in report.values():
+        assert rows["all"]["n"] == 20
+        assert 0.0 <= rows["all"]["recall@5"] <= 1.0
+    assert report["hybrid"]["all"]["recall@5"] >= 0.8  # word-overlap embedder + BM25
