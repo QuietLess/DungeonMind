@@ -7,7 +7,7 @@
 | M3 Structured tools | Open5e search, dice, probability, encounter budget | Tool schemas + tests | ✅ |
 | M4 Orchestrator | Intent routing + bounded LangGraph workflow, `chat` CLI | No uncontrolled agent loop; contract tests pass | ✅ |
 | M5 Encounter builder | End-to-end planning workflow | Repeatable, cited, constraint-aware results | ✅ |
-| M6 Campaign hub backend | FastAPI: accounts, campaigns, invites, notes with visibility, per-campaign storage, campaign-aware chat | Visibility matrix + cross-campaign tests pass; the model never receives an unreadable note | ⬜ |
+| M6 Campaign hub backend | FastAPI: accounts, campaigns, invites, boards with visibility, per-campaign storage, campaign-aware chat | Visibility matrix + cross-campaign tests pass; the model never receives an unreadable note | ✅ |
 | M7 Campaign hub UI | React (Vite, TS): login, campaigns, notes, chat with linked citations; thread context | Main journeys work in the browser for DM and player; frontend + accessibility review | ⬜ |
 | M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ⬜ |
 | M9 Production | Docker, hosting + TLS, tracing, metrics, CI/CD | Deployable demo + monitored runs | ⬜ |
@@ -47,6 +47,31 @@ items previously due "M8" are now due M9.
   bugs from the live check (revisions not explained; defaults described as the user's
   request) are fixed. 474 tests; M5 code coverage 99% (builder 100%).
 
+- **M6:** DungeonMind became a campaign hub (`dungeonmind serve`). Each campaign has a lore
+  board (DM only, canon), a storyboard for each character, and a journal. Every entry is
+  private, shared with the DM, or visible to the party. Each campaign lives in its own SQLite
+  file. Search combines meaning and keyword matching, and the visibility filter is part of the
+  SQL, so a user's chat never contains an entry they can't read. The graph gained a campaign
+  node that cites notes as N ids next to SRD E ids, and canon conflicts are explained. Built
+  test-first:
+  - the visibility table checked across list, get, search and what the chat engine receives;
+  - a recording fake model that never sees hidden text;
+  - cross-campaign tests.
+
+  The backend review found two HIGH issues: lost concurrent edits, and 3.7 s searches at the
+  limit. The security review found no leaks, but limit and logging gaps. Both fix batches went
+  in test-first (F1–F12), with a security re-review:
+  - Keyword statistics now come from visible chunks only, which closes a side channel FTS5
+    would have opened. Warm searches at the limit take 0.2–0.3 s.
+  - Login limits are atomic and per client.
+  - Password hashing runs at most 4 at a time.
+  - Invite codes are no longer in URLs, and the access log is off.
+  - Only failures that never reached the model are refunded.
+
+  The notes benchmark (`eval-notes`, 20 questions) scores hybrid at R@5 1.00, MRR 0.93, and
+  dense-only at R@5 0.97, MRR 0.93; n is small. 629 tests; M6 code coverage 96% (the
+  production wiring in `hub/app.py` is checked by a live smoke run instead).
+
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
 | Id | Item | Do by |
@@ -65,6 +90,11 @@ items previously due "M8" are now due M9.
 | S5 | Locking for simultaneous writers to the conversation store (lost updates possible) | M9 |
 | S6 | Conversation store keeps one `.bak`; a second damage event overwrites it (timestamped backups) | M9 |
 | S7 | Unlink an existing `.bak` before copying (a pre-placed symlink would be followed) | M9 |
+| H1 | Bot answers in the UI must not render remote images or auto-link URLs (an injected link could send DM-only lore out of the DM's own chat) | M7 |
+| H2 | Behind a reverse proxy every client looks like 127.0.0.1: an explicit forwarded-IP setting, a global per-username login limit, IPv6 /64 grouping | M9 |
+| H3 | The DM runs the server, so `campaign.db` is readable by them in plain text; "private" is enforced by the app, not cryptography. Document clearly, or add per-user encryption | M9 |
+| H4 | Store the embedding model name and dimension per campaign; a model change today makes every search fail | M8 |
+| H5 | Worst-case search (every query term in every chunk) takes ≈ 1.5 s at the limit; cap rows per term if it matters | when convenient |
 
 ## Known limitations
 
@@ -82,6 +112,12 @@ items previously due "M8" are now due M9.
 - Retrieval sometimes misses a relevant rule for unusual phrasings (e.g. a 2014-framed
   grappling question didn't retrieve Unarmed Strike).
 
+- Hub chat answers each question on its own (no earlier turns as context, except "make it
+  harder"). M7 adds thread context.
+- One DM per campaign; no co-DMs, no sharing an entry with selected members only.
+
 ## Next
 
-- M6 campaign hub backend (contract in `ARCHITECTURE.md` › M6).
+- M7 campaign hub web UI (React + Vite): login, campaign list, boards and journal with
+  visibility badges and a reveal button, chat with citations that open the entry or SRD page,
+  thread context. Includes H1.

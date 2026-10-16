@@ -31,12 +31,12 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan), 
 | Odds and dice | "+7 vs AC 18 with advantage?" → exactly 75% | ✅ M3 + M4 |
 | One chat entry point | Any question → routed to the right path, cited, traced | ✅ M4 |
 | Encounter planning | "Hard undead encounter for four level-5s, no flyers" → 2–3 options | ✅ M5 |
-| Campaign memory | "What did we promise Elara?" → answered only from notes the asker may read | M6 |
-| Session prep | "Turn my notes into 5 scenes" | M6 |
-| Private notes | A player's secret backstory, shared with the DM only; the bot never shows it to other players | M6 |
-| Join a campaign | DM creates a campaign and an invite code; players join from their own devices | M6 (API), M7 (UI) |
-| Lore board | The DM writes NPCs, places, factions and secrets on the lore board; the bot treats it as canon and reveals an entry to players only once the DM sets it to Party | M6 |
-| Character board | A player keeps their character's backstory, goals and bonds; shared with the DM by default | M6 |
+| Campaign memory | "What did we promise Elara?" → answered only from notes the asker may read | ✅ M6 (API) |
+| Session prep | "Turn my notes into 5 scenes" | ✅ M6 (API) |
+| Private notes | A player's secret backstory, shared with the DM only; the bot never shows it to other players | ✅ M6 (API) |
+| Join a campaign | DM creates a campaign and an invite code; players join from their own devices | ✅ M6 (API), M7 (UI) |
+| Lore board | The DM writes NPCs, places, factions and secrets on the lore board; the bot treats it as canon and reveals an entry to players only once the DM sets it to Party | ✅ M6 (API) |
+| Character board | A player keeps their character's backstory, goals and bonds; shared with the DM by default | ✅ M6 (API) |
 | Campaign hub UI | Notes page and chat panel in the browser; citations link to the note or SRD page | M7 |
 
 ## Requirements (from the blueprint)
@@ -60,8 +60,9 @@ Source of scope: *Tolga_DungeonMind_Agentic_RAG_Blueprint.pdf* (approved plan), 
 - **M4 (orchestrator):** met. See `ARCHITECTURE.md` › M4 contract and M4 hardening; each
   criterion has an offline test using a scripted fake LLM.
 - **M5 (encounter builder):** met. See `ARCHITECTURE.md` › M5 contract.
-- **M6 (campaign hub backend):** see `ARCHITECTURE.md` › M6 contract. Exit: the visibility matrix
-  and cross-campaign tests pass, and a recording fake LLM never receives an unreadable note.
+- **M6 (campaign hub backend):** met. See `ARCHITECTURE.md` › M6 contract and review fixes. The
+  visibility matrix and cross-campaign tests pass, and a recording fake LLM never receives an
+  unreadable note.
 
 ## Out of scope for now
 

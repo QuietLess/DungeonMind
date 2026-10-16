@@ -60,6 +60,7 @@ plus a longer write-up). `--conversation NAME` remembers the last encounter requ
 uv run dungeonmind serve                    # http://127.0.0.1:8000, data in data/hub/
 uv run dungeonmind serve --host 0.0.0.0     # let players on your network join (plain HTTP)
 uv run dungeonmind hub reset-password USER  # set a forgotten password
+uv run dungeonmind eval-notes               # note-search benchmark (local, no API calls)
 ```
 
 The API lives under `/api` (accounts, campaigns, invites, characters, entries, search, chats).
@@ -74,7 +75,8 @@ stored in its own `data/hub/campaigns/<id>/campaign.db`.
 
 Private = only the author (the DM can't read players' private entries); shared with DM = the
 author and the DM; party = every member. Chat threads are private to whoever started them.
-Each user can ask 50 questions a day by default (`serve --daily-limit`).
+Each user can ask 50 questions a day by default (`serve --daily-limit`) and run 20 searches a
+minute.
 
 Design docs: [SPEC](docs/SPEC.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [ROADMAP](docs/ROADMAP.md)
 
