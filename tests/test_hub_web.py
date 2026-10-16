@@ -131,3 +131,10 @@ def test_w3_campaign_prompt_says_the_question_is_not_evidence():
     from dungeonmind.graph.llm import CAMPAIGN_PROMPT
 
     assert "question itself is not evidence" in CAMPAIGN_PROMPT
+
+
+@pytest.mark.parametrize("url", ["/assets/app-123.js.MAP", "/assets/app-123.js.Map", "/.ENV"])
+def test_w2_case_changes_dont_unlock_hidden_files_or_maps(client, dist, url):
+    (dist / "assets" / "app-123.js.map").write_text("SECRET=1")
+    (dist / ".env").write_text("SECRET=1")
+    assert "SECRET=1" not in client.get(url).text
