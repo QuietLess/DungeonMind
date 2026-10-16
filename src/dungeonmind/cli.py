@@ -341,3 +341,27 @@ def reset_password(
     except HubError as e:
         raise typer.BadParameter(str(e)) from e
     _say(f"Password for {username} updated.")
+
+
+@app.command("eval-notes")
+def eval_notes(
+    k: int = 5,
+    out: Annotated[Path | None, typer.Option(help="Write the report as JSON")] = None,
+) -> None:
+    """Benchmark campaign-note search (dense / bm25 / hybrid) on the fixture campaign."""
+    import json
+    import threading
+
+    from dungeonmind.evals import notes
+    from dungeonmind.hub.app import FastEmbedder
+
+    report = notes.run(FastEmbedder(DenseIndex(DEFAULT_INDEX_PATH), threading.Lock()), k=k)
+    for mode, rows in report.items():
+        line = "  ".join(
+            f"{t}: R@{k} {v[f'recall@{k}']:.2f} MRR {v['mrr']:.2f}"
+            for t, v in rows.items()
+            if t != "misses"
+        )
+        typer.echo(f"{mode:<7} {line}  misses: {', '.join(rows['misses']) or '-'}")
+    if out:
+        out.write_text(json.dumps(report, indent=2), encoding="utf-8")

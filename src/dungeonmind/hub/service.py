@@ -61,7 +61,9 @@ INVITE_DAYS = 7
 INVITE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no 0/o, 1/l/i
 INVITE_LENGTH = 12
 MAX_SEARCH_K = 50
-SEARCHES_PER_MINUTE = 60
+SEARCHES_PER_MINUTE = 20
+SESSIONS_PER_USER = 20
+REFUNDS_PER_DAY = 3
 LOGIN_FAILED = "Wrong username or password."
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
@@ -179,6 +181,12 @@ class Hub:
             db.execute(
                 "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
                 (auth.token_hash(token), user.id, _iso(expires)),
+            )
+            db.execute(  # F12: keep only the newest sessions per user
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash NOT IN ("
+                "SELECT token_hash FROM sessions WHERE user_id = ? "
+                "ORDER BY expires_at DESC LIMIT ?)",
+                (user.id, user.id, SESSIONS_PER_USER),
             )
         return token
 
@@ -701,10 +709,11 @@ class Hub:
                 raise RuntimeError("no chat engine configured")
             state = self.engine(question, search_notes, thread_store, f"thread-{thread_id}")
         except Exception:
+            # The engine failed before producing a state: nothing was billed, so refund (F8).
+            # A graph "error" state may already have cost a model call and is not refunded.
             state = {"stop_reason": "error"}
+            self._refund_message(user)
         fields = reply_fields(state)
-        if fields["stop_reason"] == "error":
-            self._refund_message(user)  # F8: a failed run doesn't use up the quota
         text_out = fields.pop("text")
         return self._save_message(cid, thread_id, "assistant", text_out, fields)
 
@@ -729,8 +738,9 @@ class Hub:
         day = self.clock().astimezone(UTC).date().isoformat()
         with self.storage.app(immediate=True) as db:
             db.execute(
-                "UPDATE usage SET count = MAX(count - 1, 0) WHERE user_id = ? AND day = ?",
-                (user.id, day),
+                "UPDATE usage SET count = count - 1, refunds = refunds + 1 "
+                "WHERE user_id = ? AND day = ? AND count > 0 AND refunds < ?",
+                (user.id, day, REFUNDS_PER_DAY),
             )
 
     def _save_message(

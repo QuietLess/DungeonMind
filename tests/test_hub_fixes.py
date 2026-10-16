@@ -252,8 +252,14 @@ def test_f8_model_errors_are_billed_so_they_are_not_refunded(tmp_path):
     """A run that reached the model (stop_reason error from the graph) costs money: it counts."""
 
     def model_failed(question, search_notes, store, conversation_id):
-        return {"answer": "x", "citations": [], "confidence": "low",
-                "insufficient_evidence": True, "stop_reason": "error", "trace": []}
+        return {
+            "answer": "x",
+            "citations": [],
+            "confidence": "low",
+            "insufficient_evidence": True,
+            "stop_reason": "error",
+            "trace": [],
+        }
 
     hub = make_hub(tmp_path, engine=model_failed, daily_message_limit=1)
     camp, dm, *_ = party(hub)

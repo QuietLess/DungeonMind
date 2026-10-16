@@ -246,13 +246,21 @@ def _bm25(
     return scores
 
 
+SEARCH_MODES = ("dense", "bm25")
+
+
 def search(
-    conn: sqlite3.Connection, viewer: Viewer, embedder: Embedder, query: str, k: int
+    conn: sqlite3.Connection,
+    viewer: Viewer,
+    embedder: Embedder,
+    query: str,
+    k: int,
+    modes: tuple[str, ...] = SEARCH_MODES,
 ) -> list[NoteHit]:
     """The k visible entries best matching `query` (cosine + BM25 over chunks, fused with RRF).
 
     Only chunks of entries the viewer may read are loaded or counted; one hit per entry, its
-    best chunk.
+    best chunk. `modes` exists for the notes benchmark (dense-only vs hybrid).
     """
     where, params = visible_clause(viewer)
     rows = conn.execute(
@@ -265,12 +273,14 @@ def search(
     query = query[:QUERY_CHARS]
     keys = [f"{r['entry_id']}:{r['seq']}" for r in rows]
 
-    q = np.asarray(embedder.embed_query(query), dtype=np.float32)
-    q /= float(np.linalg.norm(q)) or 1.0
-    matrix = np.frombuffer(b"".join(r["vector"] for r in rows), dtype=np.float32)
-    cosine = matrix.reshape(len(rows), -1) @ q
-    rankings = {"dense": [keys[i] for i in np.argsort(-cosine, kind="stable")]}
-    keyword = _bm25(conn, where, params, tokenize(query))
+    rankings: dict[str, list[str]] = {}
+    if "dense" in modes:
+        q = np.asarray(embedder.embed_query(query), dtype=np.float32)
+        q /= float(np.linalg.norm(q)) or 1.0
+        matrix = np.frombuffer(b"".join(r["vector"] for r in rows), dtype=np.float32)
+        cosine = matrix.reshape(len(rows), -1) @ q
+        rankings["dense"] = [keys[i] for i in np.argsort(-cosine, kind="stable")]
+    keyword = _bm25(conn, where, params, tokenize(query)) if "bm25" in modes else {}
     if keyword:
         rankings["bm25"] = sorted(keyword, key=lambda key: (-keyword[key], key))
 
