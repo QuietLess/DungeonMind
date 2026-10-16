@@ -173,3 +173,37 @@ def test_s2_chat_output_has_no_control_characters(chat_env):
     for ch in ("\x07", "\x00", "\x7f", "\x9b", "\x1b]"):
         assert ch not in result.output, repr(ch)
     assert "Grapple" in result.output and "done [E1]." in result.output
+
+
+# --- M6-b: stored text printed by `search` and `ask --show-evidence` is cleaned --------------
+
+
+def test_m6b_search_output_has_no_control_characters(monkeypatch):
+    from fake_llm import evidence
+
+    ev = evidence("evil", text="Rule\x1b]0;pwned\x07 text")
+    ev.chunk.heading_path[-1] = "Head\x1b[31m"
+    retriever = SimpleNamespace(by_id={}, retrieve=lambda *a, **k: [ev])
+    monkeypatch.setattr(cli, "load_retriever", lambda *a, **k: retriever)
+    result = CliRunner().invoke(cli.app, ["search", "x", "--full"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "\x1b" not in result.output and "\x07" not in result.output
+    assert "Rule]0;pwned text" in result.output
+
+
+def test_m6b_show_evidence_output_has_no_control_characters(monkeypatch):
+    from fake_llm import evidence
+
+    ev = evidence("evil")
+    ev.chunk.heading_path[-1] = "Head\x1b]0;pwned\x07"
+    retriever = SimpleNamespace(by_id={}, retrieve=lambda *a, **k: [ev])
+    monkeypatch.setattr(cli, "load_retriever", lambda *a, **k: retriever)
+
+    class Boom:
+        def answer(self, *a, **k):
+            raise RuntimeError("stop after printing evidence")
+
+    monkeypatch.setattr("dungeonmind.rag.answer.AnswerGenerator", lambda *a, **k: Boom())
+    result = CliRunner().invoke(cli.app, ["ask", "x", "--show-evidence"], env=WIDE)
+    assert "\x1b" not in result.output and "\x07" not in result.output
+    assert "Head]0;pwned" in result.output

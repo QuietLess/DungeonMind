@@ -18,8 +18,9 @@ from langgraph.graph import END, START, StateGraph
 
 from dungeonmind.graph.state import (
     LLM,
+    NoteSearch,
     TOOL_INTENTS,
-    UNSUPPORTED_INTENTS,
+    CAMPAIGN_INTENTS as UNSUPPORTED_INTENTS,
     ChatState,
     CitationRef,
     ConversationStore,
@@ -89,6 +90,8 @@ class Deps:
     timeout_s: float = 60.0
     clock: Callable[[], float] = field(default=time.monotonic)
     store: ConversationStore = field(default_factory=InMemoryStore)
+    # M6: entries the asking user may read, already bound to (campaign, viewer) by the hub.
+    search_notes: NoteSearch | None = None
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_steps <= MAX_STEPS_LIMIT:

@@ -538,9 +538,9 @@ B4. The canon rule is in the answer prompt, and lore hits are marked `canon` in 
     per request, already bound to (campaign, viewer), so the graph never sees campaign or user
     ids and can't widen the filter.
 14. `campaign_memory` and `session_prep` stop being unsupported. A `campaign` node runs:
-    - campaign memory: notes = `search_notes(question, 8)`, and SRD evidence = `retrieve(question)`
-      top 4;
-    - session prep: notes = `search_notes(question, 12)`.
+    - campaign memory: notes = `search_notes(question, 8)`;
+    - session prep: notes = `search_notes(question, 12)`;
+    - both: SRD evidence = `retrieve(question)` top 4, retrieved only when there are notes.
 
     Then `llm.answer_campaign(question, notes, evidence, mode, timeout=…)`. Notes are numbered
     **N1…**, SRD evidence **E1…**, and the answer may cite both. With no visible notes the answer

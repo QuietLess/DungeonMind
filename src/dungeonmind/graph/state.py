@@ -8,19 +8,22 @@ Flow (bounded; no free-running agent loop):
 
     START → route ─┬─ rules_qa ─────────→ retrieve → answer ─┐
                    ├─ lookup/probability/encounter → agent ──┤→ verify → END
-                   ├─ campaign_memory/session_prep → unsupported ┤
+                   ├─ campaign_memory/session_prep → campaign ┤
                    └─ out_of_scope ─────→ decline ───────────┘
 
 Evidence ids are E1, E2, … (retrieved SRD chunks, numbered in order of
 retrieval across the whole run). Tool-result ids are T1, T2, … (every tool
-call, in order). A final answer may cite only ids that exist in the state.
+call, in order). Campaign entries are N1, N2, … (M6: only entries the asking
+user may read ever reach the graph). A final answer may cite only ids that
+exist in the state.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal, Protocol, TypedDict
+from collections.abc import Callable
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from dungeonmind.rag.hybrid import Evidence
 from dungeonmind.tools.encounter_builder import EncounterRequest
@@ -31,13 +34,13 @@ class Intent(StrEnum):
     LOOKUP = "lookup"  # spells/monsters by filters or name → tools
     PROBABILITY = "probability"  # odds, dice → tools
     ENCOUNTER = "encounter"  # build or revise encounters → encounter node (M5)
-    CAMPAIGN_MEMORY = "campaign_memory"  # the user's own campaign notes → M6, unsupported now
-    SESSION_PREP = "session_prep"  # planning from notes → M6, unsupported now
+    CAMPAIGN_MEMORY = "campaign_memory"  # the campaign's boards and journal → campaign node (M6)
+    SESSION_PREP = "session_prep"  # planning a session from campaign entries → campaign node
     OUT_OF_SCOPE = "out_of_scope"  # not about running D&D → decline
 
 
 TOOL_INTENTS = frozenset({Intent.LOOKUP, Intent.PROBABILITY})
-UNSUPPORTED_INTENTS = frozenset({Intent.CAMPAIGN_MEMORY, Intent.SESSION_PREP})
+CAMPAIGN_INTENTS = frozenset({Intent.CAMPAIGN_MEMORY, Intent.SESSION_PREP})
 
 StopReason = Literal["completed", "needs_input", "max_steps", "timeout", "error"]
 
@@ -48,6 +51,22 @@ class RouteDecision:
     reason: str
     # True when the user asks about 2014 / 5e "legacy" / another edition's rules.
     other_edition: bool = False
+
+
+@dataclass
+class NoteHit:
+    """A campaign entry as the graph sees it (M6). The hub builds these already filtered to
+    what the asking user may read; the graph never sees campaign or user ids."""
+
+    entry_id: int
+    source: str  # e.g. "Lore › NPC › Elara"; the citation label
+    text: str  # the best-matching chunk of the entry
+    canon: bool = False  # True for lore-board entries
+    score: float = 0.0
+
+
+# search_notes(query, k): the visible entries best matching `query`, best first.
+NoteSearch = Callable[[str, int], list[NoteHit]]
 
 
 @dataclass
@@ -147,6 +166,18 @@ class LLM(Protocol):
         """
         ...
 
+    def answer_campaign(
+        self,
+        question: str,
+        notes: list[NoteHit],
+        evidence: list[Evidence],
+        *,
+        mode: Literal["memory", "prep"],
+        timeout: float | None = None,
+    ) -> FinalAnswer:
+        """Answer from campaign entries (N1…, in list order) and SRD evidence (E1…)."""
+        ...
+
 
 class ToolRecord(TypedDict):
     id: str  # T1, T2, …
@@ -157,9 +188,10 @@ class ToolRecord(TypedDict):
 
 
 class CitationRef(TypedDict):
-    id: str  # E# or T#
-    kind: Literal["srd", "tool"]
+    id: str  # E#, T# or N#
+    kind: Literal["srd", "tool", "note"]
     label: str  # human-readable source, e.g. "SRD 5.2.1, … p. 182" or "probability tool"
+    entry_id: NotRequired[int]  # notes only: the campaign entry, so a UI can link to it
 
 
 class TraceEvent(TypedDict):
@@ -179,6 +211,7 @@ class ChatState(TypedDict, total=False):
     other_edition: bool
     # Gathered material
     evidence: list[Evidence]  # index i ↔ id f"E{i + 1}"
+    notes: list[NoteHit]  # index i ↔ id f"N{i + 1}" (M6)
     tool_calls: list[ToolRecord]
     messages: list[dict[str, Any]]  # agent conversation (Anthropic format)
     steps: int  # agent turns taken

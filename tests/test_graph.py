@@ -385,11 +385,14 @@ def test_6_llm_exception_in_rules_answer_gives_error_stop_without_raising():
     assert state["trace"][-1]["node"] == "verify"
 
 
-# --- 7. unsupported -------------------------------------------------------------------------
+# --- 7. campaign intents without the hub ----------------------------------------------------
+# M6 retired the "unsupported" node: campaign intents go to the campaign node, which (with no
+# search_notes, as in the CLI) answers that campaign questions need the hub. See
+# tests/test_graph_campaign.py for the hub path.
 
 
 @pytest.mark.parametrize("intent", [Intent.CAMPAIGN_MEMORY, Intent.SESSION_PREP])
-def test_7_unsupported_intents_make_no_llm_call_beyond_routing(intent):
+def test_7_campaign_intents_without_hub_make_no_llm_call_beyond_routing(intent):
     llm = FakeLLM(_route(intent))
     retrieve = FakeRetriever()
     state = run_chat("What did the party do last session?", _deps(llm, retrieve))
@@ -397,11 +400,11 @@ def test_7_unsupported_intents_make_no_llm_call_beyond_routing(intent):
     assert llm.names() == ["route"]
     assert retrieve.queries == []
     answer = state["answer"].lower()
-    assert "campaign memory" in answer
-    assert "milestone" in answer
+    assert "campaign" in answer
+    assert "hub" in answer
     assert state["insufficient_evidence"] is True
     assert "no-citations" not in state.get("violations", [])
-    assert _nodes(state) == ["route", "unsupported", "verify"]
+    assert _nodes(state) == ["route", "campaign", "verify"]
 
 
 # --- 8. decline -----------------------------------------------------------------------------
@@ -623,8 +626,8 @@ def test_11_trace_agent_path():
 @pytest.mark.parametrize(
     ("intent", "middle"),
     [
-        (Intent.CAMPAIGN_MEMORY, "unsupported"),
-        (Intent.SESSION_PREP, "unsupported"),
+        (Intent.CAMPAIGN_MEMORY, "campaign"),
+        (Intent.SESSION_PREP, "campaign"),
         (Intent.OUT_OF_SCOPE, "decline"),
     ],
 )
