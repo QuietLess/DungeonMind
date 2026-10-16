@@ -44,14 +44,14 @@ def table(app):
     outsider = _signup(app, "outsider")
     cid = dm.post("/api/campaigns", json={"name": "Ashvale"}, headers=H).json()["id"]
     code = dm.post(f"/api/campaigns/{cid}/invites", headers=H).json()["code"]
-    assert player.post(f"/api/invites/{code}/accept", headers=H).status_code == 200
+    assert player.post("/api/invites/accept", json={"code": code}, headers=H).status_code == 200
     return dm, player, outsider, cid
 
 
 # --- 1. every route needs a session -----------------------------------------------------------
 
 PUBLIC = {"/api/auth/register", "/api/auth/login"}
-FILL = {"cid": "0" * 32, "eid": "1", "chid": "1", "tid": "1", "uid": "u", "code": "c" * 12}
+FILL = {"cid": "0" * 32, "eid": "1", "chid": "1", "tid": "1", "uid": "u"}
 
 
 def test_1_every_route_except_register_and_login_requires_a_session(app):
@@ -280,3 +280,29 @@ def test_22_unexpected_errors_hide_their_text(tmp_path):
     r = client.get("/api/campaigns")
     assert r.status_code == 500
     assert r.json() == {"detail": "Something went wrong. Please try again."}
+
+
+# --- F6: no secrets in URLs -------------------------------------------------------------------
+
+
+def test_f6_no_route_takes_an_invite_code_in_its_path(app):
+    assert not any("{code}" in path for path in app.openapi()["paths"])
+
+
+def test_f6_invites_are_revoked_by_body(table):
+    dm, player, outsider, cid = table
+    code = dm.post(f"/api/campaigns/{cid}/invites", headers=H).json()["code"]
+    r = dm.post(f"/api/campaigns/{cid}/invites/revoke", json={"code": code}, headers=H)
+    assert r.status_code == 204
+    assert outsider.post("/api/invites/accept", json={"code": code}, headers=H).status_code == 404
+
+
+def test_f4_login_uses_the_client_address(table, monkeypatch):
+    dm, player, outsider, cid = table
+    hub = dm.app.state.hub
+    seen = []
+    real = hub.login
+    monkeypatch.setattr(hub, "login", lambda u, p, client="local": seen.append(client) or real(u, p, client=client))
+    _client(dm.app).post("/api/auth/login", json={"username": "dm_dana", "password": PASSWORD},
+                         headers=H)
+    assert seen == ["testclient"]

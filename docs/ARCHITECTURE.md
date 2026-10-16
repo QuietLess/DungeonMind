@@ -582,3 +582,47 @@ The web UI (M7), streaming answers, the bot writing or editing entries, links be
 with selected members only, file and image uploads, hosting and TLS (M9), and email
 verification or password reset (the DM can reset a password from the CLI:
 `dungeonmind hub reset-password USER`).
+
+### M6 review fixes (backend + security review)
+
+Each item has a regression test.
+
+- **F1 No lost edits.** Entries carry a `version`. `update_entry` re-reads the entry inside its
+  write transaction; if the version changed since it was read (a concurrent edit), it raises
+  Conflict (409, "changed while you were editing") and writes nothing. The chunks always match
+  the stored title and body.
+- **F2 Fast, visible-only keyword search.** Tokens are counted on write into a `chunk_terms`
+  table. BM25 runs per query on SQL rows for the query's terms, joined with `visible_clause`.
+  Document counts, lengths and IDF come from the **visible chunks only**, so hidden entries
+  can't shift a player's ranking, which would be a side channel. FTS5 was rejected for this
+  reason: its statistics span the whole table. IDF uses the `+1` form, so it is never negative,
+  and BM25 still contributes in campaigns with one or two entries. Dense scoring still loads
+  the visible vectors (≈ 0.2 s at 20k chunks). The contract figure "milliseconds" now reads
+  "well under a second at the limit".
+- **F3 Search rate limit.** At most 60 searches per user per minute (429). `ask` has its own
+  daily limit.
+- **F4 Login limits are atomic and per client.** Each attempt is reserved under a lock *before*
+  the password check, so parallel attempts can't exceed the limit. Limits are 5 failures per
+  (client IP, username) and 30 failures per client IP, per 15 minutes. Another IP can't lock a
+  user out. Usernames that don't match the username pattern fail without being tracked. The
+  tracked-key table is capped (oldest evicted).
+- **F5 Password hashing is bounded.** At most 4 scrypt operations run at once. Registration is
+  limited to 10 accounts per client IP per hour. Register issues its session directly (one
+  scrypt, not two). A user can create at most 20 campaigns.
+- **F6 No secrets in URLs or logs.** Invite codes travel in POST bodies
+  (`POST /api/invites/accept {code}`, `POST /api/campaigns/{cid}/invites/revoke {code}`), and
+  `serve` runs with uvicorn's access log off, so search text never reaches the console.
+- **F7 Sessions.** `user_for_token` filters expired sessions in its query, with no write, so it
+  can't fail with "database is locked". Expired sessions and invites are purged on login and
+  on invite creation.
+- **F8 Failed runs don't use the daily quota.** A run that ends with `stop_reason="error"`
+  refunds its count.
+- **F9 Unicode list filter.** `?q=` compares case-folded text (Python `casefold`), so
+  "élara" finds "Élara".
+- **F10 Campaign creation is all-or-nothing.** A failure after the folder is made removes the
+  folder again.
+- **F11 One model, one lock.** `build_hub` loads the embedding model once, and every use of
+  it (SRD search and note embedding) shares one lock.
+- **For M7 (from the security review):** bot answers must not render remote images or
+  auto-link URLs. A party note could otherwise inject a link that sends DM-only lore out of
+  the DM's own chat.

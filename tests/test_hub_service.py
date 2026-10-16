@@ -364,6 +364,7 @@ def world(hub):
     add(dm, "lore", "private", kind="npc")
     add(dm, "lore", "party", kind="location")
     add(dm, "journal", "private")
+    add(dm, "journal", "dm")  # stored as private: the DM already reads their own entries
     add(dm, "journal", "party")
     for author in (p1, p2, p3):
         for vis in ("private", "dm", "party"):
@@ -389,6 +390,23 @@ def test_3_members_list_get_and_search_exactly_what_they_may_read(world, viewer_
                 hub.entry(viewer, camp.id, e.id)
     hits = hub.search(viewer, camp.id, "shared words", k=50)
     assert {h.entry_id for h in hits} == expected
+
+
+@pytest.mark.parametrize("viewer_name", ["dm", "p1", "p2"])
+def test_3_chat_engine_receives_exactly_the_readable_entries(world, viewer_name):
+    hub, camp, users, made = world
+    viewer = users[viewer_name]
+    expected = {e.id for e in made if _readable(viewer, viewer_name == "dm", e)}
+    got = []
+
+    def spy(question, search_notes, store, conversation_id):
+        got.extend(h.entry_id for h in search_notes("shared words", 50))
+        return {"answer": "ok", "citations": [], "confidence": "low",
+                "insufficient_evidence": True, "stop_reason": "completed", "trace": []}
+
+    hub.engine = spy
+    hub.ask(viewer, camp.id, hub.create_thread(viewer, camp.id).id, "anything")
+    assert set(got) == expected
 
 
 def test_3_dm_cannot_read_players_private_entries(world):
@@ -495,6 +513,12 @@ def test_5_campaigns_never_see_each_others_entries(hub, tmp_path):
         assert hits_a and all("betrayed" not in h.text and "again" not in h.text for h in hits_a)
         assert hits_b and all("loyal" not in h.text for h in hits_b)
         hub.create_entry(dm, b.id, board="journal", title="More", body="Elara again, duke.")
+    loyal = hub.entries(dm, a.id, q="loyal")[0]
+    hub.update_entry(dm, a.id, loyal.id, body="Elara is loyal, and the duke trusts her.")
+    for e in hub.entries(dm, b.id):
+        hub.delete_entry(dm, b.id, e.id)
+    assert hub.search(dm, b.id, "Elara duke") == []
+    assert all("trusts" in h.text for h in hub.search(dm, a.id, "Elara duke", k=50))
     raw_a = (tmp_path / "campaigns" / a.id / "campaign.db").read_bytes()
     assert b"betrayed" not in raw_a
 
