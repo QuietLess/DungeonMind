@@ -636,3 +636,73 @@ Each item has a regression test.
 - **For M7 (from the security review):** bot answers must not render remote images or
   auto-link URLs. A party note could otherwise inject a link that sends DM-only lore out of
   the DM's own chat.
+
+## M7 contract — campaign hub web UI
+
+A React (Vite, TypeScript) single-page app in `web/`, built to `web/dist` and served by
+`dungeonmind serve` on the same origin as the API. Same origin means the session cookie
+(`SameSite=Lax`) works without CORS. Node comes from the `nodejs-wheel` dev dependency
+(`uv run npm …`), so nothing is installed system-wide.
+
+### Serving and headers (Python, tested)
+
+- **UI1** `/` and every non-`/api` path serve `web/dist/index.html` (SPA fallback). Built assets
+  are served from `/assets/…`. `/api/*` is unaffected, and an unknown `/api` path is still a
+  JSON 404. If `web/dist` is missing, `/` returns a short page saying to run
+  `uv run npm --prefix web run build`.
+- **UI2** Every response carries security headers:
+  `Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self';
+  style-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none';
+  base-uri 'none'; form-action 'self'`, plus `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`. With `img-src 'self'`, a remote
+  image can't load even if a renderer bug let one through (defence in depth for H1).
+
+### Thread context (Python, tested)
+
+- **UI8** The graph gains a `contextualize` node before `route`. `run_chat(…, history=…)` takes
+  the thread's last 3 exchanges (question and answer text only, each capped at 1,000
+  characters). Hub.ask loads them from the asker's own thread. With history,
+  `llm.standalone_question(question, history, timeout=…)` rewrites a follow-up ("what about
+  her brother?") into a standalone question. That question is used for routing, retrieval and
+  answering, and the trace records it. The saved user message stays what the user typed.
+  - Without history there is no extra model call.
+  - An empty or over-200-character rewrite, or any exception, falls back to the original
+    question, with a trace warning.
+  - The history is data, not instructions, in the prompt.
+
+### UI behaviour (Vitest + Testing Library, tested)
+
+- **UI3 Safe answers (closes H1).** Bot answers are rendered by our own small renderer, never
+  as HTML. It handles paragraphs, line breaks, `-`/`1.` lists and `**bold**`, and nothing
+  else. No `<a>`, `<img>` or raw HTML is ever produced; Markdown links, images and bare URLs
+  show as plain text. `dangerouslySetInnerHTML` is not used anywhere (checked by a test that
+  scans `web/src`).
+- **UI4 Citations.** Inline markers `[N1]`, `[E2]` and `[T1, N3]` that match the answer's
+  citation list become buttons. N opens the entry in a side panel, fetched through
+  `GET /entries/{id}` so visibility is checked again. E shows the SRD citation label, and T
+  shows the tool label. A marker with no matching citation stays plain text.
+- **UI5 API client.** Requests are same-origin with credentials. POST/PATCH/DELETE send
+  `X-DungeonMind: 1`. A 401 sends the user to sign-in, and other errors show the API's
+  `detail`.
+- **UI6 Visibility is always visible.** Every entry shows a badge with an icon and text
+  (Private / Shared with DM / Party), never colour alone. The DM's visibility picker offers
+  Private and Party only, and lore offers Private and Party to everyone. On a private lore
+  entry the DM gets a **Reveal to party** button, which asks for confirmation before setting
+  `party`.
+- **UI7 Pages:**
+  - sign in / register;
+  - campaigns (list, create, join with a code);
+  - one campaign: **Lore**, **Characters** (each character's storyboard), **Journal**,
+    **Chat** (threads and messages) and **Members** (DM: create and copy an invite code,
+    remove players; player: leave).
+- **UI9 Accessibility.**
+  - Every input has a label.
+  - Everything works from the keyboard, with a visible focus ring.
+  - New bot answers are announced through `aria-live="polite"`.
+  - Colours meet WCAG AA in the light and dark themes (`prefers-color-scheme`).
+  - The layout works at phone width.
+
+### Out of scope for M7
+
+Streaming answers, real-time updates between users (refresh to see others' edits), rich-text
+editing (entries are Markdown text shown as plain paragraphs), images and attachments.

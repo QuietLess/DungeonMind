@@ -30,6 +30,7 @@ class FakeLLM:
     - `extraction`: what `extract_encounter` returns (or an Exception to raise).
     - `presentation`: the FinalAnswer `present_encounter` returns (or an Exception to raise).
     - `campaign`: the FinalAnswer `answer_campaign` returns (or an Exception to raise).
+    - `standalone`: what `standalone_question` returns (or an Exception to raise).
 
     The keyword-only `timeout` each method receives is recorded in `timeouts` as
     (method name, timeout), in call order, so `calls` payloads stay unchanged. Likewise the
@@ -45,6 +46,7 @@ class FakeLLM:
         extraction: EncounterExtraction | Exception | None = None,
         presentation: FinalAnswer | Exception | None = None,
         campaign: FinalAnswer | Exception | None = None,
+        standalone: str | Exception | None = None,
     ) -> None:
         self._route = route
         self._final = final
@@ -53,6 +55,7 @@ class FakeLLM:
         self._extraction = extraction
         self._presentation = presentation
         self._campaign = campaign
+        self._standalone = standalone
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.timeouts: list[tuple[str, float | None]] = []
         self.revisions: list[str | None] = []
@@ -169,6 +172,19 @@ class FakeLLM:
         if isinstance(self._campaign, Exception):
             raise self._campaign
         return self._campaign
+
+    def standalone_question(
+        self, question: str, history: list[dict[str, str]], *, timeout: float | None = None
+    ) -> str:
+        self.calls.append(
+            ("standalone_question", {"question": question, "history": copy.deepcopy(history)})
+        )
+        self.timeouts.append(("standalone_question", timeout))
+        if self._standalone is None:
+            raise AssertionError("FakeLLM.standalone_question called but nothing was scripted")
+        if isinstance(self._standalone, Exception):
+            raise self._standalone
+        return self._standalone
 
     # --- helpers for assertions ---------------------------------------------------------------
 
