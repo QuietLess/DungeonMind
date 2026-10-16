@@ -706,3 +706,40 @@ A React (Vite, TypeScript) single-page app in `web/`, built to `web/dist` and se
 
 Streaming answers, real-time updates between users (refresh to see others' edits), rich-text
 editing (entries are Markdown text shown as plain paragraphs), images and attachments.
+
+### M7 review fixes (frontend + security review)
+
+Each item has a regression test.
+
+- **D1–D4 Drawer.**
+  - D1: focus moves into the drawer once, when it opens, and back to where it came from when it
+    closes. Typing in a form whose state lives in the parent keeps every letter. This was
+    CRITICAL: "New character" took only the first letter.
+  - D2: closing (Escape, ×, backdrop) with unsaved changes asks first.
+  - D3: only a click that starts and ends on the backdrop closes the drawer.
+  - D4: Tab and Shift+Tab stay inside the dialog.
+- **C1–C5 Chat.**
+  - C1: a thread started on the page is reloaded normally once its first answer arrives, so
+    switching away and back shows each thread's own messages.
+  - C2: an answer that arrives after the user switched threads isn't shown in the other thread.
+  - C3: phones get a compact chat picker (and "New chat") where the side list is hidden.
+  - C4: Enter while an input method is composing doesn't send.
+  - C5: the conversation is a `role="log"` region.
+- **F1–F3 Forms.**
+  - F1: errors show inside the open drawer.
+  - F2: create, join and save can't be sent twice.
+  - F3: a failed delete keeps the panel open and shows why.
+- **A11y.** Field borders reach 3:1: `#857a6b` light, `#7a7088` dark. Inputs keep the global
+  focus ring. "Copied" appears only when the clipboard write worked, and is announced. Campaign
+  pages show a loading line. The phone nav wraps instead of hiding sections off-screen.
+- **W1** Security headers are on every response, including unexpected 500s. A path with a NUL
+  byte gets the app page, not an error.
+- **W2** Hidden files (any segment starting with `.`) and `*.map` files are never served from
+  `web/dist`.
+- **W3** The campaign prompt says that the (rewritten) question itself is not evidence. A fact
+  an earlier answer quoted, and that the DM has since hidden, can't be cited back from it.
+- **W4** API responses carry `Cache-Control: no-store`. Static files answer HEAD. Pages also
+  send `Cross-Origin-Opener-Policy: same-origin` and a `Permissions-Policy` that denies camera,
+  microphone, geolocation and payment.
+- **Known limitation:** the embedded SRD index can be open in one process at a time, so run
+  either `serve` or `chat`/`ask`, not both. A Qdrant server (M9) removes this.

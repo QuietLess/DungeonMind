@@ -79,3 +79,52 @@ def test_ui2_every_response_has_security_headers(client, path):
     assert h["x-content-type-options"] == "nosniff"
     assert h["referrer-policy"] == "no-referrer"
     assert h["x-frame-options"] == "DENY"
+
+
+# --- M7 security review fixes (W1–W4) ---------------------------------------------------------
+
+
+def test_w1_unexpected_errors_still_carry_security_headers(tmp_path, dist):
+    hub = make_hub(tmp_path / "hub")
+    app = create_app(hub, web_dist=dist)
+
+    def broken(*a, **k):
+        raise RuntimeError("boom")
+
+    hub.campaigns = broken
+    c = TestClient(app, raise_server_exceptions=False)
+    c.post("/api/auth/register", json={"username": "mia_r", "password": "a long password"},
+           headers={"X-DungeonMind": "1"})
+    r = c.get("/api/campaigns")
+    assert r.status_code == 500
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_w1_null_bytes_in_paths_are_not_errors(client):
+    r = client.get("/assets/%00x")
+    assert r.status_code in (200, 404)
+    assert "outside dist" not in r.text
+
+
+@pytest.mark.parametrize("name", [".env", ".git/config", "assets/app-123.js.map"])
+def test_w2_hidden_files_and_source_maps_are_not_served(client, dist, name):
+    target = dist / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("SECRET=1")
+    r = client.get("/" + name)
+    assert "SECRET=1" not in r.text
+
+
+def test_w4_api_responses_are_not_cached_and_static_files_answer_head(client):
+    assert client.get("/api/me").headers["cache-control"] == "no-store"
+    assert client.head("/assets/app-123.js").status_code == 200
+    h = client.get("/").headers
+    assert h["cross-origin-opener-policy"] == "same-origin"
+    assert "camera=()" in h["permissions-policy"]
+
+
+def test_w3_campaign_prompt_says_the_question_is_not_evidence():
+    from dungeonmind.graph.llm import CAMPAIGN_PROMPT
+
+    assert "question itself is not evidence" in CAMPAIGN_PROMPT

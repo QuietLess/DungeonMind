@@ -19,7 +19,7 @@ assistant, not a chat-with-a-PDF demo.
 | M4 — LangGraph orchestrator with bounded workflows | ✅ |
 | M5 — Encounter builder | ✅ |
 | M6 — Campaign hub backend: boards, visibility, per-campaign storage, API | ✅ |
-| M7 — Campaign hub web UI (React) | ⬜ |
+| M7 — Campaign hub web UI (React) | ✅ |
 | M8 — 200+ question eval suite and CI regression gates | ⬜ |
 | M9 — Docker, hosting, tracing, metrics, CI/CD | ⬜ |
 
@@ -54,14 +54,23 @@ question costs roughly 2–5¢ on Claude Opus 5.5, and an encounter build about 
 plus a longer write-up). `--conversation NAME` remembers the last encounter request so
 "make it harder/easier" revises it; it's stored in `data/state/` (git-ignored).
 
-### Campaign hub (M6: API; the web UI arrives in M7)
+### Campaign hub (web app)
 
 ```bash
-uv run dungeonmind serve                    # http://127.0.0.1:8000, data in data/hub/
+uv run npm --prefix web install             # once: Node comes from the nodejs-wheel dev dependency
+uv run npm --prefix web run build           # builds the UI into web/dist
+uv run dungeonmind serve                    # open http://127.0.0.1:8000, data in data/hub/
 uv run dungeonmind serve --host 0.0.0.0     # let players on your network join (plain HTTP)
 uv run dungeonmind hub reset-password USER  # set a forgotten password
 uv run dungeonmind eval-notes               # note-search benchmark (local, no API calls)
 ```
+
+In the browser: create an account, start a campaign (you're its DM), write lore, and share an
+invite code from **Members**. Players join with the code, keep a storyboard for their
+character, write in the journal, and chat. Answers cite the notes they used (click to open)
+and the SRD pages. Follow-up questions ("what about her brother?") use the thread's earlier
+turns. For UI development, run `uv run npm --prefix web run dev` (Vite on :5173, proxying `/api`
+to the hub on :8000) and `uv run npm --prefix web test`.
 
 The API lives under `/api` (accounts, campaigns, invites, characters, entries, search, chats).
 Browsers must send the header `X-DungeonMind: 1` on POST/PATCH/DELETE. Each campaign is
@@ -161,7 +170,7 @@ Dense retrieval alone is the default. BM25 is strong on exact rules terms
 equal-weight fusion lets it outvote the dense ranking. The off-the-shelf rerankers
 are trained on web search (MS MARCO) and don't transfer to rules text. At n=43 one
 question moves a score by about 0.02, so these are re-run on the 200+ question set
-(M7) and after LLM query rewriting.
+(M8) and after LLM query rewriting.
 
 ## Citation contract
 
@@ -197,6 +206,7 @@ src/dungeonmind/
   graph/      orchestrator: contract (state.py), LangGraph graph (build.py), Claude adapter (llm.py)
   hub/        campaign hub: storage, accounts, boards, visibility-filtered search, chats, API
   evals/      retrieval benchmark dataset and runner
+web/          campaign hub UI (React + Vite + TypeScript), built into web/dist
 scripts/      data acquisition
 tests/        unit + fixture tests against the real SRD
 ```
