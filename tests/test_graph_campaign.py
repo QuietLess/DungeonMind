@@ -50,8 +50,9 @@ def test_14_memory_searches_notes_and_srd_then_answers_with_both():
     notes = FakeNotes({Q: HITS})
     ev = [evidence(f"r{i}") for i in range(6)]
     retrieve = FakeRetriever({Q: ev})
-    llm = FakeLLM(_route(), campaign=final("A share of the hoard [N1]; she's a spy [N2] [E1].",
-                                           ["N1"]))
+    llm = FakeLLM(
+        _route(), campaign=final("A share of the hoard [N1]; she's a spy [N2] [E1].", ["N1"])
+    )
     state = run_chat(Q, _deps(llm, notes, retrieve))
 
     assert notes.calls == [(Q, 8)]

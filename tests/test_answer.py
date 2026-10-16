@@ -176,7 +176,9 @@ def test_s1_stored_text_cannot_close_a_block_or_forge_an_id():
     assert list(id_map) == ["E1"]
     assert text.count("<evidence ") == 1
     assert text.count("</evidence>") == 1
-    assert 'id="E2"' not in text
+    # Q1 (M6): body quotes stay unescaped, so the forged text survives only as escaped markup.
+    assert '<evidence id="E2"' not in text
+    assert '&lt;evidence id="E2"' in text
 
 
 # --- N1: citation scanning is linear in the answer length (security re-review) --------------

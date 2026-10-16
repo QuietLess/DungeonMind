@@ -91,7 +91,7 @@ def ask(
     evidence = load_retriever(mode).retrieve(question, k=k, mode=mode)
     if show_evidence:
         for i, ev in enumerate(evidence, start=1):
-            typer.echo(f"  E{i}  {ev.chunk.citation}")
+            _say(f"  E{i}  {ev.chunk.citation}")
         typer.echo()
     try:
         answer = AnswerGenerator().answer(question, evidence)
@@ -190,10 +190,10 @@ def search(
     hits = retriever.retrieve(query, k=k, mode=mode, entity_types=set(entity) if entity else None)
     for ev in hits:
         ranks = " ".join(f"{name}={r}" for name, r in ev.ranks.items())
-        typer.secho(f"[{ev.rank}] {ev.score:7.3f}  {ev.chunk.chunk_id}   ({ranks})", bold=True)
-        typer.echo(f"     {ev.chunk.citation}")
+        _say(f"[{ev.rank}] {ev.score:7.3f}  {ev.chunk.chunk_id}   ({ranks})", bold=True)
+        _say(f"     {ev.chunk.citation}")
         body = ev.chunk.text if full else ev.chunk.text[:300].replace("\n", " ") + "…"
-        typer.echo(f"     {body}\n")
+        _say(f"     {body}\n")
 
 
 @app.command("sync-open5e")
@@ -286,3 +286,57 @@ def eval_retrieval(
 
 if __name__ == "__main__":
     app()
+
+
+# --- campaign hub (M6) ------------------------------------------------------------------------
+
+hub_app = typer.Typer(no_args_is_help=True, help="Campaign hub administration.")
+app.add_typer(hub_app, name="hub")
+
+
+@app.command()
+def serve(
+    host: Annotated[str, typer.Option(help="Interface to bind; 0.0.0.0 shares on your network")] = (
+        "127.0.0.1"
+    ),
+    port: int = 8000,
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+    daily_limit: Annotated[
+        int, typer.Option(min=1, max=10_000, help="Bot messages per user per day")
+    ] = 50,
+) -> None:
+    """Run the campaign hub API (accounts, campaigns, boards, chat)."""
+    import uvicorn
+
+    from dungeonmind.hub.api import create_app
+    from dungeonmind.hub.app import build_hub
+
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        _say(
+            f"Warning: serving on {host}. Anyone on your network can reach the hub, and traffic "
+            "isn't encrypted (plain HTTP). Use it only on a network you trust.",
+            fg="yellow",
+        )
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        _say(
+            "Note: no Anthropic credentials set; the chatbot will answer with errors.", fg="yellow"
+        )
+    hub = build_hub(root, daily_message_limit=daily_limit)
+    uvicorn.run(create_app(hub), host=host, port=port, log_level="info")
+
+
+@hub_app.command("reset-password")
+def reset_password(
+    username: str,
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+) -> None:
+    """Set a new password for a hub user (signs them out everywhere)."""
+    from dungeonmind.hub.errors import HubError
+    from dungeonmind.hub.service import Hub
+
+    password = typer.prompt("New password", hide_input=True, confirmation_prompt=True)
+    try:
+        Hub(root).reset_password(username, password)
+    except HubError as e:
+        raise typer.BadParameter(str(e)) from e
+    _say(f"Password for {username} updated.")

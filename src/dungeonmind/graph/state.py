@@ -20,9 +20,9 @@ exist in the state.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from collections.abc import Callable
 from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from dungeonmind.rag.hybrid import Evidence

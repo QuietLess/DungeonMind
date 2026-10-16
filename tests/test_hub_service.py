@@ -183,7 +183,10 @@ def test_members_lists_roles(hub):
     camp, dm, p1, p2, p3, _ = party(hub)
     members = {m.username: m.role for m in hub.members(p1, camp.id)}
     assert members == {
-        "dm_dana": "dm", "player_one": "player", "player_two": "player", "player_gone": "player"
+        "dm_dana": "dm",
+        "player_one": "player",
+        "player_two": "player",
+        "player_gone": "player",
     }
 
 
@@ -244,8 +247,7 @@ def test_delete_campaign_removes_its_folder_and_memberships(hub, tmp_path):
 
 def test_b1_only_the_dm_writes_lore(hub):
     camp, dm, p1, *_ = party(hub)
-    lore = hub.create_entry(dm, camp.id, board="lore", title="Elara", body="Spymaster.",
-                            kind="npc")
+    lore = hub.create_entry(dm, camp.id, board="lore", title="Elara", body="Spymaster.", kind="npc")
     assert lore.board == "lore" and lore.kind == "npc"
     with pytest.raises(Forbidden):
         hub.create_entry(p1, camp.id, board="lore", title="Fake canon", body="x")
@@ -264,12 +266,18 @@ def test_b1_kind_must_belong_to_board(hub):
 def test_b1_character_entries_need_own_character(hub):
     camp, dm, p1, p2, *_ = party(hub)
     thorn = hub.create_character(p1, camp.id, "Thorn", "A half-orc ranger")
-    entry = hub.create_entry(p1, camp.id, board="character", character_id=thorn.id,
-                             title="Raised by wolves", body="...", kind="backstory")
+    entry = hub.create_entry(
+        p1,
+        camp.id,
+        board="character",
+        character_id=thorn.id,
+        title="Raised by wolves",
+        body="...",
+        kind="backstory",
+    )
     assert entry.character_id == thorn.id
     with pytest.raises(Forbidden):  # someone else's character board
-        hub.create_entry(p2, camp.id, board="character", character_id=thorn.id,
-                         title="t", body="b")
+        hub.create_entry(p2, camp.id, board="character", character_id=thorn.id, title="t", body="b")
     with pytest.raises(Invalid):  # character board needs a character
         hub.create_entry(p1, camp.id, board="character", title="t", body="b")
     with pytest.raises(Invalid):  # other boards must not have one
@@ -282,14 +290,16 @@ def test_b2_defaults_and_lore_visibility_rules(hub):
     camp, dm, p1, *_ = party(hub)
     thorn = hub.create_character(p1, camp.id, "Thorn")
     lore = hub.create_entry(dm, camp.id, board="lore", title="t", body="b")
-    char = hub.create_entry(p1, camp.id, board="character", character_id=thorn.id,
-                            title="t", body="b")
+    char = hub.create_entry(
+        p1, camp.id, board="character", character_id=thorn.id, title="t", body="b"
+    )
     journal = hub.create_entry(p1, camp.id, board="journal", title="t", body="b")
     assert (lore.visibility, char.visibility, journal.visibility) == ("private", "dm", "party")
     as_dm = hub.create_entry(dm, camp.id, board="lore", title="t", body="b", visibility="dm")
     assert as_dm.visibility == "private"
-    dm_journal = hub.create_entry(dm, camp.id, board="journal", title="t", body="b",
-                                  visibility="dm")
+    dm_journal = hub.create_entry(
+        dm, camp.id, board="journal", title="t", body="b", visibility="dm"
+    )
     assert dm_journal.visibility == "private"
     with pytest.raises(Invalid):
         hub.create_entry(p1, camp.id, board="journal", title="t", body="b", visibility="public")
@@ -298,8 +308,7 @@ def test_b2_defaults_and_lore_visibility_rules(hub):
 def test_b3_character_with_entries_cannot_be_deleted(hub):
     camp, dm, p1, *_ = party(hub)
     thorn = hub.create_character(p1, camp.id, "Thorn")
-    e = hub.create_entry(p1, camp.id, board="character", character_id=thorn.id,
-                         title="t", body="b")
+    e = hub.create_entry(p1, camp.id, board="character", character_id=thorn.id, title="t", body="b")
     with pytest.raises(Conflict, match="1"):
         hub.delete_character(p1, camp.id, thorn.id)
     hub.delete_entry(p1, camp.id, e.id)
@@ -341,8 +350,15 @@ def world(hub):
 
     def add(author, board, visibility, **kw):
         token = f"tok{len(made)}"
-        e = hub.create_entry(author, camp.id, board=board, visibility=visibility,
-                             title=f"Entry {token}", body=f"shared words {token}", **kw)
+        e = hub.create_entry(
+            author,
+            camp.id,
+            board=board,
+            visibility=visibility,
+            title=f"Entry {token}",
+            body=f"shared words {token}",
+            **kw,
+        )
         made.append(e)
 
     add(dm, "lore", "private", kind="npc")
@@ -377,8 +393,9 @@ def test_3_members_list_get_and_search_exactly_what_they_may_read(world, viewer_
 
 def test_3_dm_cannot_read_players_private_entries(world):
     hub, camp, users, made = world
-    private_by_players = [e for e in made if e.visibility == "private"
-                          and e.author_id != users["dm"].id]
+    private_by_players = [
+        e for e in made if e.visibility == "private" and e.author_id != users["dm"].id
+    ]
     assert private_by_players
     visible = {e.id for e in hub.entries(users["dm"], camp.id)}
     assert not visible & {e.id for e in private_by_players}
@@ -424,10 +441,14 @@ def test_visibility_change_applies_on_the_next_request(world):
 
 def test_only_authors_edit_or_delete_and_cannot_see_means_not_found(world):
     hub, camp, users, made = world
-    p1_party = next(e for e in made if e.author_id == users["p1"].id
-                    and e.visibility == "party" and e.board == "journal")
-    p1_private = next(e for e in made if e.author_id == users["p1"].id
-                      and e.visibility == "private")
+    p1_party = next(
+        e
+        for e in made
+        if e.author_id == users["p1"].id and e.visibility == "party" and e.board == "journal"
+    )
+    p1_private = next(
+        e for e in made if e.author_id == users["p1"].id and e.visibility == "private"
+    )
     with pytest.raises(Forbidden):
         hub.update_entry(users["p2"], camp.id, p1_party.id, title="hijack")
     with pytest.raises(Forbidden):
@@ -456,15 +477,23 @@ def test_5_campaigns_never_see_each_others_entries(hub, tmp_path):
     dm = hub.register("dm_dana", PASSWORD)
     a = hub.create_campaign(dm, "Ashvale")
     b = hub.create_campaign(dm, "Greywater")
-    hub.create_entry(dm, a.id, board="lore", title="Elara", body="Elara is loyal to the duke.",
-                     visibility="party")
-    hub.create_entry(dm, b.id, board="lore", title="Elara", body="Elara betrayed the duke.",
-                     visibility="party")
+    hub.create_entry(
+        dm,
+        a.id,
+        board="lore",
+        title="Elara",
+        body="Elara is loyal to the duke.",
+        visibility="party",
+    )
+    hub.create_entry(
+        dm, b.id, board="lore", title="Elara", body="Elara betrayed the duke.", visibility="party"
+    )
     for _ in range(2):
         hits_a = hub.search(dm, a.id, "Is Elara loyal to the duke?", k=50)
         hits_b = hub.search(dm, b.id, "Is Elara loyal to the duke?", k=50)
-        assert hits_a and all("loyal" in h.text for h in hits_a)
-        assert hits_b and all("betrayed" in h.text for h in hits_b)
+        # Each campaign answers only from its own notes, never the other's.
+        assert hits_a and all("betrayed" not in h.text and "again" not in h.text for h in hits_a)
+        assert hits_b and all("loyal" not in h.text for h in hits_b)
         hub.create_entry(dm, b.id, board="journal", title="More", body="Elara again, duke.")
     raw_a = (tmp_path / "campaigns" / a.id / "campaign.db").read_bytes()
     assert b"betrayed" not in raw_a
@@ -548,12 +577,22 @@ def test_12_long_entries_are_chunked_and_best_chunk_is_returned(hub):
 def test_12_hits_carry_source_labels_and_canon_flag(hub):
     camp, dm, p1, *_ = party(hub)
     thorn = hub.create_character(p1, camp.id, "Thorn")
-    hub.create_entry(dm, camp.id, board="lore", kind="npc", title="Elara", body="Elara owl",
-                     visibility="party")
-    hub.create_entry(p1, camp.id, board="character", character_id=thorn.id, kind="backstory",
-                     title="Wolves", body="Elara owl", visibility="party")
-    hub.create_entry(p1, camp.id, board="journal", title="Session recap", body="Elara owl",
-                     session=3)
+    hub.create_entry(
+        dm, camp.id, board="lore", kind="npc", title="Elara", body="Elara owl", visibility="party"
+    )
+    hub.create_entry(
+        p1,
+        camp.id,
+        board="character",
+        character_id=thorn.id,
+        kind="backstory",
+        title="Wolves",
+        body="Elara owl",
+        visibility="party",
+    )
+    hub.create_entry(
+        p1, camp.id, board="journal", title="Session recap", body="Elara owl", session=3
+    )
     hits = {h.source: h for h in hub.search(p1, camp.id, "Elara owl", k=10)}
     assert hits["Lore › NPC › Elara"].canon is True
     assert hits["Thorn's board › Backstory › Wolves"].canon is False
@@ -576,3 +615,24 @@ def test_campaign_db_uses_wal(hub, tmp_path):
     camp, *_ = party(hub)
     db = sqlite3.connect(tmp_path / "campaigns" / camp.id / "campaign.db")
     assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+# --- chunking ---------------------------------------------------------------------------------
+
+
+def test_chunking_packs_paragraphs_and_splits_long_ones_at_sentences_then_hard_wraps():
+    from dungeonmind.hub.entries import CHUNK_CHARS, chunk_body
+
+    short = chunk_body("One.\n\nTwo.\n\n\n  Three.  ")
+    assert short == ["One.\n\nTwo.\n\nThree."]
+
+    sentences = " ".join(f"Sentence number {i} is here." for i in range(200))
+    chunks = chunk_body(sentences)
+    assert len(chunks) > 1 and all(len(c) <= CHUNK_CHARS for c in chunks)
+    assert all(c.endswith(".") for c in chunks)  # split at sentence ends
+    assert " ".join(chunks) == sentences
+
+    unbroken = "x" * (CHUNK_CHARS * 2 + 10)
+    wrapped = chunk_body(f"Intro. {unbroken} Outro.")
+    assert all(len(c) <= CHUNK_CHARS for c in wrapped)
+    assert "".join(wrapped).replace(" ", "") == f"Intro.{unbroken}Outro."

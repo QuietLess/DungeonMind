@@ -17,7 +17,11 @@ BOARD_KINDS: dict[str, tuple[str, ...]] = {
     "journal": ("note",),
 }
 DEFAULT_KIND = {"lore": "other", "character": "other", "journal": "note"}
-DEFAULT_VISIBILITY: dict[str, Visibility] = {"lore": "private", "character": "dm", "journal": "party"}
+DEFAULT_VISIBILITY: dict[str, Visibility] = {
+    "lore": "private",
+    "character": "dm",
+    "journal": "party",
+}
 
 USERNAME = r"[a-z0-9_]{3,32}"
 PASSWORD_CHARS = (10, 200)

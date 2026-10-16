@@ -1,7 +1,6 @@
 """Hub HTTP API (M6 contract behaviours 1, 2, 6, 7, 11, 22), via FastAPI's TestClient."""
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from hub_support import PASSWORD, make_hub
 
@@ -11,8 +10,14 @@ H = {CSRF_HEADER: "1"}
 
 
 def _ok_engine(question, search_notes, store, conversation_id):
-    return {"answer": f"echo: {question}", "citations": [], "confidence": "low",
-            "insufficient_evidence": True, "stop_reason": "completed", "trace": []}
+    return {
+        "answer": f"echo: {question}",
+        "citations": [],
+        "confidence": "low",
+        "insufficient_evidence": True,
+        "stop_reason": "completed",
+        "trace": [],
+    }
 
 
 @pytest.fixture
@@ -50,18 +55,20 @@ FILL = {"cid": "0" * 32, "eid": "1", "chid": "1", "tid": "1", "uid": "u", "code"
 
 
 def test_1_every_route_except_register_and_login_requires_a_session(app):
+    # The OpenAPI table lists every route, however FastAPI stores included routers internally.
     client = _client(app)
-    routes = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/api")]
-    assert len(routes) >= 20
-    for route in routes:
-        if route.path in PUBLIC:
+    paths = app.openapi()["paths"]
+    assert sum(len(ops) for ops in paths.values()) >= 20
+    for template, operations in paths.items():
+        if template in PUBLIC:
             continue
-        path = route.path
+        path = template
         for name, value in FILL.items():
             path = path.replace("{" + name + "}", value)
-        for method in route.methods - {"HEAD", "OPTIONS"}:
-            r = client.request(method, path, headers=H, json={})
-            assert r.status_code == 401, (method, route.path, r.status_code)
+        assert "{" not in path, template
+        for method in operations:
+            r = client.request(method.upper(), path, headers=H, json={})
+            assert r.status_code == 401, (method, template, r.status_code)
 
 
 def test_1_a_bogus_cookie_is_not_a_session(app):
@@ -75,8 +82,9 @@ def test_1_a_bogus_cookie_is_not_a_session(app):
 
 def test_6_register_logs_in_with_a_hardened_cookie(app):
     client = _client(app)
-    r = client.post("/api/auth/register", json={"username": "mia_r", "password": PASSWORD},
-                    headers=H)
+    r = client.post(
+        "/api/auth/register", json={"username": "mia_r", "password": PASSWORD}, headers=H
+    )
     assert r.status_code == 201
     cookie = r.headers["set-cookie"].lower()
     assert f"{SESSION_COOKIE}=" in cookie
@@ -89,11 +97,16 @@ def test_6_register_logs_in_with_a_hardened_cookie(app):
 def test_6_login_logout(app):
     _signup(app, "mia_r")
     client = _client(app)
-    bad = client.post("/api/auth/login", json={"username": "mia_r", "password": "nope nope"},
-                      headers=H)
+    bad = client.post(
+        "/api/auth/login", json={"username": "mia_r", "password": "nope nope"}, headers=H
+    )
     assert bad.status_code == 401
-    assert client.post("/api/auth/login", json={"username": "mia_r", "password": PASSWORD},
-                       headers=H).status_code == 200
+    assert (
+        client.post(
+            "/api/auth/login", json={"username": "mia_r", "password": PASSWORD}, headers=H
+        ).status_code
+        == 200
+    )
     assert client.get("/api/me").status_code == 200
     assert client.post("/api/auth/logout", headers=H).status_code == 204
     assert client.get("/api/me").status_code == 401
@@ -103,10 +116,10 @@ def test_8_login_rate_limit_is_429(app):
     _signup(app, "mia_r")
     client = _client(app)
     for _ in range(5):
-        client.post("/api/auth/login", json={"username": "mia_r", "password": "wrong pass"},
-                    headers=H)
-    r = client.post("/api/auth/login", json={"username": "mia_r", "password": PASSWORD},
-                    headers=H)
+        client.post(
+            "/api/auth/login", json={"username": "mia_r", "password": "wrong pass"}, headers=H
+        )
+    r = client.post("/api/auth/login", json={"username": "mia_r", "password": PASSWORD}, headers=H)
     assert r.status_code == 429
 
 
@@ -118,9 +131,12 @@ def test_7_unsafe_methods_without_the_header_are_refused(table):
     assert dm.post("/api/campaigns", json={"name": "x"}).status_code == 403
     assert dm.delete(f"/api/campaigns/{cid}").status_code == 403
     assert dm.get(f"/api/campaigns/{cid}").status_code == 200  # safe methods don't need it
-    assert _client(dm.app).post(
-        "/api/auth/login", json={"username": "dm_dana", "password": PASSWORD}
-    ).status_code == 403
+    assert (
+        _client(dm.app)
+        .post("/api/auth/login", json={"username": "dm_dana", "password": PASSWORD})
+        .status_code
+        == 403
+    )
 
 
 # --- 2. not found vs forbidden ----------------------------------------------------------------
@@ -132,24 +148,33 @@ def test_2_outsiders_get_404_and_players_get_403_for_dm_actions(table):
     assert outsider.get(f"/api/campaigns/{cid}/entries").status_code == 404
     assert player.delete(f"/api/campaigns/{cid}", headers=H).status_code == 403
     assert player.post(f"/api/campaigns/{cid}/invites", headers=H).status_code == 403
-    r = player.post(f"/api/campaigns/{cid}/entries",
-                    json={"board": "lore", "title": "t", "body": "b"}, headers=H)
+    r = player.post(
+        f"/api/campaigns/{cid}/entries",
+        json={"board": "lore", "title": "t", "body": "b"},
+        headers=H,
+    )
     assert r.status_code == 403
 
 
 def test_2_hidden_entries_are_404_for_players(table):
     dm, player, outsider, cid = table
-    secret = dm.post(f"/api/campaigns/{cid}/entries",
-                     json={"board": "lore", "kind": "npc", "title": "Velkor",
-                           "body": "A vampire."}, headers=H)
+    secret = dm.post(
+        f"/api/campaigns/{cid}/entries",
+        json={"board": "lore", "kind": "npc", "title": "Velkor", "body": "A vampire."},
+        headers=H,
+    )
     assert secret.status_code == 201, secret.text
     eid = secret.json()["id"]
     assert secret.json()["visibility"] == "private"
     assert player.get(f"/api/campaigns/{cid}/entries/{eid}").status_code == 404
     listed = player.get(f"/api/campaigns/{cid}/entries").json()
     assert all(e["id"] != eid for e in listed)
-    assert dm.patch(f"/api/campaigns/{cid}/entries/{eid}", json={"visibility": "party"},
-                    headers=H).status_code == 200
+    assert (
+        dm.patch(
+            f"/api/campaigns/{cid}/entries/{eid}", json={"visibility": "party"}, headers=H
+        ).status_code
+        == 200
+    )
     assert player.get(f"/api/campaigns/{cid}/entries/{eid}").json()["body"] == "A vampire."
 
 
@@ -167,9 +192,17 @@ def test_characters_and_character_board_over_http(table):
     r = player.post(f"/api/campaigns/{cid}/characters", json={"name": "Thorn"}, headers=H)
     assert r.status_code == 201
     chid = r.json()["id"]
-    e = player.post(f"/api/campaigns/{cid}/entries",
-                    json={"board": "character", "character_id": chid, "kind": "backstory",
-                          "title": "Wolves", "body": "Raised by wolves."}, headers=H)
+    e = player.post(
+        f"/api/campaigns/{cid}/entries",
+        json={
+            "board": "character",
+            "character_id": chid,
+            "kind": "backstory",
+            "title": "Wolves",
+            "body": "Raised by wolves.",
+        },
+        headers=H,
+    )
     assert e.status_code == 201 and e.json()["visibility"] == "dm"
     assert dm.get(f"/api/campaigns/{cid}/entries/{e.json()['id']}").status_code == 200
     assert player.delete(f"/api/campaigns/{cid}/characters/{chid}", headers=H).status_code == 409
@@ -180,8 +213,7 @@ def test_chat_over_http(table):
     t = player.post(f"/api/campaigns/{cid}/chats", json={"title": "Q"}, headers=H)
     assert t.status_code == 201
     tid = t.json()["id"]
-    r = player.post(f"/api/campaigns/{cid}/chats/{tid}/messages", json={"text": "hello"},
-                    headers=H)
+    r = player.post(f"/api/campaigns/{cid}/chats/{tid}/messages", json={"text": "hello"}, headers=H)
     assert r.status_code == 200, r.text
     assert r.json()["text"] == "echo: hello"
     history = player.get(f"/api/campaigns/{cid}/chats/{tid}").json()
@@ -191,9 +223,11 @@ def test_chat_over_http(table):
 
 def test_search_over_http(table):
     dm, player, outsider, cid = table
-    dm.post(f"/api/campaigns/{cid}/entries",
-            json={"board": "journal", "title": "Rumour", "body": "A dragon sleeps in the well"},
-            headers=H)
+    dm.post(
+        f"/api/campaigns/{cid}/entries",
+        json={"board": "journal", "title": "Rumour", "body": "A dragon sleeps in the well"},
+        headers=H,
+    )
     hits = player.get(f"/api/campaigns/{cid}/search", params={"q": "dragon well"}).json()
     assert hits and hits[0]["source"].startswith("Journal")
 
@@ -203,21 +237,30 @@ def test_search_over_http(table):
 
 def test_11_oversized_bodies_are_413(table):
     dm, player, outsider, cid = table
-    r = dm.post(f"/api/campaigns/{cid}/entries",
-                json={"board": "journal", "title": "t", "body": "x" * 70_000}, headers=H)
+    r = dm.post(
+        f"/api/campaigns/{cid}/entries",
+        json={"board": "journal", "title": "t", "body": "x" * 70_000},
+        headers=H,
+    )
     assert r.status_code == 413
 
 
 def test_22_validation_errors_are_plain_messages(table):
     dm, player, outsider, cid = table
-    r = dm.post(f"/api/campaigns/{cid}/entries",
-                json={"board": "journal", "title": "x" * 121, "body": "b"}, headers=H)
+    r = dm.post(
+        f"/api/campaigns/{cid}/entries",
+        json={"board": "journal", "title": "x" * 121, "body": "b"},
+        headers=H,
+    )
     assert r.status_code == 422
     assert isinstance(r.json()["detail"], str) and "120" in r.json()["detail"]
     r = dm.post(f"/api/campaigns/{cid}/entries", json={"board": "journal"}, headers=H)
     assert r.status_code == 422 and isinstance(r.json()["detail"], str)
-    r = dm.post(f"/api/campaigns/{cid}/entries", content=b"not json",
-                headers={**H, "content-type": "application/json"})
+    r = dm.post(
+        f"/api/campaigns/{cid}/entries",
+        content=b"not json",
+        headers={**H, "content-type": "application/json"},
+    )
     assert r.status_code == 422 and isinstance(r.json()["detail"], str)
 
 

@@ -43,13 +43,21 @@ def setup(tmp_path):
     hub = make_hub(tmp_path, engine=_engine(llm))
     camp, dm, p1, p2, p3, outsider = party(hub)
     hub.create_entry(dm, camp.id, board="lore", kind="npc", title="Baron Velkor", body=SECRET)
-    hub.create_entry(p2, camp.id, board="journal", title="Confession", body=P2_SECRET,
-                     visibility="dm")
-    hub.create_entry(p1, camp.id, board="journal", title="Session 1",
-                     body="We met Baron Velkor at the harvest feast.", session=1)
+    hub.create_entry(
+        p2, camp.id, board="journal", title="Confession", body=P2_SECRET, visibility="dm"
+    )
+    hub.create_entry(
+        p1,
+        camp.id,
+        board="journal",
+        title="Session 1",
+        body="We met Baron Velkor at the harvest feast.",
+        session=1,
+    )
     other = hub.create_campaign(dm, "Greywater")
-    hub.create_entry(dm, other.id, board="lore", title="Velkor", body=OTHER_CAMPAIGN,
-                     visibility="party")
+    hub.create_entry(
+        dm, other.id, board="lore", title="Velkor", body=OTHER_CAMPAIGN, visibility="party"
+    )
     return hub, llm, camp, dm, p1, p2
 
 
@@ -181,8 +189,12 @@ def _spy_engine(log):
             store.put(conversation_id, EncounterRequest(party_levels=[5, 5, 5, 5]))
         log.append((conversation_id, store.get(conversation_id)))
         return {
-            "answer": "ok", "citations": [], "confidence": "low",
-            "insufficient_evidence": True, "stop_reason": "completed", "trace": [],
+            "answer": "ok",
+            "citations": [],
+            "confidence": "low",
+            "insufficient_evidence": True,
+            "stop_reason": "completed",
+            "trace": [],
         }
 
     return engine
@@ -209,14 +221,21 @@ def test_13_search_notes_is_bound_to_campaign_and_viewer(tmp_path):
 
     def engine(question, search_notes, store, conversation_id):
         seen.extend(h.text for h in search_notes("Velkor", 50))
-        return {"answer": "ok", "citations": [], "confidence": "low",
-                "insufficient_evidence": True, "stop_reason": "completed", "trace": []}
+        return {
+            "answer": "ok",
+            "citations": [],
+            "confidence": "low",
+            "insufficient_evidence": True,
+            "stop_reason": "completed",
+            "trace": [],
+        }
 
     hub = make_hub(tmp_path, engine=engine)
     camp, dm, p1, *_ = party(hub)
     hub.create_entry(dm, camp.id, board="lore", title="Velkor", body=SECRET)
-    hub.create_entry(dm, camp.id, board="lore", title="Velkor", body="Velkor is a baron",
-                     visibility="party")
+    hub.create_entry(
+        dm, camp.id, board="lore", title="Velkor", body="Velkor is a baron", visibility="party"
+    )
     hub.ask(p1, camp.id, hub.create_thread(p1, camp.id).id, "q")
     assert len(seen) == 1 and "Velkor is a baron" in seen[0]
 
