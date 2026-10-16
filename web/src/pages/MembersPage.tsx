@@ -10,7 +10,7 @@ export function MembersPage() {
   const navigate = useNavigate();
   const { data: members, reload } = useLoad(() => api.members(campaign.id), [campaign.id]);
   const [invite, setInvite] = useState<Invite | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"" | "Copied" | "Couldn't copy; select the code instead">("");
   const [error, setError] = useState<string | null>(null);
   const isDm = campaign.role === "dm";
 
@@ -25,8 +25,12 @@ export function MembersPage() {
 
   const copy = async () => {
     if (!invite) return;
-    await navigator.clipboard?.writeText(invite.code).catch(() => undefined);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(invite.code);
+      setCopied("Copied");
+    } catch {
+      setCopied("Couldn't copy; select the code instead");
+    }
   };
 
   return (
@@ -46,7 +50,7 @@ export function MembersPage() {
             className="btn btn-primary"
             onClick={() => run(async () => {
               setInvite(await api.createInvite(campaign.id));
-              setCopied(false);
+              setCopied("");
             })}
           >
             <PlusIcon /> New invite code
@@ -58,8 +62,11 @@ export function MembersPage() {
           <span className="field-label">Invite code</span>
           <code className="invite-code">{invite.code}</code>
           <button type="button" className="btn btn-small" onClick={copy}>
-            {copied ? "Copied" : "Copy"}
+            Copy
           </button>
+          <span className="muted small" aria-live="polite">
+            {copied}
+          </span>
           <p className="hint">
             Expires {new Date(invite.expires_at).toLocaleDateString()}. Players enter it under
             “Join a campaign”.

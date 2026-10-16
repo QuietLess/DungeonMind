@@ -23,28 +23,36 @@ export function EntryPanel({
   const { data: entry, setData, error } = useLoad(() => api.entry(campaign.id, entryId), [entryId]);
   const [editing, setEditing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
 
   const mine = entry?.author_id === user.id;
 
-  const act = async (fn: () => Promise<Entry | void>) => {
+  /** Run an action; true when it worked (F3: the caller only moves on after success). */
+  const act = async (fn: () => Promise<Entry | void>): Promise<boolean> => {
     setActionError(null);
     try {
       const result = await fn();
       if (result) setData(result);
       onChanged?.();
+      return true;
     } catch (e) {
       setActionError(message(e));
+      return false;
     }
   };
 
   const remove = () => {
     if (entry && window.confirm(`Delete “${entry.title}”? This can't be undone.`)) {
-      act(() => api.deleteEntry(campaign.id, entry.id)).then(onClose);
+      act(() => api.deleteEntry(campaign.id, entry.id)).then((ok) => ok && onClose());
     }
   };
 
   return (
-    <Drawer title={editing ? "Edit entry" : entry?.title ?? "Entry"} onClose={onClose}>
+    <Drawer
+      title={editing ? "Edit entry" : entry?.title ?? "Entry"}
+      onClose={onClose}
+      dirty={editing && dirty}
+    >
       {error && <p className="error" role="alert">{error}</p>}
       {entry && editing && (
         <EntryEditor
@@ -56,6 +64,7 @@ export function EntryPanel({
             onChanged?.();
           }}
           onCancel={() => setEditing(false)}
+          onDirtyChange={setDirty}
         />
       )}
       {entry && !editing && (

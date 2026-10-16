@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { TopBar } from "../components/TopBar";
@@ -11,26 +11,30 @@ export function CampaignsPage() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
 
-  const create = async (e: FormEvent) => {
+  /** One request at a time (F2): a double click doesn't create two campaigns. */
+  const once = async (e: FormEvent, run: () => Promise<string>) => {
     e.preventDefault();
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setFormError(null);
     try {
-      const campaign = await api.createCampaign(name);
-      navigate(`/c/${campaign.id}/lore`);
+      navigate(await run());
     } catch (err) {
       setFormError(message(err));
+    } finally {
+      sending.current = false;
+      setBusy(false);
     }
   };
 
-  const join = async (e: FormEvent) => {
-    e.preventDefault();
-    try {
-      const campaign = await api.acceptInvite(code.trim());
-      navigate(`/c/${campaign.id}/chat`);
-    } catch (err) {
-      setFormError(message(err));
-    }
-  };
+  const create = (e: FormEvent) =>
+    once(e, async () => `/c/${(await api.createCampaign(name)).id}/lore`);
+  const join = (e: FormEvent) =>
+    once(e, async () => `/c/${(await api.acceptInvite(code.trim())).id}/chat`);
 
   return (
     <>
@@ -64,7 +68,7 @@ export function CampaignsPage() {
               Campaign name
               <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} />
             </label>
-            <button className="btn btn-primary">Create as DM</button>
+            <button className="btn btn-primary" disabled={busy}>Create as DM</button>
           </form>
           <form className="panel" onSubmit={join}>
             <h2>Join a campaign</h2>
@@ -79,7 +83,7 @@ export function CampaignsPage() {
                 placeholder="e.g. kq7h3m9xw2ab"
               />
             </label>
-            <button className="btn">Join as player</button>
+            <button className="btn" disabled={busy}>Join as player</button>
           </form>
         </div>
       </main>

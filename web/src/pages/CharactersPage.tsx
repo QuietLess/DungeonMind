@@ -1,6 +1,6 @@
 // Characters and their storyboards: anyone sees the character list; each storyboard shows the
 // entries the viewer may read; only the character's player adds to it.
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Drawer } from "../components/Drawer";
@@ -31,13 +31,20 @@ export function CharactersPage() {
   const [open, setOpen] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [summary, setSummary] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const sending = useRef(false);
+  const [dirty, setDirty] = useState(false);
 
   const selected = characters?.find((c) => c.id === selectedId);
   const mine = selected?.owner_id === user.id;
 
   const createCharacter = async (e: FormEvent) => {
     e.preventDefault();
+    if (sending.current) return; // F2
+    sending.current = true;
+    setSaving(true);
+    setFormError(null);
     try {
       const made = await api.createCharacter(campaign.id, name, summary);
       setCreatingCharacter(false);
@@ -46,7 +53,10 @@ export function CharactersPage() {
       reloadCharacters();
       navigate(`/c/${campaign.id}/characters/${made.id}`);
     } catch (err) {
-      setError(message(err));
+      setFormError(message(err)); // F1: shown inside the open form
+    } finally {
+      sending.current = false;
+      setSaving(false);
     }
   };
 
@@ -64,7 +74,6 @@ export function CharactersPage() {
           <PlusIcon /> New character
         </button>
       </header>
-      {error && <p className="error" role="alert">{error}</p>}
       <div className="character-layout">
         <ul className="character-list" aria-label="Characters">
           {characters?.length === 0 && <li className="muted">No characters yet.</li>}
@@ -121,7 +130,11 @@ export function CharactersPage() {
 
       {open !== null && <EntryPanel entryId={open} onClose={() => setOpen(null)} onChanged={reload} />}
       {adding && selected && (
-        <Drawer title={`Add to ${selected.name}'s storyboard`} onClose={() => setAdding(false)}>
+        <Drawer
+          title={`Add to ${selected.name}'s storyboard`}
+          onClose={() => setAdding(false)}
+          dirty={dirty}
+        >
           <EntryEditor
             board="character"
             characterId={selected.id}
@@ -130,11 +143,16 @@ export function CharactersPage() {
               reload();
             }}
             onCancel={() => setAdding(false)}
+            onDirtyChange={setDirty}
           />
         </Drawer>
       )}
       {creatingCharacter && (
-        <Drawer title="New character" onClose={() => setCreatingCharacter(false)}>
+        <Drawer
+          title="New character"
+          onClose={() => setCreatingCharacter(false)}
+          dirty={name !== "" || summary !== ""}
+        >
           <form className="editor" onSubmit={createCharacter}>
             <label>
               Name
@@ -144,11 +162,18 @@ export function CharactersPage() {
               Summary (visible to everyone)
               <input value={summary} onChange={(e) => setSummary(e.target.value)} maxLength={500} />
             </label>
+            {formError && (
+              <p className="error" role="alert">
+                {formError}
+              </p>
+            )}
             <div className="actions">
               <button type="button" className="btn btn-ghost" onClick={() => setCreatingCharacter(false)}>
                 Cancel
               </button>
-              <button className="btn btn-primary">Create character</button>
+              <button className="btn btn-primary" disabled={saving}>
+                {saving ? "Creating…" : "Create character"}
+              </button>
             </div>
           </form>
         </Drawer>

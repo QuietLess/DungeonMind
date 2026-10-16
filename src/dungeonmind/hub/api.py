@@ -38,6 +38,8 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
 }
 NO_BUILD_PAGE = (
     "<!doctype html><title>DungeonMind</title><h1>DungeonMind</h1>"
@@ -112,6 +114,12 @@ def _plain(errors: list[dict[str, Any]]) -> str:
     return f"{field}: {message}" if field else message
 
 
+def _servable(path: str) -> bool:
+    """W2: never hidden files (any segment starting with '.') or source maps from web/dist."""
+    parts = [p for p in path.split("/") if p]
+    return bool(parts) and not any(p.startswith(".") for p in parts) and not path.endswith(".map")
+
+
 def client_of(request: Request) -> str:
     """The client address, for per-client rate limits (F4, F5)."""
     return request.client.host if request.client else "unknown"
@@ -148,6 +156,8 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     async def guard(request: Request, call_next):
         response = refuse(request) or await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        if request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store"  # W4: private notes aren't cached
         return response
 
     @app.exception_handler(HubError)
@@ -160,7 +170,9 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unexpected(request: Request, exc: Exception):
-        return JSONResponse({"detail": INTERNAL_ERROR}, 500)
+        # Runs outside the http middleware, so it adds the headers itself (W1).
+        headers = {**SECURITY_HEADERS, "Cache-Control": "no-store"}
+        return JSONResponse({"detail": INTERNAL_ERROR}, 500, headers=headers)
 
     def set_session(request: Request, response: Response, token: str) -> None:
         response.set_cookie(
@@ -317,16 +329,20 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
 
     # --- the web UI (UI1): files from web/dist, index.html for every app route ---------------
 
-    @app.get("/{path:path}", include_in_schema=False)
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     def web(path: str):
         if path == "api" or path.startswith("api/"):
             return JSONResponse({"detail": "Not found."}, 404)
         if web_dist is None or not (web_dist / "index.html").is_file():
             return HTMLResponse(NO_BUILD_PAGE)
         root = web_dist.resolve()
-        candidate = (root / path).resolve()
-        if path and candidate.is_file() and candidate.is_relative_to(root):
-            return FileResponse(candidate)
+        if _servable(path):
+            try:
+                candidate = (root / path).resolve()
+            except (ValueError, OSError):  # e.g. a NUL byte in the path (W1)
+                candidate = root
+            if candidate.is_file() and candidate.is_relative_to(root):
+                return FileResponse(candidate)
         return FileResponse(root / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app

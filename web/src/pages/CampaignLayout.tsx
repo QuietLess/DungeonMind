@@ -19,7 +19,18 @@ export function CampaignLayout() {
       </>
     );
   }
-  if (!campaign || !user) return <TopBar />;
+  if (!campaign || !user) {
+    return (
+      <>
+        <TopBar />
+        <main className="page narrow">
+          <p className="muted" aria-busy="true">
+            Loading campaign…
+          </p>
+        </main>
+      </>
+    );
+  }
 
   const tabs = [
     { to: "chat", label: "Chat", Icon: ChatIcon },

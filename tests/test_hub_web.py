@@ -93,8 +93,11 @@ def test_w1_unexpected_errors_still_carry_security_headers(tmp_path, dist):
 
     hub.campaigns = broken
     c = TestClient(app, raise_server_exceptions=False)
-    c.post("/api/auth/register", json={"username": "mia_r", "password": "a long password"},
-           headers={"X-DungeonMind": "1"})
+    c.post(
+        "/api/auth/register",
+        json={"username": "mia_r", "password": "a long password"},
+        headers={"X-DungeonMind": "1"},
+    )
     r = c.get("/api/campaigns")
     assert r.status_code == 500
     assert "frame-ancestors 'none'" in r.headers["content-security-policy"]

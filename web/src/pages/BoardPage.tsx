@@ -26,6 +26,7 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
   const [open, setOpen] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
   const { data: entries, loading, error: loadError, reload } = useLoad(
     () => api.entries(campaign.id, { board, q: query || undefined }),
     [campaign.id, board, query],
@@ -98,7 +99,11 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
       ))}
       {open !== null && <EntryPanel entryId={open} onClose={() => setOpen(null)} onChanged={reload} />}
       {creating && (
-        <Drawer title={board === "lore" ? "New lore entry" : "New journal entry"} onClose={() => setCreating(false)}>
+        <Drawer
+          title={board === "lore" ? "New lore entry" : "New journal entry"}
+          onClose={() => setCreating(false)}
+          dirty={dirty}
+        >
           <EntryEditor
             board={board}
             onSaved={() => {
@@ -106,6 +111,7 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
               reload();
             }}
             onCancel={() => setCreating(false)}
+            onDirtyChange={setDirty}
           />
         </Drawer>
       )}

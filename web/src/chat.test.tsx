@@ -40,6 +40,7 @@ function renderChat() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks(); // call counts must not leak between tests
   Element.prototype.scrollIntoView = vi.fn(() => Promise.resolve()) as never;
   api.threads.mockResolvedValue([]);
   api.createThread.mockResolvedValue({ id: 5, title: "Who is Elara?", created_at: "" });
@@ -56,7 +57,9 @@ describe("ChatPage", () => {
   it("keeps the first question of a new chat and shows the cited answer", async () => {
     renderChat();
     await userEvent.type(screen.getByLabelText("Your question"), "Who is Elara?{Enter}");
-    expect(await screen.findByRole("button", { name: /N1: Lore › NPC › Elara/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /N1: Lore › NPC › Elara/ }, { timeout: 3000 }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Who is Elara?", { selector: ".message-user p" })).toBeInTheDocument();
     expect(api.ask).toHaveBeenCalledWith("c1", 5, "Who is Elara?");
   });

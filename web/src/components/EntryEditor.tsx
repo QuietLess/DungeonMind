@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { message, useCampaign } from "../hooks";
 import { BOARD_KINDS, type Board, type Entry, type Visibility } from "../types";
@@ -17,12 +17,14 @@ export function EntryEditor({
   entry,
   onSaved,
   onCancel,
+  onDirtyChange,
 }: {
   board: Board;
   characterId?: number;
   entry?: Entry;
   onSaved: (entry: Entry) => void;
   onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const { campaign } = useCampaign();
   const allowed = visibilityOptions(board, campaign.role);
@@ -36,9 +38,21 @@ export function EntryEditor({
   const [session, setSession] = useState(entry?.session?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+
+  const dirty =
+    title !== (entry?.title ?? "") ||
+    body !== (entry?.body ?? "") ||
+    session !== (entry?.session?.toString() ?? "") ||
+    (entry !== undefined && (kind !== entry.kind || visibility !== entry.visibility));
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (sending.current) return; // F2: one request per save
+    sending.current = true;
     setBusy(true);
     setError(null);
     const fields = {
@@ -56,6 +70,7 @@ export function EntryEditor({
     } catch (err) {
       setError(message(err));
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   };

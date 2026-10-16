@@ -35,9 +35,17 @@ export function ChatPage() {
   // A thread this page just created already has its messages on screen; reloading it would
   // race the pending answer and wipe the first question (found in the browser walk-through).
   const created = useRef<number | null>(null);
+  // The thread on screen right now, so a late answer can't land in another thread (C2).
+  const current = useRef<number | null>(threadId);
+  useEffect(() => {
+    // Only when the open thread really changes: a render between creating a thread and the URL
+    // catching up must not reset it, or the first answer would be dropped.
+    current.current = threadId;
+  }, [threadId]);
 
   useEffect(() => {
     if (threadId !== null && threadId === created.current) return;
+    created.current = null; // left the new thread: from now on it reloads normally (C1)
     setMessages([]);
     setError(null);
     if (threadId === null) return;
@@ -64,6 +72,7 @@ export function ChatPage() {
         const thread = await api.createThread(campaign.id, q.slice(0, 60));
         target = thread.id;
         created.current = thread.id;
+        current.current = thread.id;
         reloadThreads();
         navigate(`${base}/${thread.id}`, { replace: true });
       }
@@ -74,8 +83,10 @@ export function ChatPage() {
       setMessages((m) => [...m, pending]);
       setText("");
       const reply = await api.ask(campaign.id, target, q);
-      setMessages((m) => [...m, reply]);
-      setAnnouncement(`Answer: ${reply.text.slice(0, 300)}`);
+      if (current.current === target) {
+        setMessages((m) => [...m, reply]);
+        setAnnouncement(`Answer: ${reply.text.slice(0, 300)}`);
+      }
     } catch (e) {
       setError(message(e));
     } finally {
@@ -89,7 +100,7 @@ export function ChatPage() {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send(text);
     }
@@ -128,7 +139,22 @@ export function ChatPage() {
       </aside>
 
       <div className="conversation">
-        <div className="messages" aria-label="Conversation">
+        <label className="thread-picker">
+          <span className="sr-only">Switch chat</span>
+          <select
+            aria-label="Switch chat"
+            value={threadId ?? ""}
+            onChange={(e) => navigate(e.target.value ? `${base}/${e.target.value}` : base)}
+          >
+            <option value="">New chat</option>
+            {threads?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="messages" role="log" aria-label="Conversation">
           {messages.length === 0 && !busy && (
             <div className="chat-empty">
               <h1>Ask about {campaign.name}</h1>
