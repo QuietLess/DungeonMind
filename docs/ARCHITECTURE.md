@@ -1151,6 +1151,18 @@ session; unsafe ones need the CSRF header, like every other route.
 - **AU4** Delete account: the button stays disabled until the typed username matches; it
   needs the password; success goes to the sign-in page. A 409 (still a DM) is shown plainly.
 
+### M9b review fixes (backend + security review: no CRITICAL/HIGH)
+
+- **R1** A private entry or chat written while its author's account is being deleted can't
+  survive: deletion sweeps, removes the account, then sweeps again, and `create_entry` /
+  `create_thread` undo their insert and return 404 if the author is gone afterwards.
+- **R2** The "still a DM" check is repeated inside the final transaction: a campaign created
+  during deletion is a 409, not a 500.
+- **R3** Deleted private text is wiped from disk: `secure_delete` on the deleting connections
+  and a truncating WAL checkpoint per campaign.
+- **R4** A sign-in that verified the old password while it was being changed gets no session
+  (the session is made only if the verified hash is still current).
+
 ### Out of scope for M9b
 
 Email, password reset by email, ownership transfer, co-DMs, display names.
@@ -1185,6 +1197,19 @@ read like the Markdown they were written in, and chats can be tidied.
   without a session come after, newest first.
 - **UB5 Chat tidy-up.** Each thread in the chat list has Rename and Delete (with a
   confirmation). Deleting the open thread goes back to the chat start page.
+
+### M9c review fixes (frontend review: one HIGH, fixed)
+
+- **R1 (HIGH)** The DM's Secret/Revealed choice carried over to the journal (same component,
+  kept state) and silently hid entries there. Filters now apply on the lore board only, and
+  each board route has its own instance.
+- **R2** A selected kind keeps its chip (count 0), so a filter that empties the list can
+  always be seen and cleared.
+- **R3** Numbered lists keep their first number ("3. oturumda…" is a Turkish ordinal).
+- **R4** The delete button meets AA contrast in the dark theme.
+- **R5** On phones, the open chat has Rename and Delete next to the chat picker.
+- Smaller: red delete icon, focus to "New chat" after a delete, 28 px thread action
+  targets, account form cleared after success, emphasis only at word edges.
 
 ### Out of scope for M9c
 

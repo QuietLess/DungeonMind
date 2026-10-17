@@ -153,6 +153,9 @@ items previously due "M8" are now due M9.
 | H2 | Behind a reverse proxy every client looks like 127.0.0.1: an explicit forwarded-IP setting, a global per-username login limit, IPv6 /64 grouping | M9 |
 | H3 | The DM runs the server, so `campaign.db` is readable by them in plain text; "private" is enforced by the app, not cryptography. Document clearly, or add per-user encryption | M9 |
 | H4 | Store the embedding model name and dimension per campaign; a model change today makes every search fail | M8 |
+| A5 | Nobody can edit or delete what a deleted (or removed) player shared; the DM has no moderation for others' party entries | when convenient |
+| A6 | Rename uses `window.prompt` (no length hint; a 422 shows in the conversation pane) | when convenient |
+| A7 | An unusable campaign folder blocks account deletion until fixed (fail-safe; ops note) | when convenient |
 | H5 | Worst-case search (every query term in every chunk) takes ≈ 1.5 s at the limit; cap rows per term if it matters | when convenient |
 
 ## Known limitations
