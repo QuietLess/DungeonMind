@@ -383,3 +383,31 @@ def test_m8b_unknown_provider_is_a_clear_error(chat_env):
     result = _invoke("q", "--provider", "gemini")
     assert result.exit_code != 0
     assert "claude" in _flat(result.output) and "ollama" in _flat(result.output)
+
+
+def test_m8d_import_preview_writes_nothing(tmp_path):
+    vault = tmp_path / "vault"
+    (vault / "Karakterler").mkdir(parents=True)
+    (vault / "Karakterler" / "Arden.md").write_text(
+        "---\nkind: npc\n---\nArden lonca ustası.\n", encoding="utf-8"
+    )
+    root = tmp_path / "hub"
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "hub",
+            "import-obsidian",
+            str(vault),
+            "--dm",
+            "dm_dana",
+            "--campaign-name",
+            "Eldoria",
+            "--preview",
+            "--root",
+            str(root),
+        ],
+        env=WIDE,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Arden" in result.output and "Preview only" in result.output
+    assert not root.exists()

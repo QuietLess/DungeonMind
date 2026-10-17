@@ -171,6 +171,20 @@ Switch back with `--provider claude` (needs `ANTHROPIC_API_KEY`). Pick another l
 `--models all=llama3.2:3b`. On a small laptop, local answers take about a minute and are weaker
 than Claude's. The evaluation suite measures how much weaker.
 
+## Import your Obsidian campaign
+
+```bash
+uv run dungeonmind hub import-obsidian "/path/to/vault" --dm YOUR_USERNAME \
+    --campaign-name "My Campaign" --sessions "/path/to/session-notes" --preview
+```
+
+`--preview` lists every entry it would create and changes nothing; drop it to import. The
+vault is only read. Notes become private lore, with `kind` mapping to NPC, location, faction,
+event or item. `dm_note`/`secrets` text is kept in separate DM-only entries, and session notes
+become private journal entries. Reveal what players know in the web app. Turkish and other
+non-English notes work: search folds diacritics, notes use a multilingual model, and answers
+come in the language you ask in.
+
 ## Evaluation (M8)
 
 A versioned suite of 209 cases (`src/dungeonmind/evals/datasets/suite_v1.jsonl`) covers rules,

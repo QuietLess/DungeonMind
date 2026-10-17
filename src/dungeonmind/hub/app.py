@@ -11,6 +11,34 @@ DEFAULT_CHUNKS = Path("data/processed/srd_5.2.1_chunks.jsonl")
 SRD_K = 6
 
 
+NOTE_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # M8d T2
+
+
+class NoteEmbedder:
+    """Campaign entries: a multilingual model (Turkish, English and 50+ more), loaded once."""
+
+    def __init__(self, lock: threading.Lock, model_name: str = NOTE_MODEL) -> None:
+        self.name = model_name
+        self.lock = lock
+        self._model = None
+
+    @property
+    def model(self):
+        if self._model is None:
+            from fastembed import TextEmbedding
+
+            self._model = TextEmbedding(self.name)
+        return self._model
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        with self.lock:
+            return [v.tolist() for v in self.model.embed(texts)]
+
+    def embed_query(self, text: str) -> list[float]:
+        with self.lock:
+            return next(iter(self.model.embed([text]))).tolist()
+
+
 class FastEmbedder:
     """The hub's Embedder over the SRD index's fastembed model (one model in memory, F11)."""
 
@@ -62,7 +90,7 @@ def build_hub(
     )
     return Hub(
         root,
-        embedder=FastEmbedder(dense, model_lock),
+        embedder=NoteEmbedder(model_lock),
         engine=engine,
         daily_message_limit=daily_message_limit,
     )

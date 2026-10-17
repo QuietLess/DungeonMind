@@ -33,8 +33,8 @@ def test_f1_concurrent_edit_conflicts_and_chunks_stay_consistent(tmp_path, monke
     original = hub._embed
     interleaved = []
 
-    def embed_then_race(title, body):
-        chunks = original(title, body)
+    def embed_then_race(cid, title, body):  # M8d: _embed takes the campaign id
+        chunks = original(cid, title, body)
         if not interleaved:  # while the first edit is embedding, a second edit lands
             interleaved.append(True)
             hub.update_entry(dm, camp.id, e.id, title="Other tab", body="The duke hides here.")

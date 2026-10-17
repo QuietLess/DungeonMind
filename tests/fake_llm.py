@@ -47,6 +47,7 @@ class FakeLLM:
         presentation: FinalAnswer | Exception | None = None,
         campaign: FinalAnswer | Exception | None = None,
         standalone: str | Exception | None = None,
+        english: str | Exception | None = None,
     ) -> None:
         self._route = route
         self._final = final
@@ -56,6 +57,7 @@ class FakeLLM:
         self._presentation = presentation
         self._campaign = campaign
         self._standalone = standalone
+        self._english = english
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.timeouts: list[tuple[str, float | None]] = []
         self.revisions: list[str | None] = []
@@ -189,6 +191,15 @@ class FakeLLM:
         if isinstance(self._standalone, Exception):
             raise self._standalone
         return self._standalone
+
+    def english_query(self, question: str, *, timeout: float | None = None) -> str:
+        self.calls.append(("english_query", {"question": question}))
+        self.timeouts.append(("english_query", timeout))
+        if self._english is None:
+            raise AssertionError("FakeLLM.english_query called but nothing was scripted")
+        if isinstance(self._english, Exception):
+            raise self._english
+        return self._english
 
     # --- helpers for assertions ---------------------------------------------------------------
 

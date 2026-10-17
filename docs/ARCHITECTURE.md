@@ -971,3 +971,69 @@ Each item has a regression test.
 - **Known limits (not fixed):** paraphrased questions can miss the right SRD section
   (rules-21: Concentration) or note (campaign-40). The model sometimes writes an invalid
   citation id; verify removes it.
+
+## M8d contract — real campaigns: Turkish notes and the Obsidian importer
+
+The owner's real campaign is an Obsidian vault of 66 Turkish notes, plus 4 session notes. Two
+things in the search stack are English-only, and the vault needs an importer. **The owner's
+vault is read-only for DungeonMind:** nothing in it is ever written, moved or deleted. **Real
+campaign content is never committed** (the repository is public). It lives only in the
+git-ignored `data/hub/`, and tests use a small invented Turkish fixture.
+
+### Language
+
+- **T1 Unicode keyword search.** `tokenize` splits on Unicode word characters, then folds
+  case and diacritics: ç→c, ğ→g, ı/İ→i, ö→o, ş→s, ü→u, â/î/û→a/i/u. "Kızıl Şafak Köyü" gives
+  `kizil safak koyu`, and a question typed without Turkish letters still matches. English text
+  tokenizes as before (ASCII is unchanged), apart from Turkish stopwords added to the list.
+- **T2 Multilingual note embeddings.** New campaigns embed entries with
+  `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384-d, ~220 MB, 50+
+  languages). The SRD keeps `bge-small-en-v1.5`, which its benchmark is measured on. Each
+  `campaign.db` records the model that embedded it. A campaign whose model differs from the
+  hub's note embedder can still be read and listed, but search and writes stop with a clear
+  "re-index this campaign" message (this closes tracked item H4).
+- **T3 Cross-lingual rules search.** A question that isn't English (it contains non-ASCII
+  letters) gets one extra LLM call, `english_query(question)`, which returns an English search
+  query of at most 200 characters. That query is used to retrieve SRD passages (rules answers
+  and the campaign node's SRD evidence). Note search keeps the original question, since the
+  note model is multilingual. The agent prompt tells the model to write `search_rules` queries
+  in English. Any failure falls back to the original question, with a trace warning.
+- **T4 Answer language.** Every answer prompt says to answer in the language of the user's
+  question. SRD citations keep their English section names.
+
+### Importer (`dungeonmind hub import-obsidian`)
+
+```
+dungeonmind hub import-obsidian VAULT --dm USERNAME --campaign-name NAME
+                                [--sessions DIR] [--preview]
+```
+
+- **I1 Read-only.** Files are opened for reading only. Nothing is created, changed or removed
+  under VAULT or DIR (tested by comparing file lists and modification times).
+- **I2 Preview.** `--preview` prints one line per resulting entry (source file → board, kind,
+  visibility, title, characters) plus totals and skipped files, and writes nothing. Without
+  `--preview`, the importer creates the campaign (the DM must exist) and refuses a campaign that
+  already has entries.
+- **I3 Mapping.** Frontmatter `kind` maps to a lore kind:
+  - npc→npc, place→location, faction→faction, event→event, item→item;
+  - concept, reference, pc and other values→other (pc notes are tagged "(PC)" in the title);
+  - with no `kind`: notes in a folder named like `Karakterler`/`Characters`/`NPCs`→npc,
+    otherwise other.
+
+  Every lore entry is **private**. The DM reveals entries later.
+- **I4 Text.**
+  - Frontmatter is removed. Useful fields (aliases, status, role, race, faction, location,
+    importance and every `related_*`) become a short header such as `**status:** alive`.
+  - `[[Target|Shown]]` becomes "Shown", and `[[Target#Part]]` becomes "Target".
+  - Embeds (`![[…]]`), images and HTML comments are dropped.
+- **I5 DM secrets kept apart.** `dm_note` and `secrets` fields become a separate private
+  entry, "<title> — DM notes", so revealing the main entry never reveals them.
+  `dm_note: true` is a flag (the whole note is DM-only), not secret text: the entry gets a
+  "**DM only:** yes" line and no separate entry (found on the owner's vault).
+- **I6 Limits.**
+  - A note over 10,000 characters is split at paragraph breaks into "<title> (1/n)".
+  - Excalidraw drawings, `.base` files and empty notes are skipped, and listed in the preview.
+  - Two notes with the same title: identical text is imported once; different text gets a
+    folder suffix.
+- **I7 Sessions.** Each `.md`/`.txt` file in `--sessions` becomes a private journal entry. Its
+  session number is the first number in the file name.

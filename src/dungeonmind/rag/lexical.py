@@ -7,22 +7,35 @@ retrieval tends to slip, so this is half of the hybrid retriever (M2).
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from rank_bm25 import BM25Okapi
 
 from dungeonmind.schemas import Chunk, EntityType
 
-_TOKEN = re.compile(r"[a-z0-9]+")
+_TOKEN = re.compile(r"\w+")
 _STOPWORD_TEXT = (
     "a an and are as at be by can do does for from how i if in is it its my of on or "
-    "that the their them they this to was what when where which who will with you your"
+    "that the their them they this to was what when where which who will with you your "
+    # Turkish (M8d T1), written without diacritics because tokens are folded first
+    "ve bir bu da de ile icin ne mi mu nedir kim kimdir nasil neden nerede ki ama gibi "
+    "daha cok en ya hem"
 )
 _STOPWORDS = frozenset(_STOPWORD_TEXT.split())
+_DOTLESS = str.maketrans({"ı": "i", "İ": "i"})
+
+
+def fold(text: str) -> str:
+    """Case- and diacritic-insensitive form (M8d T1): "Kızıl Şafak Köyü" -> "kizil safak koyu".
+
+    ASCII text only changes case, so English tokenizes as before."""
+    decomposed = unicodedata.normalize("NFKD", text.translate(_DOTLESS))
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
 def tokenize(text: str) -> list[str]:
-    return [t for t in _TOKEN.findall(text.lower()) if t not in _STOPWORDS]
+    return [t for t in _TOKEN.findall(fold(text)) if t not in _STOPWORDS]
 
 
 @dataclass(frozen=True)

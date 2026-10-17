@@ -68,6 +68,10 @@ LOGIN_FAILED = "Wrong username or password."
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
 
+def embedder_name(embedder: Embedder | None) -> str:
+    return str(getattr(embedder, "name", None) or type(embedder).__name__)
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -253,6 +257,12 @@ class Hub:
         cid = uuid.uuid4().hex
         now = _iso(self.clock())
         self.storage.create_campaign_db(cid)
+        if self.embedder is not None:  # T2: the model that will embed this campaign's entries
+            with self.storage.campaign(cid) as db:
+                db.execute(
+                    "INSERT INTO meta (key, value) VALUES ('embed_model', ?)",
+                    (embedder_name(self.embedder),),
+                )
         try:  # all-or-nothing (F10): a failed insert removes the new folder again
             with self.storage.app(immediate=True) as db:
                 owned = db.execute(
@@ -491,7 +501,7 @@ class Hub:
         kind = self._kind(board, kind)
         visibility = self._visibility(board, visibility, camp.role == "dm")
         session = _session(session)
-        chunks = self._embed(title, body)
+        chunks = self._embed(cid, title, body)
         now = _iso(self.clock())
         with self.storage.campaign(cid, immediate=True) as db:
             if board == "character":
@@ -521,9 +531,43 @@ class Hub:
             row = store.get_entry(db, cur.lastrowid)
         return store.entry_from_row(row)
 
-    def _embed(self, title: str, body: str) -> list[tuple[str, bytes]]:
+    def _check_model(self, cid: str) -> None:
+        """T2: a campaign is searched and written only with the model that embedded it."""
+        with self.storage.campaign(cid, immediate=True) as db:
+            row = db.execute("SELECT value FROM meta WHERE key = 'embed_model'").fetchone()
+            current = embedder_name(self.embedder)
+            if row is None:  # a campaign from before M8d: adopt the current model
+                db.execute("INSERT INTO meta (key, value) VALUES ('embed_model', ?)", (current,))
+            elif row["value"] != current:
+                raise StorageError(
+                    f"This campaign was indexed with {row['value']}, but the hub now uses "
+                    f"{current}. Run `dungeonmind hub reindex` to re-index this campaign."
+                )
+
+    def reindex(self, cid: str) -> int:
+        """Re-embed every entry of a campaign with the current model (admin CLI only)."""
+        if self.embedder is None or not CAMPAIGN_ID.fullmatch(cid):
+            raise StorageError("Nothing to re-index with.")
+        with self.storage.campaign(cid) as db:
+            rows = db.execute("SELECT id, title, body FROM entries").fetchall()
+        planned = [
+            (r["id"], r["title"], store.embed_entry(self.embedder, r["title"], r["body"]))
+            for r in rows
+        ]
+        with self.storage.campaign(cid, immediate=True) as db:
+            for entry_id, title, chunks in planned:
+                store.replace_chunks(db, entry_id, title, chunks)
+            db.execute(
+                "INSERT INTO meta (key, value) VALUES ('embed_model', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (embedder_name(self.embedder),),
+            )
+        return len(planned)
+
+    def _embed(self, cid: str, title: str, body: str) -> list[tuple[str, bytes]]:
         if self.embedder is None:
             raise StorageError("Search isn't available, so the entry wasn't saved.")
+        self._check_model(cid)
         try:
             return store.embed_entry(self.embedder, title, body)
         except Exception as e:  # never show model or path details to users
@@ -596,7 +640,7 @@ class Hub:
         )
         session = _session(changes["session"]) if "session" in changes else row["session"]
         rechunk = title != row["title"] or body != row["body"]
-        chunks = self._embed(title, body) if rechunk else None
+        chunks = self._embed(cid, title, body) if rechunk else None
         with self.storage.campaign(cid, immediate=True) as db:
             current = store.get_entry(db, row["id"])
             if current is None or current["author_id"] != user.id:
@@ -642,6 +686,7 @@ class Hub:
     def _search(self, cid: str, viewer: Viewer, query: str, k: int) -> list[NoteHit]:
         if self.embedder is None:
             raise StorageError("Search isn't available.")
+        self._check_model(cid)
         with self.storage.campaign(cid) as db:
             return store.search(db, viewer, self.embedder, query, k)
 
