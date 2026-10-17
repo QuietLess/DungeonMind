@@ -80,7 +80,10 @@ def compare(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
 
 
 def gate(
-    offline: dict[str, Any], gates: dict[str, Any], live: dict[str, Any] | None = None
+    offline: dict[str, Any],
+    gates: dict[str, Any],
+    live: dict[str, Any] | None = None,
+    suite_size: int | None = None,
 ) -> list[str]:
     """G1/G2: every threshold breach, as a readable line; [] means the gate passes."""
     breaches: list[str] = []
@@ -100,11 +103,21 @@ def gate(
     if len(violations) > gates["contract_violations"]:
         breaches.append(f"contract: {len(violations)} violations (first: {violations[0]})")
     if live is not None:
+        # R7: only a complete run of this dataset version can pass the live gate.
+        if live.get("meta", {}).get("dataset") != VERSION:
+            breaches.append(f"live result is not for {VERSION}")
+        if live.get("stopped_early"):
+            breaches.append("live run stopped early (budget); not every case ran")
+        n = live.get("overall", {}).get("n", 0)
+        if suite_size is not None and n != suite_size:
+            breaches.append(f"live run covered {n} of {suite_size} cases")
+        if "no_leak_ok" not in live.get("scores", {}):
+            breaches.append("live result has no no_leak_ok score")
         rate = live.get("overall", {}).get("pass_rate", 0.0)
         if rate < gates["live_pass_rate"]:
             breaches.append(f"live pass rate {rate:.2f} < {gates['live_pass_rate']}")
         scores = live.get("scores", {})
-        if scores.get("no_leak_ok", 1.0) < gates["live_no_leak"]:
+        if "no_leak_ok" in scores and scores["no_leak_ok"] < gates["live_no_leak"]:
             breaches.append(f"live no_leak_ok {scores['no_leak_ok']:.3f} < {gates['live_no_leak']}")
         if scores.get("citations_ok", 1.0) < gates["live_citations_ok"]:
             breaches.append(

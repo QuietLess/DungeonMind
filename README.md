@@ -20,7 +20,7 @@ assistant, not a chat-with-a-PDF demo.
 | M5 — Encounter builder | ✅ |
 | M6 — Campaign hub backend: boards, visibility, per-campaign storage, API | ✅ |
 | M7 — Campaign hub web UI (React) | ✅ |
-| M8 — 200+ question eval suite and CI regression gates | ⬜ |
+| M8 — 209-case eval suite, offline gates, live runner, per-step models | ✅ (live run pending an API key) |
 | M9 — Docker, hosting, tracing, metrics, CI/CD | ⬜ |
 
 ## Quickstart
@@ -149,6 +149,28 @@ SRD's own worked examples and against the XP of all 331 stat blocks.
 The 2024 SRD has no habitat data for monsters, so "ruins" or "forest" can't be a
 hard filter. The encounter builder (M5) chooses thematically fitting creature types
 and says that it did.
+
+## Evaluation (M8)
+
+A versioned suite of 209 cases (`src/dungeonmind/evals/datasets/suite_v1.jsonl`) covers rules,
+lookups, odds, encounters, campaign questions for a DM and a player on a fixture campaign,
+session prep, follow-ups, out-of-scope, other-edition, unanswerable and prompt-injection cases.
+
+```bash
+uv run dungeonmind eval validate          # dataset checks (titles exist, numbers match the tools)
+uv run dungeonmind eval offline           # retrieval, leak check, citation contract; no API calls
+uv run dungeonmind eval gate              # exits non-zero if evals/gates.json is breached
+uv run dungeonmind eval live --estimate   # expected cost of a live run; no API calls
+uv run dungeonmind eval live --label opus --max-cost 12          # real model; stops at the budget
+uv run dungeonmind eval live --label mixed --models route=claude-haiku-5-5 --max-cost 8
+uv run dungeonmind eval compare evals/results/opus.json evals/results/mixed.json
+```
+
+Offline results (`evals/results/offline-v1.json`): SRD retrieval R@5 0.87 / MRR 0.81 (n=68),
+notes retrieval R@5 0.98 / MRR 0.88 (n=41), leak rate 0, citation-contract violations 0 over 132
+cases. Estimated live cost of the full suite: about $10 with Opus 5.5 everywhere, $0.26 with
+Haiku 5.5 everywhere. Every step's model is configurable with `--models` or
+`$DUNGEONMIND_MODELS` (`chat`, `serve`, `eval live`).
 
 ## Retrieval benchmark (v0, 43 questions)
 

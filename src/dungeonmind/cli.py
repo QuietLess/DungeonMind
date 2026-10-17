@@ -483,8 +483,10 @@ def eval_gate(
 
     report = _offline_report()
     _print_offline(report)
+    from dungeonmind.evals import suite
+
     live_report = json.loads(live.read_text(encoding="utf-8")) if live else None
-    breaches = gate(report, load_gates(), live_report)
+    breaches = gate(report, load_gates(), live_report, suite_size=len(suite.load()))
     for b in breaches:
         _say(f"GATE: {b}", fg="red")
     if breaches:

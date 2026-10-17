@@ -17,7 +17,7 @@ from dungeonmind.graph.state import (
 )
 
 O4_CATEGORIES = frozenset(
-    {"rules", "other_edition", "unanswerable", "campaign", "prep", "injection"}
+    {"rules", "other_edition", "unanswerable", "campaign", "prep", "injection", "followup"}
 )
 LEAK_K = 50
 
@@ -95,8 +95,10 @@ class CiteEverythingLLM:
         self.inputs: list[str] = []
 
     def _intent(self) -> Intent:
-        if self.case.expect.get("intent"):
-            return Intent(self.case.expect["intent"])
+        expected = self.case.expect.get("intent")
+        if expected in ("rules_qa", "campaign_memory", "session_prep"):
+            return Intent(expected)
+        # Tool intents aren't scripted here; contract-check them as the question they ask.
         return Intent.CAMPAIGN_MEMORY if self.case.viewer else Intent.RULES_QA
 
     def route(self, question, *, timeout=None):
@@ -159,10 +161,20 @@ def contract_check(cases: list[Case], fixture, retrieve, registry) -> dict[str, 
                 hub.engine = engine
                 user = fixture.users[c.viewer]
                 thread = hub.create_thread(user, fixture.cid, c.id)
+                for turn in c.history:  # follow-ups: earlier exchanges go through the hub
+                    hub._save_message(fixture.cid, thread.id, "user", turn["question"], {})
+                    hub._save_message(
+                        fixture.cid,
+                        thread.id,
+                        "assistant",
+                        turn["answer"],
+                        {"stop_reason": "completed"},
+                    )
                 hub.ask(user, fixture.cid, thread.id, c.question)
                 state = states[-1] if states else {"violations": ["engine not called"]}
             else:
-                state = run_chat(c.question, Deps(llm=llm, retrieve=retrieve, registry=registry))
+                deps = Deps(llm=llm, retrieve=retrieve, registry=registry)
+                state = run_chat(c.question, deps, history=c.history or None)
             if state.get("violations"):
                 violations.append(f"{c.id}: {state['violations']}")
             seen = " ".join(llm.inputs).lower()

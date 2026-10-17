@@ -15,7 +15,7 @@ from typing import Any, Literal
 import anthropic
 from pydantic import ValidationError
 
-from dungeonmind.graph.models import FALLBACK_MODELS, ModelConfig, cost
+from dungeonmind.graph.models import FALLBACK_MODELS, PRICING, ModelConfig, cost
 from dungeonmind.graph.state import (
     AgentTurn,
     EncounterExtraction,
@@ -423,7 +423,10 @@ class ClaudeLLM:
             timeout=timeout,
             fallback=model in FALLBACK_MODELS,
         )
-        self._record(step, model, response, (time.perf_counter() - started) * 1000)
+        # Price the model that answered: a refusal fallback may have switched it.
+        served = getattr(response, "model", None)
+        billed = served if isinstance(served, str) and served in PRICING else model
+        self._record(step, billed, response, (time.perf_counter() - started) * 1000)
         return response
 
     def _record(self, step: str, model: str, response: Any, latency_ms: float) -> None:
