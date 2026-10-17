@@ -3,7 +3,7 @@
 import pytest
 from hub_support import PASSWORD, make_hub
 
-from dungeonmind.hub.errors import AuthFailed, Conflict, RateLimited
+from dungeonmind.hub.errors import AuthFailed, Conflict
 
 
 def _fail(hub, username, clients):
@@ -17,7 +17,7 @@ def test_h1_many_addresses_hit_the_per_account_limit(tmp_path):
     hub.register("mia_r", PASSWORD)
     for i in range(10):  # 5 per client is the per-client cap; 10 clients x 5 = 50
         _fail(hub, "mia_r", [f"10.0.0.{i}"] * 5)
-    with pytest.raises(RateLimited):
+    with pytest.raises(AuthFailed):  # review R6: refused like a wrong password (no 429 oracle)
         hub.login("mia_r", PASSWORD, client="10.0.1.1")  # a fresh address is refused too
 
 
@@ -45,7 +45,7 @@ def test_h1_password_checks_on_the_account_page_count_too(tmp_path):
         for _ in range(5):
             with pytest.raises(Exception):  # noqa: B017 - Forbidden, then the limit
                 hub.change_password(user, "t", "not mine", "a new password 1", client=f"10.0.0.{i}")
-    with pytest.raises(RateLimited):
+    with pytest.raises(AuthFailed):
         hub.login("mia_r", PASSWORD, client="10.0.9.9")
 
 
@@ -80,3 +80,33 @@ def test_h2_ownership_doesnt_move_when_others_come_and_go(tmp_path):
     p1 = hub.register("p_one", PASSWORD, invite=hub.create_invite(owner, camp.id).code)
     hub.delete_account(p1, PASSWORD, "p_one")
     assert hub.owner_id() == owner.id
+
+
+def test_r1_an_upgraded_hub_in_invite_mode_still_accepts_owner_invites(tmp_path):
+    hub = make_hub(tmp_path)
+    owner = hub.register("dm_dana", PASSWORD)
+    camp = hub.create_campaign(owner, "Ashvale")
+    with hub.storage.app() as db:
+        db.execute("DELETE FROM settings")  # a hub from before M9e
+    upgraded = make_hub(tmp_path, signup="invite")
+    code = upgraded.create_invite(owner, camp.id).code
+    assert upgraded.register("player_one", PASSWORD, invite=code)
+
+
+def test_r6_the_account_limit_doesnt_reveal_that_a_username_exists(tmp_path):
+    hub = make_hub(tmp_path)
+    hub.register("mia_r", PASSWORD)
+    for i in range(10):
+        _fail(hub, "mia_r", [f"10.0.0.{i}"] * 5)
+    with pytest.raises(AuthFailed):  # same answer as for an unknown name, not a 429
+        hub.login("mia_r", "still wrong", client="10.0.1.1")
+    with pytest.raises(AuthFailed):  # and the right password doesn't get through either
+        hub.login("mia_r", PASSWORD, client="10.0.1.2")
+
+
+def test_r8_length_is_checked_after_normalising(tmp_path):
+    hub = make_hub(tmp_path)
+    dm = hub.register("dm_dana", PASSWORD)
+    camp = hub.create_campaign(dm, "Ashvale")
+    with pytest.raises(Exception, match="1–120"):
+        hub.create_entry(dm, camp.id, board="lore", title="שּׁ" * 120, body="x")

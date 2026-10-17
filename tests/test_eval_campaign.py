@@ -165,3 +165,48 @@ def test_e2_titles_match_whatever_their_unicode_form(tmp_path, monkeypatch):
     )
     result = _run(root, cid, cases)
     assert "R@5 1.00" in result.output, result.output
+
+
+def test_r2_the_leak_check_sees_through_unicode_forms(tmp_path, monkeypatch):
+    import sqlite3
+    import unicodedata
+
+    root, cid = _hub(tmp_path, monkeypatch)
+    with sqlite3.connect(root / "campaigns" / cid / "campaign.db") as db:
+        db.execute(
+            "UPDATE entries SET visibility = 'party', body = ? WHERE title = 'The Red Oath'",
+            (unicodedata.normalize("NFD", "Kan Yürek yemini: boğulmuş tanrı."),),
+        )
+    cases = _cases(
+        tmp_path,
+        [
+            {
+                "id": "c1",
+                "question": "Kan Yürek yemini",
+                "viewer": "player_one",
+                "expect": [],
+                "no_leak": ["kan yürek yemini"],
+            }
+        ],
+    )
+    assert _run(root, cid, cases).exit_code == 1
+
+
+def test_r3_it_writes_nothing_even_to_an_old_hub(tmp_path, monkeypatch):
+    import sqlite3
+
+    root, cid = _hub(tmp_path, monkeypatch)
+    with sqlite3.connect(root / "app.db") as db:
+        db.execute("DROP TABLE settings")  # as before M9e
+    with sqlite3.connect(root / "campaigns" / cid / "campaign.db") as db:
+        db.execute("DELETE FROM meta")  # as before T2
+    for path in root.rglob("*.db"):
+        with sqlite3.connect(path) as db:
+            db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    before = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in root.rglob("*.db*")}
+    cases = _cases(
+        tmp_path, [{"id": "c1", "question": "mill", "viewer": "dm_dana", "expect": ["Old Mill"]}]
+    )
+    assert _run(root, cid, cases).exit_code == 0
+    after = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in root.rglob("*.db*")}
+    assert after == before

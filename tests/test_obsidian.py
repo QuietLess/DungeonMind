@@ -292,3 +292,52 @@ def test_i10_cli_passes_secret_headings(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert "Madalyon — DM notes" in result.output
+
+
+def _split(text, **kw):
+    import tempfile
+    from pathlib import Path
+
+    v = Path(tempfile.mkdtemp())
+    (v / "Not.md").write_text(text, encoding="utf-8")
+    return {e.title: e.body for e in plan_import(v, **kw).entries}
+
+
+def test_r4_headings_inside_code_fences_dont_end_a_dm_section():
+    plan = _split("Açık.\n\n## DM notu\nsır A\n```\n# yorum\n```\nsır B\n\n## Sonra\nherkes\n")
+    assert "sır B" not in plan["Not"] and "sır B" in plan["Not — DM notes"]
+    assert "herkes" in plan["Not"]
+
+
+def test_r5_indented_headings_word_boundary_and_turkish_case():
+    plan = _split("Açık.\n\n  ## DM notu\nsır\n\n## Dmitri the smith\nherkes\n")
+    assert "sır" in plan["Not — DM notes"] and "Dmitri" in plan["Not"]
+    plan = _split("Açık.\n\n## GİZLİ bilgi\nsır\n", secret_headings=("Gizli",))
+    assert "sır" in plan["Not — DM notes"]
+
+
+def test_r9_duplicates_with_different_dm_sections_keep_both():
+    import tempfile
+    from pathlib import Path
+
+    v = Path(tempfile.mkdtemp())
+    for folder, secret in (("a", "sır bir"), ("b", "sır iki")):
+        (v / folder).mkdir()
+        (v / folder / "Han.md").write_text(
+            f"Aynı metin.\n\n## DM notu\n{secret}\n", encoding="utf-8"
+        )
+    bodies = " ".join(e.body for e in plan_import(v).entries)
+    assert "sır bir" in bodies and "sır iki" in bodies
+
+
+def test_r10_a_long_title_keeps_the_dm_notes_label():
+    plan = _split("Açık.\n\n## DM notu\nsır\n")
+    import tempfile
+    from pathlib import Path
+
+    v = Path(tempfile.mkdtemp())
+    (v / f"{'Uzun' * 30}.md").write_text("Açık.\n\n## DM notu\nsır\n", encoding="utf-8")
+    titles = [e.title for e in plan_import(v).entries]
+    assert len(titles) == 2 and len(set(titles)) == 2
+    assert any(t.endswith("— DM notes") and len(t) <= 120 for t in titles)
+    assert plan
