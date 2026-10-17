@@ -320,7 +320,7 @@ class Hub:
         self._confirm_password(user, password, client)
         with self.storage.app() as db:
             self._refuse_if_dm(db, user)
-        self._sweep_private(user)
+        self._sweep_private(user, checkpoint=False)
         with self.storage.app(immediate=True) as db:
             self._refuse_if_dm(db, user)  # R2: a campaign created meanwhile is a 409, not a 500
             db.execute("PRAGMA secure_delete = ON")
@@ -339,9 +339,12 @@ class Hub:
             noun = "campaign" if led == 1 else "campaigns"
             raise Conflict(f"You're the DM of {led} {noun}. Delete them first.")
 
-    def _sweep_private(self, user: User) -> None:
+    def _sweep_private(self, user: User, checkpoint: bool = True) -> None:
         """Deletes the user's private entries and chat threads in every campaign folder, with
-        the freed pages zeroed and the WAL truncated (R3: no readable copy left on disk)."""
+        the freed pages zeroed and the WAL truncated (R3: no readable copy left on disk).
+
+        A reader holding the file (e.g. a running backup) delays the truncation; the wipe
+        then completes at SQLite's next checkpoint (R-B, documented)."""
         for folder in sorted(self.storage.campaigns_root.iterdir()):
             if folder.is_symlink() or not CAMPAIGN_ID.fullmatch(folder.name):
                 continue
@@ -354,7 +357,8 @@ class Hub:
                     (user.id,),
                 )
                 db.execute("DELETE FROM threads WHERE owner_id = ?", (user.id,))
-            self.storage.checkpoint(folder.name)
+            if checkpoint:
+                self.storage.checkpoint(folder.name)
 
     def _gone(self, user: User) -> bool:
         with self.storage.app() as db:
@@ -795,7 +799,13 @@ class Hub:
             )
             if chunks is not None:
                 store.replace_chunks(db, row["id"], title, chunks)
-            return store.entry_from_row(store.get_entry(db, row["id"]))
+            saved = store.get_entry(db, row["id"])
+        if saved["visibility"] == "private" and self._gone(user):  # R-A, as in create_entry
+            with self.storage.campaign(cid, immediate=True) as db:
+                db.execute("PRAGMA secure_delete = ON")
+                db.execute("DELETE FROM entries WHERE id = ?", (row["id"],))
+            raise NotFound("Entry not found.")
+        return store.entry_from_row(saved)
 
     def delete_entry(self, user: User, cid: str, eid: int) -> None:
         camp = self._member(user, cid)

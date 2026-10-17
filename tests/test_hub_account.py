@@ -286,7 +286,11 @@ def test_r1_a_private_entry_written_during_deletion_does_not_survive(tmp_path):
     embedder.during = lambda: hub.delete_account(player, PASSWORD, "player_one")
     with pytest.raises(NotFound):
         hub.create_entry(
-            player, camp.id, board="journal", title="Late", body="written too late",
+            player,
+            camp.id,
+            board="journal",
+            title="Late",
+            body="written too late",
             visibility="private",
         )
     with hub.storage.campaign(camp.id) as db:
@@ -315,7 +319,11 @@ def test_r3_deleted_private_text_is_wiped_from_the_file(tmp_path):
     hub, _, player, camp = _service_party(tmp_path)
     marker = "zqxsecretmarkerzqx"
     hub.create_entry(
-        player, camp.id, board="journal", title="Mine", body=f"{marker} " * 50,
+        player,
+        camp.id,
+        board="journal",
+        title="Mine",
+        body=f"{marker} " * 50,
         visibility="private",
     )
     hub.delete_account(player, PASSWORD, "player_one")
@@ -370,9 +378,10 @@ def test_ra_an_entry_made_private_during_deletion_does_not_survive(tmp_path):
     with pytest.raises(NotFound):
         hub.update_entry(player, camp.id, shared.id, body="now a secret", visibility="private")
     with hub.storage.campaign(camp.id) as db:
-        assert db.execute("SELECT count(*) FROM entries WHERE visibility = 'private'").fetchone()[
-            0
-        ] == 0
+        assert (
+            db.execute("SELECT count(*) FROM entries WHERE visibility = 'private'").fetchone()[0]
+            == 0
+        )
 
 
 def test_r1_a_chat_created_during_deletion_does_not_survive(tmp_path, monkeypatch):
