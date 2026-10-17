@@ -10,7 +10,7 @@
 | M6 Campaign hub backend | FastAPI: accounts, campaigns, invites, boards with visibility, per-campaign storage, campaign-aware chat | Visibility matrix + cross-campaign tests pass; the model never receives an unreadable note | ✅ |
 | M7 Campaign hub UI | React (Vite, TS): login, campaigns, notes, chat with linked citations; thread context | Main journeys work in the browser for DM and player; frontend + accessibility review | ✅ |
 | M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ✅ offline · live run pending key |
-| M9 Production | Docker, hosting + TLS, tracing, metrics, CI/CD | Deployable demo + monitored runs | ⬜ |
+| M9 Production | CI, Docker, backups; account management; UI for real campaigns; hosting + TLS, tracing | Deployable demo + monitored runs | 🔶 M9a–c done · hosting pending |
 
 Direction change (2026-10-16): DungeonMind becomes a campaign hub — a web chat UI plus notes
 that are private, shared with the DM, or visible to the party. Old M6–M8 became M6–M9, and
@@ -111,6 +111,21 @@ items previously due "M8" are now due M9.
   - 754 tests.
   - **Pending:** the live run and the model decision, which need the API key (see "Next").
 
+- **M9a ops:** GitHub Actions CI (ruff, full pytest on freshly built SRD data, `eval validate`,
+  offline `eval gate`, web type check/tests/build; no secrets, no paid calls); release workflow
+  (image build on pull requests, GHCR publish only for a semver tag); Dockerfile (non-root,
+  SRD data built in, hub data on a volume, health check) and compose (localhost only);
+  `GET /api/health`; `hub backup` (SQLite online backup, private 0700/0600, never partial).
+  Review found no CRITICAL/HIGH; the MEDIUMs (URI escaping, partial folders, Docker restore
+  ownership) are fixed test-first. `data/hub/` is now git-ignored.
+- **M9b accounts:** `/api/account` (usage, sessions), password change (other sessions end;
+  wrong passwords count as failed sign-ins), sign out other devices, account deletion
+  (private entries and chats removed in every campaign, shared entries kept; DMs delete their
+  campaigns first). Account page in the web app.
+- **M9c UI:** lore kind chips and the DM's secret/revealed filter, a 300 ms debounced text
+  filter, notes rendered as safe Markdown, journal by session, chat rename/delete (a thread
+  deleted mid-answer is a 404, not a 500).
+
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
 | Id | Item | Do by |
@@ -138,6 +153,9 @@ items previously due "M8" are now due M9.
 | H2 | Behind a reverse proxy every client looks like 127.0.0.1: an explicit forwarded-IP setting, a global per-username login limit, IPv6 /64 grouping | M9 |
 | H3 | The DM runs the server, so `campaign.db` is readable by them in plain text; "private" is enforced by the app, not cryptography. Document clearly, or add per-user encryption | M9 |
 | H4 | Store the embedding model name and dimension per campaign; a model change today makes every search fail | M8 |
+| A5 | Nobody can edit or delete what a deleted (or removed) player shared; the DM has no moderation for others' party entries | when convenient |
+| A6 | Rename uses `window.prompt` (no length hint; a 422 shows in the conversation pane) | when convenient |
+| A7 | An unusable campaign folder blocks account deletion until fixed (fail-safe; ops note) | when convenient |
 | H5 | Worst-case search (every query term in every chunk) takes ≈ 1.5 s at the limit; cap rows per term if it matters | when convenient |
 
 ## Known limitations
@@ -169,4 +187,5 @@ items previously due "M8" are now due M9.
   4. `eval compare`, record the per-step model decision here, then `eval gate --live`.
 
   Also check real answers in the web UI (U1).
-- M9 production: Docker, hosting + TLS, CI running `pytest` + `eval gate`, tracing.
+- M9 remaining: hosting + TLS (owner's decision: recurring cost), tracing/metrics, N2–N4,
+  S3–S7, H2 (forwarded IP behind a proxy), U2 (one process per SRD index).

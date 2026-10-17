@@ -129,6 +129,15 @@ class Hub:
         # Verified against for unknown usernames, so both failures cost the same time (8).
         self._dummy_hash = auth.hash_password(secrets.token_urlsafe(16), scrypt_n)
 
+    def healthy(self) -> bool:
+        """Whether app.db answers a query that reads it (M9a O1)."""
+        try:
+            with self.storage.app() as db:
+                db.execute("SELECT count(*) FROM users").fetchone()
+        except Exception:
+            return False
+        return True
+
     # --- accounts --------------------------------------------------------------------------
 
     def register(self, username: str, password: str, client: str = "local") -> User:
@@ -173,14 +182,25 @@ class Hub:
         if row is None or not ok:
             raise AuthFailed(LOGIN_FAILED)  # the reserved attempt stays counted
         self._limiter.release(keys, now)
-        return self.new_session(User(id=row["id"], username=row["username"]))
+        user = User(id=row["id"], username=row["username"])
+        return self.new_session(user, verified_hash=row["password_hash"])
 
-    def new_session(self, user: User) -> str:
-        """A fresh session token for `user` (F5: register uses this, no second scrypt)."""
+    def new_session(self, user: User, verified_hash: str | None = None) -> str:
+        """A fresh session token for `user` (F5: register uses this, no second scrypt).
+
+        `verified_hash` is the hash a sign-in checked; if the password changed meanwhile, no
+        session is made (R4), so a change really ends every sign-in with the old password.
+        """
         now = self.clock()
         token = auth.new_token()
         expires = now + timedelta(days=auth.SESSION_DAYS)
-        with self.storage.app() as db:
+        with self.storage.app(immediate=True) as db:
+            if verified_hash is not None:
+                current = db.execute(
+                    "SELECT password_hash FROM users WHERE id = ?", (user.id,)
+                ).fetchone()
+                if current is None or current["password_hash"] != verified_hash:
+                    raise AuthFailed(LOGIN_FAILED)
             db.execute("DELETE FROM sessions WHERE expires_at <= ?", (_iso(now),))  # F7
             db.execute(
                 "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
@@ -223,6 +243,126 @@ class Hub:
                 raise NotFound("No such user.")
             db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed, row["id"]))
             db.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+
+    # --- account management (M9b) ----------------------------------------------------------
+
+    def account(self, user: User) -> dict[str, Any]:
+        """A1: the user's own account summary."""
+        now = self.clock()
+        day = now.astimezone(UTC).date().isoformat()
+        with self.storage.app() as db:
+            row = db.execute("SELECT created_at FROM users WHERE id = ?", (user.id,)).fetchone()
+            if row is None:
+                raise NotFound("No such user.")
+            sessions = db.execute(
+                "SELECT count(*) FROM sessions WHERE user_id = ? AND expires_at > ?",
+                (user.id, _iso(now)),
+            ).fetchone()[0]
+            used = db.execute(
+                "SELECT count FROM usage WHERE user_id = ? AND day = ?", (user.id, day)
+            ).fetchone()
+        return {
+            "username": user.username,
+            "created_at": row["created_at"],
+            "sessions": sessions,
+            "questions_today": used["count"] if used else 0,
+            "daily_limit": self.daily_message_limit,
+        }
+
+    def _confirm_password(self, user: User, password: Any, client: str) -> None:
+        """A2/A4: a password check counted exactly like a failed sign-in for this username."""
+        now = self.clock()
+        keys = [
+            (f"{client}|{user.username}", auth.LOGIN_FAILURES_PER_USER),
+            (f"client:{client}", auth.LOGIN_FAILURES_PER_CLIENT),
+        ]
+        if not self._limiter.reserve(keys, now):
+            raise RateLimited("Too many wrong passwords. Try again in 15 minutes.")
+        with self.storage.app() as db:
+            row = db.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
+        ok = isinstance(password, str) and auth.verify_password(
+            password, row["password_hash"] if row else self._dummy_hash
+        )
+        if row is None or not ok:
+            raise Forbidden("Current password is wrong.")
+        self._limiter.release(keys, now)
+
+    def change_password(
+        self, user: User, token: str, current: Any, new: Any, client: str = "local"
+    ) -> None:
+        """A2: keeps the session `token`, ends every other session of the user."""
+        low, high = models.PASSWORD_CHARS
+        if not isinstance(new, str) or not low <= len(new) <= high:
+            raise Invalid(f"Passwords must be {low}–{high} characters.")
+        self._confirm_password(user, current, client)
+        hashed = auth.hash_password(new, self.scrypt_n)
+        with self.storage.app(immediate=True) as db:
+            db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed, user.id))
+            db.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
+                (user.id, auth.token_hash(token)),
+            )
+
+    def sign_out_others(self, user: User, token: str) -> int:
+        """A3: ends every session of the user except `token`; returns how many ended."""
+        with self.storage.app() as db:
+            return db.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
+                (user.id, auth.token_hash(token)),
+            ).rowcount
+
+    def delete_account(
+        self, user: User, password: Any, confirm_username: Any, client: str = "local"
+    ) -> None:
+        """A4: private text and chats go first (every campaign folder), then the account."""
+        if confirm_username != user.username:
+            raise Invalid("Type your username to confirm.")
+        self._confirm_password(user, password, client)
+        with self.storage.app() as db:
+            self._refuse_if_dm(db, user)
+        self._sweep_private(user, checkpoint=False)
+        with self.storage.app(immediate=True) as db:
+            self._refuse_if_dm(db, user)  # R2: a campaign created meanwhile is a 409, not a 500
+            db.execute("PRAGMA secure_delete = ON")
+            db.execute("DELETE FROM usage WHERE user_id = ?", (user.id,))
+            db.execute(
+                "DELETE FROM users WHERE id = ?", (user.id,)
+            )  # sessions, memberships cascade
+        # R1: anything written between the first sweep and the account's removal goes too;
+        # writes after it are undone by the writer (create_entry / create_thread check).
+        self._sweep_private(user)
+
+    @staticmethod
+    def _refuse_if_dm(db, user: User) -> None:
+        led = db.execute("SELECT count(*) FROM campaigns WHERE dm_id = ?", (user.id,)).fetchone()[0]
+        if led:
+            noun = "campaign" if led == 1 else "campaigns"
+            raise Conflict(f"You're the DM of {led} {noun}. Delete them first.")
+
+    def _sweep_private(self, user: User, checkpoint: bool = True) -> None:
+        """Deletes the user's private entries and chat threads in every campaign folder, with
+        the freed pages zeroed and the WAL truncated (R3: no readable copy left on disk).
+
+        A reader holding the file (e.g. a running backup) delays the truncation; the wipe
+        then completes at SQLite's next checkpoint (R-B, documented)."""
+        for folder in sorted(self.storage.campaigns_root.iterdir()):
+            if folder.is_symlink() or not CAMPAIGN_ID.fullmatch(folder.name):
+                continue
+            if not (folder / "campaign.db").is_file():
+                continue
+            with self.storage.campaign(folder.name, immediate=True) as db:
+                db.execute("PRAGMA secure_delete = ON")
+                db.execute(
+                    "DELETE FROM entries WHERE author_id = ? AND visibility = 'private'",
+                    (user.id,),
+                )
+                db.execute("DELETE FROM threads WHERE owner_id = ?", (user.id,))
+            if checkpoint:
+                self.storage.checkpoint(folder.name)
+
+    def _gone(self, user: User) -> bool:
+        with self.storage.app() as db:
+            return db.execute("SELECT 1 FROM users WHERE id = ?", (user.id,)).fetchone() is None
 
     # --- membership ------------------------------------------------------------------------
 
@@ -529,6 +669,11 @@ class Hub:
             )
             store.replace_chunks(db, cur.lastrowid, title, chunks)
             row = store.get_entry(db, cur.lastrowid)
+        if self._gone(user):  # R1: the account was deleted while this was being embedded
+            with self.storage.campaign(cid, immediate=True) as db:
+                db.execute("PRAGMA secure_delete = ON")
+                db.execute("DELETE FROM entries WHERE id = ?", (row["id"],))
+            raise NotFound("Campaign not found.")
         return store.entry_from_row(row)
 
     def _check_model(self, cid: str) -> None:
@@ -654,7 +799,13 @@ class Hub:
             )
             if chunks is not None:
                 store.replace_chunks(db, row["id"], title, chunks)
-            return store.entry_from_row(store.get_entry(db, row["id"]))
+            saved = store.get_entry(db, row["id"])
+        if saved["visibility"] == "private" and self._gone(user):  # R-A, as in create_entry
+            with self.storage.campaign(cid, immediate=True) as db:
+                db.execute("PRAGMA secure_delete = ON")
+                db.execute("DELETE FROM entries WHERE id = ?", (row["id"],))
+            raise NotFound("Entry not found.")
+        return store.entry_from_row(saved)
 
     def delete_entry(self, user: User, cid: str, eid: int) -> None:
         camp = self._member(user, cid)
@@ -701,6 +852,10 @@ class Hub:
                 (user.id, title, _iso(self.clock())),
             )
             row = db.execute("SELECT * FROM threads WHERE id = ?", (cur.lastrowid,)).fetchone()
+        if self._gone(user):  # R1, as for entries
+            with self.storage.campaign(cid, immediate=True) as db:
+                db.execute("DELETE FROM threads WHERE id = ?", (row["id"],))
+            raise NotFound("Campaign not found.")
         return thread_from_row(row)
 
     def threads(self, user: User, cid: str) -> list[Thread]:
@@ -710,6 +865,23 @@ class Hub:
                 "SELECT * FROM threads WHERE owner_id = ? ORDER BY id DESC", (user.id,)
             ).fetchall()
         return [thread_from_row(r) for r in rows]
+
+    def rename_thread(self, user: User, cid: str, tid: int, title: str) -> Thread:
+        """CT1: the owner only; anyone else's thread doesn't exist for them."""
+        self._member(user, cid)
+        title = _text(title, "Title", models.THREAD_TITLE_CHARS)
+        with self.storage.campaign(cid, immediate=True) as db:
+            row = self._own_thread(db, user, tid)
+            db.execute("UPDATE threads SET title = ? WHERE id = ?", (title, row["id"]))
+            row = db.execute("SELECT * FROM threads WHERE id = ?", (row["id"],)).fetchone()
+        return thread_from_row(row)
+
+    def delete_thread(self, user: User, cid: str, tid: int) -> None:
+        """CT1: removes the thread; its messages and encounter state cascade."""
+        self._member(user, cid)
+        with self.storage.campaign(cid, immediate=True) as db:
+            row = self._own_thread(db, user, tid)
+            db.execute("DELETE FROM threads WHERE id = ?", (row["id"],))
 
     def _own_thread(self, db, user: User, tid: Any):
         row = db.execute(
@@ -795,7 +967,9 @@ class Hub:
     def _save_message(
         self, cid: str, thread_id: int, role: str, text: str, meta: dict[str, Any]
     ) -> Message:
-        with self.storage.campaign(cid) as db:
+        with self.storage.campaign(cid, immediate=True) as db:
+            if db.execute("SELECT 1 FROM threads WHERE id = ?", (thread_id,)).fetchone() is None:
+                raise NotFound("Chat not found.")  # CT2: deleted while it was being answered
             cur = db.execute(
                 "INSERT INTO messages (thread_id, role, text, meta, created_at) "
                 "VALUES (?, ?, ?, ?, ?)",

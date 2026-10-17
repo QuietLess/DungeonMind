@@ -453,6 +453,23 @@ def reindex(
     _say(f"Re-indexed {n} entries.")
 
 
+@hub_app.command("backup")
+def hub_backup(
+    out: Annotated[Path, typer.Option(help="Folder for backups (outside --root)")],
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+) -> None:
+    """Copy every hub database into a new, private, timestamped folder (safe while serving)."""
+    from dungeonmind.hub.backup import BackupError, backup
+
+    try:
+        result = backup(root, out)
+    except BackupError as e:
+        _say(str(e), fg="red")
+        raise typer.Exit(1) from e
+    noun = "campaign" if result.campaigns == 1 else "campaigns"
+    _say(f"Backed up app.db and {result.campaigns} {noun} to {result.folder}")
+
+
 @hub_app.command("reset-password")
 def reset_password(
     username: str,

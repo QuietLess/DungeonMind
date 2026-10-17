@@ -9,6 +9,7 @@ import { VisibilityBadge } from "../visibility";
 import { Drawer } from "./Drawer";
 import { kindLabel } from "./EntryCard";
 import { EntryEditor } from "./EntryEditor";
+import { NoteText } from "../notes";
 
 export function EntryPanel({
   entryId,
@@ -74,11 +75,7 @@ export function EntryPanel({
             {entry.board !== "journal" && <span className="kind">{kindLabel(entry.kind)}</span>}
             {entry.session != null && <span className="kind">Session {entry.session}</span>}
           </div>
-          <div className="entry-body">
-            {entry.body.split(/\n\s*\n/).map((para, i) => (
-              <p key={i}>{para}</p>
-            ))}
-          </div>
+          <NoteText text={entry.body} />
           {actionError && <p className="error" role="alert">{actionError}</p>}
           {mine && (
             <div className="actions">

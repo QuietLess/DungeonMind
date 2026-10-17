@@ -1043,3 +1043,174 @@ dungeonmind hub import-obsidian VAULT --dm USERNAME --campaign-name NAME
 - **I8 Extra lore.** `--extra-lore DIR` (repeatable) imports the `.md` files directly inside
   DIR, not its subfolders, as private lore marked `**source:** archive`. A title that clashes
   with a vault note gets the suffix "(arşiv)".
+
+## M9a contract — operations: CI, Docker, health, backups
+
+Goal: every push is checked automatically, the hub runs from one container, and the owner can
+back up real campaign data while the server runs. No hosting yet (it costs money, so the owner
+decides that separately).
+
+### Health (Python, tested)
+
+- **O1** `GET /api/health` needs no session and no CSRF header. When `app.db` answers a
+  trivial query it returns 200 `{"status": "ok"}`, otherwise 503 `{"status": "unavailable"}`.
+  It never names the provider, the models, the version, or whether a key is set.
+
+### Backups (`dungeonmind hub backup`, Python, tested)
+
+```
+dungeonmind hub backup --out DIR [--root data/hub]
+```
+
+- **B1 Consistent copy.** Writes `DIR/dungeonmind-backup-<UTC yyyymmdd-hhmmss>/` holding
+  `app.db` and `campaigns/<id>/campaign.db` for every campaign, made with SQLite's backup API,
+  so it's safe while `serve` is running. Every copy passes `PRAGMA integrity_check`.
+- **B2 Private.** The backup folder is created `0700` and every file `0600` (campaign text is
+  private). It refuses an `--out` inside `--root`, and an existing backup folder (never
+  overwrites).
+- **B3 Honest.** Prints the folder and the number of campaigns. A missing `--root` or
+  `app.db` is an error with a plain message (exit 1), not a traceback. Restoring = stop the
+  server, copy the folder's contents to the root (documented in the README).
+
+### CI (`.github/workflows/ci.yml`)
+
+- **C1** Runs on every push and pull request. Read-only token (`permissions: contents: read`);
+  no secrets, no paid model calls.
+- **C2 Python job:** `uv sync --locked`, `ruff check`, `ruff format --check src tests scripts`,
+  the SRD data pipeline (download → ingest → `sync-open5e` → index, the downloads cached), the
+  full `pytest` run, `eval validate`, and `eval gate` (offline gates from `evals/gates.json`).
+- **C3 Web job:** `npm ci`, type check, Vitest, production build.
+- **C4 Release:** `.github/workflows/release.yml` builds the Docker image on pull requests
+  (no push) and pushes it to GHCR only for a `v*` tag the owner creates.
+
+### Docker (`Dockerfile`, `compose.yaml`)
+
+- **K1** Multi-stage: Node builds `web/dist`; the Python stage installs the locked
+  dependencies and builds the SRD data (PDF, chunks, Open5e snapshot, index) at image build
+  time, so start-up needs no network beyond the model provider.
+- **K2** Runs as a non-root user. Hub data lives on a volume at `/data/hub`; the image holds no
+  campaign data and no key (`ANTHROPIC_API_KEY` comes from the environment or an env file).
+- **K3** `HEALTHCHECK` calls `/api/health`. Compose publishes the port on `127.0.0.1` only by
+  default; Ollama on the host is reached with `DUNGEONMIND_OLLAMA_URL`.
+
+### M9a review fixes (backend + security review: no CRITICAL/HIGH)
+
+- **R1** The source path is percent-encoded into the SQLite URI. Before, a `?` in the hub's
+  path dropped `mode=ro`, created an empty database and reported a successful, empty backup.
+- **R3** A backup is written to a hidden `.partial` folder and renamed only when complete; any
+  failure removes it and is a plain message (a corrupt campaign used to leave a half folder
+  and a traceback).
+- **R4** "Inside the root" is checked with `samefile` on every ancestor, so a symlink or a
+  different letter case on macOS can't place the backup inside the hub.
+- README: Docker backup/restore steps (ownership for uid 10001), restore into an empty folder.
+- CI: model files in the cache key; push runs only on `main` (pull requests cover branches).
+  Release: the package-write token exists only in the tag-publish job; semver tags only.
+- `.env.example` leaves the key empty.
+
+### Out of scope for M9a
+
+Hosting, TLS and a domain (owner's decision, recurring cost); tracing and metrics (later M9).
+
+## M9b contract — account management
+
+Goal: users manage their own account from the web app (no CLI needed): see their usage,
+change their password, sign out other devices, and delete their account. All routes need a
+session; unsafe ones need the CSRF header, like every other route.
+
+### API (Python, tested)
+
+- **A1** `GET /api/account` → `{username, created_at, sessions, questions_today, daily_limit}`.
+  `sessions` counts the user's unexpired sessions.
+- **A2** `POST /api/account/password {current_password, new_password}`.
+  - A wrong current password is 403 "Current password is wrong." It counts as a failed sign-in
+    for that username (same limiter and limits as login), so it can't be used to guess
+    passwords from a stolen session; over the limit it's 429.
+  - The new password follows the registration rules (422 otherwise).
+  - Success is 204: every other session of the user ends, this one stays.
+- **A3** `POST /api/account/sign-out-others` → `{"signed_out": n}`; the current session stays.
+- **A4** `POST /api/account/delete {password, confirm_username}`.
+  - Wrong password: 403 and counted (as A2). `confirm_username` other than the username: 422.
+  - A DM of any campaign gets 409 "You're the DM of N campaign(s). Delete them first."
+    (no ownership transfer yet).
+  - Success is 204 and clears the cookie. In every campaign folder (current and past
+    memberships alike), the user's **private** entries and all their chat threads are deleted.
+    Entries shared with the DM or the party stay, under the author name they had, because
+    other members already rely on them; characters stay too. Then their memberships, sessions,
+    usage rows and the account itself are removed. Campaign data goes first, so a failure part
+    way leaves an account that can retry, never orphaned private text.
+  - Afterwards the old password can't sign in and the username can be registered again; a
+    new account with that name doesn't get the old account's entries (ids differ).
+
+### UI (Vitest + Testing Library, tested)
+
+- **AU1** The username in the top bar links to **Account** (`/account`): username, member
+  since, "questions today: X of Y", active sessions.
+- **AU2** Change password: current, new, repeat. A mismatch is shown before sending; server
+  errors are shown as sent; success says other devices were signed out.
+- **AU3** "Sign out other devices" shows how many sessions ended.
+- **AU4** Delete account: the button stays disabled until the typed username matches; it
+  needs the password; success goes to the sign-in page. A 409 (still a DM) is shown plainly.
+
+### M9b review fixes (backend + security review: no CRITICAL/HIGH)
+
+- **R1** A private entry or chat written while its author's account is being deleted can't
+  survive: deletion sweeps, removes the account, then sweeps again, and `create_entry` /
+  `create_thread` undo their insert and return 404 if the author is gone afterwards.
+- **R2** The "still a DM" check is repeated inside the final transaction: a campaign created
+  during deletion is a 409, not a 500.
+- **R3** Deleted private text is wiped from disk: `secure_delete` on the deleting connections
+  and a truncating WAL checkpoint per campaign.
+- **R4** A sign-in that verified the old password while it was being changed gets no session
+  (the session is made only if the verified hash is still current).
+
+### Out of scope for M9b
+
+Email, password reset by email, ownership transfer, co-DMs, display names.
+
+## M9c contract — UI for real campaigns
+
+Goal: the boards stay usable with a real campaign (the owner's import has 94 entries), notes
+read like the Markdown they were written in, and chats can be tidied.
+
+### Chat threads (Python, tested)
+
+- **CT1** `PATCH /api/campaigns/{cid}/chats/{tid} {title}` renames a thread (1–120 characters)
+  and `DELETE …/chats/{tid}` deletes it with its messages. Only the owner; anyone else gets 404,
+  like reading it.
+- **CT2** A thread deleted while its question is being answered: the answer is dropped and the
+  request gets 404 "Chat not found." (not a 500); the question still counts toward the daily
+  limit, because the model was called.
+
+### UI (Vitest + Testing Library, tested)
+
+- **UB1 Lore filters.** Above the lore board: kind chips ("All" plus every kind present, each
+  with its count) and, for the DM, "All / Secret / Revealed" (private vs party). Filters work
+  on the loaded list and combine with the text filter. Each chip is a toggle button with
+  `aria-pressed`.
+- **UB2 Debounced filter.** The text filter asks the server 300 ms after typing stops, not on
+  every key.
+- **UB3 Notes as Markdown, safely.** Entry bodies render headings (`#`–`###`), `**bold**`,
+  `*italic*`, bullet and numbered lists, `> quotes` and `` `code` ``, through the same rules
+  as answers: React text and plain elements only, never HTML, links or images. A URL stays
+  plain text.
+- **UB4 Journal order.** Journal entries are listed by session number, newest first; entries
+  without a session come after, newest first.
+- **UB5 Chat tidy-up.** Each thread in the chat list has Rename and Delete (with a
+  confirmation). Deleting the open thread goes back to the chat start page.
+
+### M9c review fixes (frontend review: one HIGH, fixed)
+
+- **R1 (HIGH)** The DM's Secret/Revealed choice carried over to the journal (same component,
+  kept state) and silently hid entries there. Filters now apply on the lore board only, and
+  each board route has its own instance.
+- **R2** A selected kind keeps its chip (count 0), so a filter that empties the list can
+  always be seen and cleared.
+- **R3** Numbered lists keep their first number ("3. oturumda…" is a Turkish ordinal).
+- **R4** The delete button meets AA contrast in the dark theme.
+- **R5** On phones, the open chat has Rename and Delete next to the chat picker.
+- Smaller: red delete icon, focus to "New chat" after a delete, 28 px thread action
+  targets, account form cleared after success, emphasis only at word edges.
+
+### Out of scope for M9c
+
+Live updates between users, rich-text editing, attachments.

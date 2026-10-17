@@ -8,7 +8,7 @@ import { Drawer } from "../components/Drawer";
 import { EntryPanel } from "../components/EntryPanel";
 import { message, useCampaign, useLoad } from "../hooks";
 import { PlusIcon, SendIcon } from "../icons";
-import type { Citation, Message } from "../types";
+import type { Citation, Message, Thread } from "../types";
 
 const STARTERS = [
   "What do we know about the baron?",
@@ -35,6 +35,8 @@ export function ChatPage() {
   const [source, setSource] = useState<Citation | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  const newChat = useRef<HTMLButtonElement>(null);
+  const picker = useRef<HTMLSelectElement>(null);
   // A thread this page just created already has its messages on screen; reloading it would
   // race the pending answer and wipe the first question (found in the browser walk-through).
   const created = useRef<number | null>(null);
@@ -121,6 +123,34 @@ export function ChatPage() {
     }
   };
 
+  const openThread = threads?.find((t) => t.id === threadId) ?? null;
+
+  // UB5: tidy up the thread list.
+  const rename = async (t: Thread) => {
+    const title = window.prompt("Rename chat", t.title)?.trim();
+    if (!title || title === t.title) return;
+    try {
+      await api.renameThread(campaign.id, t.id, title);
+      reloadThreads();
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
+  const remove = async (t: Thread) => {
+    if (!window.confirm(`Delete the chat “${t.title}”? This can't be undone.`)) return;
+    try {
+      await api.deleteThread(campaign.id, t.id);
+      if (t.id === threadId) navigate(base, { replace: true });
+      // R7: the focused row is gone. On phones the side list is hidden, so use the picker.
+      const phone = window.matchMedia?.("(max-width: 760px)").matches;
+      (phone ? picker.current : newChat.current)?.focus();
+      reloadThreads();
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
   const onCitation = (c: Citation) => {
     if (c.kind === "note" && c.entry_id != null) setOpenEntry(c.entry_id);
     else setSource(c);
@@ -130,6 +160,7 @@ export function ChatPage() {
     <section className="chat">
       <aside className="thread-list" aria-label="Your chats">
         <button
+          ref={newChat}
           type="button"
           className="btn btn-primary"
           onClick={() => navigate(base)}
@@ -139,7 +170,7 @@ export function ChatPage() {
         <p className="muted small">Only you can see your chats.</p>
         <ul>
           {threads?.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} className="thread-row">
               <button
                 type="button"
                 className={t.id === threadId ? "thread active" : "thread"}
@@ -148,6 +179,26 @@ export function ChatPage() {
               >
                 {t.title}
               </button>
+              <span className="thread-actions">
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Rename ${t.title}`}
+                  title="Rename"
+                  onClick={() => rename(t)}
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="icon-button danger"
+                  aria-label={`Delete ${t.title}`}
+                  title="Delete"
+                  onClick={() => remove(t)}
+                >
+                  ×
+                </button>
+              </span>
             </li>
           ))}
         </ul>
@@ -157,6 +208,7 @@ export function ChatPage() {
         <label className="thread-picker">
           <span className="sr-only">Switch chat</span>
           <select
+            ref={picker}
             aria-label="Switch chat"
             value={threadId ?? ""}
             onChange={(e) => navigate(e.target.value ? `${base}/${e.target.value}` : base)}
@@ -169,6 +221,16 @@ export function ChatPage() {
             ))}
           </select>
         </label>
+        {openThread && (
+          <div className="thread-picker-actions">
+            <button type="button" className="btn btn-small btn-ghost" onClick={() => rename(openThread)}>
+              Rename this chat
+            </button>
+            <button type="button" className="btn btn-small btn-ghost danger" onClick={() => remove(openThread)}>
+              Delete this chat
+            </button>
+          </div>
+        )}
         <div className="messages" role="log" aria-label="Conversation">
           {messages.length === 0 && !busy && (
             <div className="chat-empty">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, configureApi } from "./api";
 import { SessionContext } from "./hooks";
+import { AccountPage } from "./pages/AccountPage";
 import { AuthPage } from "./pages/AuthPage";
 import { BoardPage } from "./pages/BoardPage";
 import { CampaignLayout } from "./pages/CampaignLayout";
@@ -41,12 +42,13 @@ export function App() {
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <AuthPage />} />
         <Route path="/" element={user ? <CampaignsPage /> : <Navigate to="/login" replace />} />
+        <Route path="/account" element={user ? <AccountPage /> : <Navigate to="/login" replace />} />
         <Route path="/c/:cid" element={user ? <CampaignLayout /> : <Navigate to="/login" replace />}>
           <Route index element={<Navigate to="chat" replace />} />
-          <Route path="lore" element={<BoardPage board="lore" />} />
+          <Route path="lore" element={<BoardPage key="lore" board="lore" />} />
           <Route path="characters" element={<CharactersPage />} />
           <Route path="characters/:chid" element={<CharactersPage />} />
-          <Route path="journal" element={<BoardPage board="journal" />} />
+          <Route path="journal" element={<BoardPage key="journal" board="journal" />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="chat/:tid" element={<ChatPage />} />
           <Route path="members" element={<MembersPage />} />

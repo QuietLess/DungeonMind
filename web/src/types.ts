@@ -9,6 +9,14 @@ export interface User {
   username: string;
 }
 
+export interface AccountSummary {
+  username: string;
+  created_at: string;
+  sessions: number;
+  questions_today: number;
+  daily_limit: number;
+}
+
 export interface Campaign {
   id: string;
   name: string;

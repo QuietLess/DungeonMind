@@ -203,6 +203,14 @@ class Storage:
             raise StorageError("This campaign's storage can't be used.")
         return path
 
+    def checkpoint(self, cid: str) -> None:
+        """Fold the WAL into campaign.db and truncate it, so deleted pages leave no copies."""
+        conn = _connect(self.campaign_db(cid))
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+
     def create_campaign_db(self, cid: str) -> None:
         folder = self.campaign_folder(cid)
         folder.mkdir(mode=0o700)

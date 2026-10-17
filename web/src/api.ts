@@ -1,6 +1,7 @@
 // Hub API client (M7 UI5). Same-origin requests with the session cookie; unsafe methods carry
 // the CSRF header the server requires; errors surface the API's plain `detail` message.
 import type {
+  AccountSummary,
   Campaign,
   Character,
   Citation,
@@ -72,6 +73,13 @@ export const api = {
     request<User>("POST", "/auth/login", { username, password }),
   logout: () => request<void>("POST", "/auth/logout"),
 
+  account: () => request<AccountSummary>("GET", "/account"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<void>("POST", "/account/password", { current_password, new_password }),
+  signOutOthers: () => request<{ signed_out: number }>("POST", "/account/sign-out-others"),
+  deleteAccount: (password: string, confirm_username: string) =>
+    request<void>("POST", "/account/delete", { password, confirm_username }),
+
   campaigns: () => request<Campaign[]>("GET", "/campaigns"),
   createCampaign: (name: string) => request<Campaign>("POST", "/campaigns", { name }),
   campaign: (cid: string) => request<Campaign>("GET", c(cid)),
@@ -115,6 +123,9 @@ export const api = {
     request<Thread>("POST", `${c(cid)}/chats`, { title }),
   thread: (cid: string, tid: number) =>
     request<{ thread: Thread; messages: Message[] }>("GET", `${c(cid)}/chats/${tid}`),
+  renameThread: (cid: string, tid: number, title: string) =>
+    request<Thread>("PATCH", `${c(cid)}/chats/${tid}`, { title }),
+  deleteThread: (cid: string, tid: number) => request<void>("DELETE", `${c(cid)}/chats/${tid}`),
   ask: (cid: string, tid: number, text: string) =>
     request<Message>("POST", `${c(cid)}/chats/${tid}/messages`, { text }),
 };

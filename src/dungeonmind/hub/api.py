@@ -94,8 +94,22 @@ class EntryPatch(_In):
     session: StrictInt | None = None
 
 
+class PasswordChange(_In):
+    current_password: str
+    new_password: str
+
+
+class AccountDelete(_In):
+    password: str
+    confirm_username: str
+
+
 class ThreadIn(_In):
     title: str = "New chat"
+
+
+class ThreadPatch(_In):
+    title: str
 
 
 class MessageIn(_In):
@@ -189,6 +203,13 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     public = APIRouter(prefix="/api")
     private = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
+    @public.get("/health")
+    def health():
+        # O1: says only whether the hub can read its database; nothing about models or keys.
+        if hub.healthy():
+            return {"status": "ok"}
+        return JSONResponse({"status": "unavailable"}, 503)
+
     # --- auth --------------------------------------------------------------------------------
 
     @public.post("/auth/register", status_code=201)
@@ -212,6 +233,28 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     @private.get("/me")
     def me(user: Me):
         return asdict(user)
+
+    # --- account (M9b) ----------------------------------------------------------------------
+
+    @private.get("/account")
+    def account(user: Me):
+        return hub.account(user)
+
+    @private.post("/account/password", status_code=204)
+    def change_password(body: PasswordChange, request: Request, user: Me):
+        token = request.cookies.get(SESSION_COOKIE, "")
+        hub.change_password(
+            user, token, body.current_password, body.new_password, client=client_of(request)
+        )
+
+    @private.post("/account/sign-out-others")
+    def sign_out_others(request: Request, user: Me):
+        return {"signed_out": hub.sign_out_others(user, request.cookies.get(SESSION_COOKIE, ""))}
+
+    @private.post("/account/delete", status_code=204)
+    def delete_account(body: AccountDelete, request: Request, response: Response, user: Me):
+        hub.delete_account(user, body.password, body.confirm_username, client=client_of(request))
+        response.delete_cookie(SESSION_COOKIE, path="/")
 
     # --- campaigns ---------------------------------------------------------------------------
 
@@ -320,6 +363,14 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
             "thread": asdict(hub.thread(user, cid, tid)),
             "messages": [asdict(m) for m in hub.messages(user, cid, tid)],
         }
+
+    @private.patch("/campaigns/{cid}/chats/{tid}")
+    def rename_thread(cid: str, tid: int, body: ThreadPatch, user: Me):
+        return asdict(hub.rename_thread(user, cid, tid, body.title))
+
+    @private.delete("/campaigns/{cid}/chats/{tid}", status_code=204)
+    def delete_thread(cid: str, tid: int, user: Me):
+        hub.delete_thread(user, cid, tid)
 
     @private.post("/campaigns/{cid}/chats/{tid}/messages")
     def ask(cid: str, tid: int, body: MessageIn, user: Me):

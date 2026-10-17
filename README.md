@@ -21,7 +21,7 @@ assistant, not a chat-with-a-PDF demo.
 | M6 — Campaign hub backend: boards, visibility, per-campaign storage, API | ✅ |
 | M7 — Campaign hub web UI (React) | ✅ |
 | M8 — 209-case eval suite, offline gates, live runner, per-step models | ✅ (live run pending an API key) |
-| M9 — Docker, hosting, tracing, metrics, CI/CD | ⬜ |
+| M9 — Production: CI, Docker, backups ✅ · accounts, UI, hosting, tracing ⬜ | 🔶 |
 
 ## Quickstart
 
@@ -62,6 +62,7 @@ uv run npm --prefix web run build           # builds the UI into web/dist
 uv run dungeonmind serve                    # open http://127.0.0.1:8000, data in data/hub/
 uv run dungeonmind serve --host 0.0.0.0     # let players on your network join (plain HTTP)
 uv run dungeonmind hub reset-password USER  # set a forgotten password
+uv run dungeonmind hub backup --out ~/dungeonmind-backups  # safe while serving
 uv run dungeonmind eval-notes               # note-search benchmark (local, no API calls)
 ```
 
@@ -69,7 +70,11 @@ In the browser: create an account, start a campaign (you're its DM), write lore,
 invite code from **Members**. Players join with the code, keep a storyboard for their
 character, write in the journal, and chat. Answers cite the notes they used (click to open)
 and the SRD pages. Follow-up questions ("what about her brother?") use the thread's earlier
-turns. For UI development, run `uv run npm --prefix web run dev` (Vite on :5173, proxying `/api`
+turns. The lore board filters by kind and, for the DM, by secret or revealed; notes render
+their Markdown (headings, bold, lists, quotes) without links or images. Chats can be renamed
+or deleted. Your username in the top bar opens **Account**: questions used today, signed-in
+devices, password change, "sign out other devices", and account deletion (your private
+entries and chats are deleted; what you shared stays). For UI development, run `uv run npm --prefix web run dev` (Vite on :5173, proxying `/api`
 to the hub on :8000) and `uv run npm --prefix web test`.
 
 The API lives under `/api` (accounts, campaigns, invites, characters, entries, search, chats).
@@ -184,6 +189,55 @@ event or item. `dm_note`/`secrets` text is kept in separate DM-only entries, and
 become private journal entries. Reveal what players know in the web app. Turkish and other
 non-English notes work: search folds diacritics, notes use a multilingual model, and answers
 come in the language you ask in.
+
+## Backups
+
+`dungeonmind hub backup --out DIR` writes `DIR/dungeonmind-backup-<UTC time>/` with `app.db`
+(accounts) and every `campaigns/<id>/campaign.db`. It uses SQLite's backup API, so it's safe
+while `serve` runs. The folder is private to your user (0700/0600), and it holds real campaign
+text, so keep it out of the repo and out of shared folders. A failed run leaves nothing behind
+(it writes to a hidden `.partial` folder first).
+
+To restore: stop the server, move the old `data/hub/` aside, then copy the backup's contents
+into an empty `data/hub/`. Restoring into the old folder would mix in leftover `-wal`/`-shm`
+files and campaigns that aren't in the backup. Accounts and campaigns are copied one after
+another, so a campaign created or deleted during the backup may be missing or orphaned; back
+up when nobody is editing.
+
+## Docker
+
+```bash
+cp .env.example .env              # add ANTHROPIC_API_KEY, or set DUNGEONMIND_PROVIDER=ollama
+docker compose up --build         # open http://127.0.0.1:8000; health: /api/health
+```
+
+The image holds the web app, the API and the SRD data (built at image build time). It runs as a
+non-root user and keeps hub data in the `hub-data` volume, never in the image. Compose
+publishes the port on `127.0.0.1` only. With Ollama, the container reaches the Ollama app on
+your Mac at `host.docker.internal:11434`.
+
+Backups and restores with Docker (the container runs as uid 10001):
+
+```bash
+# back up: write inside the container, then copy out
+docker compose exec dungeonmind dungeonmind hub backup --root /data/hub --out /tmp/backups
+docker compose cp dungeonmind:/tmp/backups ./backups
+
+# restore (or move an existing data/hub into the volume): stop, copy, fix ownership, start
+docker compose stop
+docker compose run --rm --user root --entrypoint sh dungeonmind -c 'rm -rf /data/hub/*'
+docker compose cp ./backups/dungeonmind-backup-<time>/. dungeonmind:/data/hub
+docker compose run --rm --user root --entrypoint chown dungeonmind -R 10001 /data/hub
+docker compose start
+```
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request: ruff, the
+full pytest suite on freshly built SRD data, `eval validate`, the offline `eval gate`, and the
+web type check, tests and build. It uses no secrets and makes no paid model calls. The release
+workflow builds the Docker image on pull requests and publishes it to GHCR only when you push
+a `v*` tag.
 
 ## Evaluation (M8)
 

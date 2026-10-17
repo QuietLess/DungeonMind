@@ -21,7 +21,9 @@ export function TopBar({ title }: { title?: string }) {
       <span className="spacer" />
       {user && (
         <>
-          <span className="muted user-name">{user.username}</span>
+          <Link to="/account" className="muted user-name">
+            {user.username}
+          </Link>
           <button type="button" className="btn btn-small btn-ghost" onClick={signOut}>
             Sign out
           </button>
