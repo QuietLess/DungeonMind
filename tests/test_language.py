@@ -20,15 +20,15 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_t1_turkish_words_stay_whole_and_fold_diacritics():
-    assert tokenize("Kızıl Şafak Köyü ve Eldorîa Başkenti") == [
-        "kizil",
-        "safak",
+    assert tokenize("Gümüş Çınar Köyü ve Altınîa Şehri") == [
+        "gumus",
+        "cinar",
         "koyu",
-        "eldoria",
-        "baskenti",
+        "altinia",
+        "sehri",
     ]
     assert tokenize("İSTANBUL ılık") == ["istanbul", "ilik"]
-    assert tokenize("kizil safak") == tokenize("Kızıl Şafak")  # typed without Turkish letters
+    assert tokenize("gumus cinar") == tokenize("Gümüş Çınar")  # typed without Turkish letters
 
 
 def test_t1_english_tokenizes_as_before():

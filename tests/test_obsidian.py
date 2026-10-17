@@ -144,10 +144,12 @@ def test_i5_dm_note_true_is_a_flag_not_a_secret(tmp_path):
     """Found on the owner's vault: `dm_note: true` marks the whole note as DM-only."""
     v = tmp_path / "v"
     v.mkdir()
-    (v / "Velor.md").write_text("---\nkind: concept\ndm_note: true\n---\nVelor gizli bir güç.\n",
-                                encoding="utf-8")
-    (v / "Arden.md").write_text("---\nkind: npc\ndm_note: false\nsecrets: []\n---\nArden.\n",
-                                encoding="utf-8")
+    (v / "Velor.md").write_text(
+        "---\nkind: concept\ndm_note: true\n---\nVelor gizli bir güç.\n", encoding="utf-8"
+    )
+    (v / "Arden.md").write_text(
+        "---\nkind: npc\ndm_note: false\nsecrets: []\n---\nArden.\n", encoding="utf-8"
+    )
     plan = _by_title(plan_import(v))
     assert set(plan) == {"Velor", "Arden"}  # no "— DM notes" entries for flags or empty lists
     assert "**DM only:** yes" in plan["Velor"].body
