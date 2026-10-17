@@ -280,3 +280,16 @@ describe("M9c review fixes", () => {
     expect(screen.getByRole("button", { name: /New chat/ })).toHaveFocus();
   });
 });
+
+describe("M9c re-review fixes", () => {
+  it("notes use no regex lookbehind (Safari before 16.4 can't parse it)", async () => {
+    const source = await import("./notes.tsx?raw");
+    expect(source.default).not.toMatch(/\(\?<[!=]/);
+  });
+
+  it("emphasis still works at word edges and in Turkish", () => {
+    const { container } = render(<NoteText text={"(*x*) _Ağrı_, *ş* and word*s*"} />);
+    expect([...container.querySelectorAll("em")].map((e) => e.textContent)).toEqual(["x", "Ağrı", "ş"]);
+    expect(container.textContent).toBe("(x) Ağrı, ş and word*s*");
+  });
+});
