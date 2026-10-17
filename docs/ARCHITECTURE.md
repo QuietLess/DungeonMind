@@ -1096,3 +1096,47 @@ dungeonmind hub backup --out DIR [--root data/hub]
 ### Out of scope for M9a
 
 Hosting, TLS and a domain (owner's decision, recurring cost); tracing and metrics (later M9).
+
+## M9b contract — account management
+
+Goal: users manage their own account from the web app (no CLI needed): see their usage,
+change their password, sign out other devices, and delete their account. All routes need a
+session; unsafe ones need the CSRF header, like every other route.
+
+### API (Python, tested)
+
+- **A1** `GET /api/account` → `{username, created_at, sessions, questions_today, daily_limit}`.
+  `sessions` counts the user's unexpired sessions.
+- **A2** `POST /api/account/password {current_password, new_password}`.
+  - A wrong current password is 403 "Current password is wrong." It counts as a failed sign-in
+    for that username (same limiter and limits as login), so it can't be used to guess
+    passwords from a stolen session; over the limit it's 429.
+  - The new password follows the registration rules (422 otherwise).
+  - Success is 204: every other session of the user ends, this one stays.
+- **A3** `POST /api/account/sign-out-others` → `{"signed_out": n}`; the current session stays.
+- **A4** `POST /api/account/delete {password, confirm_username}`.
+  - Wrong password: 403 and counted (as A2). `confirm_username` other than the username: 422.
+  - A DM of any campaign gets 409 "You're the DM of N campaign(s). Delete them first."
+    (no ownership transfer yet).
+  - Success is 204 and clears the cookie. In every campaign folder (current and past
+    memberships alike), the user's **private** entries and all their chat threads are deleted.
+    Entries shared with the DM or the party stay, under the author name they had, because
+    other members already rely on them; characters stay too. Then their memberships, sessions,
+    usage rows and the account itself are removed. Campaign data goes first, so a failure part
+    way leaves an account that can retry, never orphaned private text.
+  - Afterwards the old password can't sign in and the username can be registered again; a
+    new account with that name doesn't get the old account's entries (ids differ).
+
+### UI (Vitest + Testing Library, tested)
+
+- **AU1** The username in the top bar links to **Account** (`/account`): username, member
+  since, "questions today: X of Y", active sessions.
+- **AU2** Change password: current, new, repeat. A mismatch is shown before sending; server
+  errors are shown as sent; success says other devices were signed out.
+- **AU3** "Sign out other devices" shows how many sessions ended.
+- **AU4** Delete account: the button stays disabled until the typed username matches; it
+  needs the password; success goes to the sign-in page. A 409 (still a DM) is shown plainly.
+
+### Out of scope for M9b
+
+Email, password reset by email, ownership transfer, co-DMs, display names.
