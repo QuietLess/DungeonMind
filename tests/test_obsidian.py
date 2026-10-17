@@ -106,8 +106,8 @@ def test_i6_long_notes_split_duplicates_and_skips(vault):
     assert all(".obsidian" not in e.source for e in plan.entries)
 
 
-def test_i7_session_files_become_private_journal_entries_with_numbers(vault):
-    plan = plan_import(vault[0], vault[1])
+def test_i7_session_numbers_from_names_only_when_asked(vault):
+    plan = plan_import(vault[0], vault[1], session_numbers="name")
     sessions = sorted((e.session, e.title) for e in plan.entries if e.board == "journal")
     assert sessions == [(1, "Oturum 1"), (4, "oturum-04")]
     assert all(e.visibility == "private" for e in plan.entries if e.board == "journal")
@@ -154,3 +154,53 @@ def test_i5_dm_note_true_is_a_flag_not_a_secret(tmp_path):
     assert set(plan) == {"Velor", "Arden"}  # no "— DM notes" entries for flags or empty lists
     assert "**DM only:** yes" in plan["Velor"].body
     assert "DM only" not in plan["Arden"].body
+
+
+# --- the owner's archive: reconstructed recaps, a plan, and overview documents -----------------
+
+RECAP = "---\ntype: session-recap\nstatus: played\ncertainty: partial\n---\nMadalyon olayı.\n"
+PLAN = "---\ntype: dm-preparation\nstatus: planned-not-confirmed-played\n---\nKöy planı.\n"
+NUMBERED = "---\nsession: 7\nstatus: played\n---\nYedinci oturum.\n"
+
+
+def test_i7_by_default_only_a_session_field_gives_a_number(tmp_path):
+    s = tmp_path / "s"
+    s.mkdir()
+    (s / "01 - Madalyon.md").write_text(RECAP, encoding="utf-8")
+    (s / "05 - Plan.md").write_text(PLAN, encoding="utf-8")
+    (s / "Oturum.md").write_text(NUMBERED, encoding="utf-8")
+    v = tmp_path / "v"
+    v.mkdir()
+    plan = {e.title: e for e in plan_import(v, s).entries}
+    assert plan["01 - Madalyon"].session is None  # "01" is reading order, not a session
+    assert plan["05 - Plan"].session is None
+    assert plan["Oturum"].session == 7
+
+
+def test_i7_session_entries_keep_type_status_and_certainty(tmp_path):
+    s = tmp_path / "s"
+    s.mkdir()
+    (s / "05 - Plan.md").write_text(PLAN, encoding="utf-8")
+    (s / "01 - Madalyon.md").write_text(RECAP, encoding="utf-8")
+    v = tmp_path / "v"
+    v.mkdir()
+    plan = {e.title: e for e in plan_import(v, s).entries}
+    assert "**status:** planned-not-confirmed-played" in plan["05 - Plan"].body
+    assert "**type:** dm-preparation" in plan["05 - Plan"].body
+    assert "**certainty:** partial" in plan["01 - Madalyon"].body
+
+
+def test_i8_extra_lore_adds_top_level_notes_marked_as_archive(tmp_path, vault):
+    a = tmp_path / "archive"
+    (a / "Oturum_Notlari").mkdir(parents=True)
+    (a / "Arden.md").write_text(
+        "---\ncertainty: partial\n---\nArşiv özeti: Arden.\n", encoding="utf-8"
+    )
+    (a / "Dünya.md").write_text("Dünya ve siyaset özeti.\n", encoding="utf-8")
+    (a / "Oturum_Notlari" / "01.md").write_text("alt klasör: alınmaz\n", encoding="utf-8")
+    plan = {e.title: e for e in plan_import(vault[0], extra_lore=[a]).entries}
+    assert "Arden" in plan and "Arden (arşiv)" in plan  # clash with the vault note
+    assert "**source:** archive" in plan["Arden (arşiv)"].body
+    assert "**certainty:** partial" in plan["Arden (arşiv)"].body
+    assert plan["Dünya"].board == "lore" and plan["Dünya"].visibility == "private"
+    assert not any("alt klasör" in e.body for e in plan.values())  # subfolders not included
