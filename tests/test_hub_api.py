@@ -50,7 +50,7 @@ def table(app):
 
 # --- 1. every route needs a session -----------------------------------------------------------
 
-PUBLIC = {"/api/auth/register", "/api/auth/login", "/api/health"}  # health: M9a O1
+PUBLIC = {"/api/auth/register", "/api/auth/login", "/api/health", "/api/auth/config"}
 FILL = {"cid": "0" * 32, "eid": "1", "chid": "1", "tid": "1", "uid": "u"}
 
 

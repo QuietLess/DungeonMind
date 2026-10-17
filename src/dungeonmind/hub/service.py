@@ -65,6 +65,8 @@ SEARCHES_PER_MINUTE = 20
 SESSIONS_PER_USER = 20
 REFUNDS_PER_DAY = 3
 LOGIN_FAILED = "Wrong username or password."
+SIGNUP_MODES = ("open", "invite")
+NEEDS_INVITE = "Ask your DM for an invite code."
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
 
@@ -115,7 +117,11 @@ class Hub:
         clock: Callable[[], datetime] = utc_now,
         scrypt_n: int = 2**15,
         daily_message_limit: int = 50,
+        signup: str = "open",
     ) -> None:
+        if signup not in SIGNUP_MODES:
+            raise ValueError(f"signup must be one of {', '.join(SIGNUP_MODES)}")
+        self.signup = signup  # M9d S1: "invite" = sign-up only with a campaign invite code
         self.storage = Storage(root)
         self.embedder = embedder
         self.engine = engine
@@ -140,7 +146,9 @@ class Hub:
 
     # --- accounts --------------------------------------------------------------------------
 
-    def register(self, username: str, password: str, client: str = "local") -> User:
+    def register(
+        self, username: str, password: str, client: str = "local", invite: Any = None
+    ) -> User:
         if not isinstance(username, str) or not re.fullmatch(models.USERNAME, username):
             raise Invalid("Usernames are 3–32 characters: lowercase letters, digits and _.")
         low, high = models.PASSWORD_CHARS
@@ -150,16 +158,55 @@ class Hub:
             [(f"register:{client}", auth.REGISTRATIONS_PER_CLIENT)], self.clock()
         ):
             raise RateLimited("Too many new accounts from this device. Try again later.")
+        needs_invite = self.signup == "invite"
+        first = False
+        if needs_invite:  # S1: checked before the (slow) password hash
+            with self.storage.app() as db:
+                if db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None:
+                    needs_invite, first = False, True  # S1: the owner's first account
+                elif self._live_invite(db, invite) is None:
+                    raise Forbidden(NEEDS_INVITE)
         user = User(id=uuid.uuid4().hex, username=username)
         hashed = auth.hash_password(password, self.scrypt_n)
+        now = self.clock()
         with self.storage.app(immediate=True) as db:
+            invite_row = self._live_invite(db, invite) if needs_invite else None
+            if needs_invite and invite_row is None:  # used up while the password was hashed
+                raise Forbidden(NEEDS_INVITE)
+            if first and db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                raise Forbidden(NEEDS_INVITE)  # someone else became the first account meanwhile
             if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
                 raise Conflict("That username is taken.")
             db.execute(
                 "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-                (user.id, username, hashed, _iso(self.clock())),
+                (user.id, username, hashed, _iso(now)),
             )
+            if invite_row is not None:  # S1: the new account joins that campaign
+                members = db.execute(
+                    "SELECT COUNT(*) FROM memberships WHERE campaign_id = ?",
+                    (invite_row["campaign_id"],),
+                ).fetchone()[0]
+                if members >= models.MAX_MEMBERS:
+                    raise Invalid(f"A campaign can have at most {models.MAX_MEMBERS} members.")
+                db.execute(
+                    "INSERT INTO memberships (campaign_id, user_id, role, joined_at) "
+                    "VALUES (?, ?, 'player', ?)",
+                    (invite_row["campaign_id"], user.id, _iso(now)),
+                )
+                db.execute("DELETE FROM invites WHERE code_hash = ?", (invite_row["code_hash"],))
         return user
+
+    def _live_invite(self, db, code: Any):
+        """The unexpired invite row for `code`, or None."""
+        if not isinstance(code, str) or not code.strip():
+            return None
+        row = db.execute(
+            "SELECT code_hash, campaign_id, expires_at FROM invites WHERE code_hash = ?",
+            (auth.token_hash(_invite_code(code)),),
+        ).fetchone()
+        if row is None or datetime.fromisoformat(row["expires_at"]) <= self.clock():
+            return None
+        return row
 
     def login(self, username: str, password: str, client: str = "local") -> str:
         now = self.clock()

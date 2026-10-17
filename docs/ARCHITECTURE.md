@@ -1240,7 +1240,8 @@ run). Once the hub is on the internet, two things change: every request now arri
 - **S1** `serve --signup invite` (default for `share`): `POST /api/auth/register` needs an
   `invite` code for a campaign. A valid code creates the account and joins that campaign; a
   missing or wrong code is 403 "Ask your DM for an invite code." and creates nothing. The
-  code is checked before the password is hashed. Failed codes count toward the per-client
+  code is checked before the password is hashed. The very first account on an empty hub (the
+  owner) needs no code. Failed codes count toward the per-client
   registration limit.
 - **S2** `GET /api/auth/config` (public) → `{"signup": "open" | "invite"}`. The sign-up form
   asks for the invite code when it's required.
