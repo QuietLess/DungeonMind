@@ -358,3 +358,37 @@ def test_a4_usage_rows_go_with_the_account(app, hub):
     assert _delete(player).status_code == 204
     with hub.storage.app() as db:
         assert db.execute("SELECT count(*) FROM usage").fetchone()[0] == 0
+
+
+def test_ra_an_entry_made_private_during_deletion_does_not_survive(tmp_path):
+    embedder = HookEmbedder()
+    hub, _, player, camp = _service_party(tmp_path, embedder)
+    shared = hub.create_entry(
+        player, camp.id, board="journal", title="Recap", body="we met", visibility="party"
+    )
+    embedder.during = lambda: hub.delete_account(player, PASSWORD, "player_one")
+    with pytest.raises(NotFound):
+        hub.update_entry(player, camp.id, shared.id, body="now a secret", visibility="private")
+    with hub.storage.campaign(camp.id) as db:
+        assert db.execute("SELECT count(*) FROM entries WHERE visibility = 'private'").fetchone()[
+            0
+        ] == 0
+
+
+def test_r1_a_chat_created_during_deletion_does_not_survive(tmp_path, monkeypatch):
+    hub, _, player, camp = _service_party(tmp_path)
+    real = hub._member
+    state = {"done": False}
+
+    def member(user, cid):
+        camp_ = real(user, cid)  # passes while the account still exists ...
+        if not state["done"]:
+            state["done"] = True  # ... then the account is deleted before the insert
+            hub.delete_account(player, PASSWORD, "player_one")
+        return camp_
+
+    monkeypatch.setattr(hub, "_member", member)
+    with pytest.raises(NotFound):
+        hub.create_thread(player, camp.id, "late")
+    with hub.storage.campaign(camp.id) as db:
+        assert db.execute("SELECT count(*) FROM threads").fetchone()[0] == 0
