@@ -161,6 +161,8 @@ items previously due "M8" are now due M9.
 | A5 | Nobody can edit or delete what a deleted (or removed) player shared; the DM has no moderation for others' party entries | when convenient |
 | A6 | Rename uses `window.prompt` (no length hint; a 422 shows in the conversation pane) | when convenient |
 | A7 | An unusable campaign folder blocks account deletion until fixed (fail-safe; ops note) | when convenient |
+| T1 | Hub owner = oldest account; if the owner deletes all campaigns and their account, ownership (who may invite new accounts) moves to the next account silently. Store an explicit owner instead | when convenient |
+| T2 | First account on an empty hub isn't restricted to this machine (sign up before sharing the address); `__Host-` cookie prefix; HSTS on 500 responses | when convenient |
 | H5 | Worst-case search (every query term in every chunk) takes ≈ 1.5 s at the limit; cap rows per term if it matters | when convenient |
 
 ## Known limitations
