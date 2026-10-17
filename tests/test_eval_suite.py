@@ -123,6 +123,14 @@ def test_o3_the_leak_check_catches_a_leaking_search(fixture, monkeypatch):
     assert "campaign-15" in report["leaks"]  # "Is Baron Velkor a vampire?" as the player
 
 
+def test_o4_covers_follow_ups_with_their_history(fixture):
+    registry = ToolRegistry(Catalog.load(FIXTURES), rng=random.Random(0))
+    followups = [c for c in load() if c.category == "followup"]
+    report = run_offline(followups, fixture, registry=registry)
+    assert report["contract"]["n"] == len(followups)
+    assert report["contract"]["violations"] == []
+
+
 def test_o4_contract_check_passes_and_campaign_inputs_hold_only_visible_text(fixture):
     registry = ToolRegistry(Catalog.load(FIXTURES), rng=random.Random(0))
     report = run_offline(load(), fixture, registry=registry)
