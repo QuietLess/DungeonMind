@@ -150,6 +150,27 @@ The 2024 SRD has no habitat data for monsters, so "ruins" or "forest" can't be a
 hard filter. The encounter builder (M5) chooses thematically fitting creature types
 and says that it did.
 
+## Free local mode (Ollama) or paid Claude
+
+DungeonMind runs on a free local open-source model through [Ollama](https://ollama.com), or
+on Claude. The prompts, citations and visibility rules are the same in both; only the model
+changes.
+
+```bash
+brew install ollama            # or download the app from ollama.com
+ollama serve                   # keep running in its own terminal (the app starts it for you)
+ollama pull qwen3:4b           # ~2.5 GB; fits in 8 GB of RAM
+
+uv run dungeonmind chat "How does grappling work?" --provider ollama
+uv run dungeonmind serve --provider ollama
+uv run dungeonmind eval live --provider ollama --limit 10 --label local
+export DUNGEONMIND_PROVIDER=ollama   # make local the default
+```
+
+Switch back with `--provider claude` (needs `ANTHROPIC_API_KEY`). Pick another local model with
+`--models all=llama3.2:3b`. On a small laptop, local answers take about a minute and are weaker
+than Claude's. The evaluation suite measures how much weaker.
+
 ## Evaluation (M8)
 
 A versioned suite of 209 cases (`src/dungeonmind/evals/datasets/suite_v1.jsonl`) covers rules,

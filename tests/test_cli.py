@@ -337,3 +337,49 @@ def test_m8_models_env_var_is_the_fallback(chat_env, monkeypatch):
     )
     assert _invoke("q").exit_code == 0
     assert seen["models"].for_step("campaign").model == "claude-sonnet-5-5"
+
+
+# --- M8b: --provider ollama --------------------------------------------------------------------
+
+
+def test_m8b_chat_with_ollama_needs_no_key_and_checks_the_local_server(chat_env, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("dungeonmind.graph.ollama.check_ollama", lambda *a, **k: [])
+    made = {}
+    monkeypatch.setattr(
+        "dungeonmind.graph.providers.make_llm",
+        lambda provider, models: made.update(provider=provider) or object(),
+    )
+    result = _invoke("q", "--provider", "ollama")
+    assert result.exit_code == 0, result.output
+    assert made["provider"] == "ollama"
+    assert chat_env.calls[0]["deps"].timeout_s == 300.0
+
+
+def test_m8b_ollama_problems_are_reported_before_running(chat_env, monkeypatch):
+    monkeypatch.setattr(
+        "dungeonmind.graph.ollama.check_ollama",
+        lambda *a, **k: ["Ollama isn't running: start it with `ollama serve`."],
+    )
+    result = _invoke("q", "--provider", "ollama")
+    assert result.exit_code != 0
+    assert "ollama serve" in _flat(result.output)
+    assert chat_env.calls == []
+
+
+def test_m8b_provider_env_var_is_the_fallback(chat_env, monkeypatch):
+    monkeypatch.setenv("DUNGEONMIND_PROVIDER", "ollama")
+    monkeypatch.setattr("dungeonmind.graph.ollama.check_ollama", lambda *a, **k: [])
+    made = {}
+    monkeypatch.setattr(
+        "dungeonmind.graph.providers.make_llm",
+        lambda provider, models: made.update(provider=provider) or object(),
+    )
+    assert _invoke("q").exit_code == 0
+    assert made["provider"] == "ollama"
+
+
+def test_m8b_unknown_provider_is_a_clear_error(chat_env):
+    result = _invoke("q", "--provider", "gemini")
+    assert result.exit_code != 0
+    assert "claude" in _flat(result.output) and "ollama" in _flat(result.output)

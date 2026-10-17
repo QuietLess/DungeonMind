@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from dungeonmind.evals.suite import NUMBER_TOLERANCE, Case
-from dungeonmind.graph.models import ModelConfig, cost
+from dungeonmind.graph.models import PRICING, ModelConfig, cost
 
 DEFAULT_MAX_COST = 2.00
 EVAL_MAX_STEPS = 4  # agent turns per case in evals: bounds what one case can cost
@@ -139,7 +139,8 @@ def estimate(cases: list[Case], config: ModelConfig) -> float:
     for c in cases:
         for step in CATEGORY_STEPS.get(c.category, ["route", "rules_answer"]):
             model = config.for_step(step).model
-            total += cost(model, *STEP_TOKENS[step])
+            if model in PRICING:  # local models are free (M8b contract P7)
+                total += cost(model, *STEP_TOKENS[step])
     return total
 
 
@@ -275,7 +276,9 @@ class _RecordingLLM:
         return call
 
 
-def make_runner(fixture, llm, retrieve, registry) -> Callable[..., dict[str, Any]]:
+def make_runner(
+    fixture, llm, retrieve, registry, timeout_s: float = 60.0
+) -> Callable[..., dict[str, Any]]:
     """L1: viewer cases go through Hub.ask as that viewer; the rest through run_chat."""
     from dungeonmind.graph.build import Deps, run_chat
     from dungeonmind.hub.chats import make_engine
@@ -302,11 +305,17 @@ def make_runner(fixture, llm, retrieve, registry) -> Callable[..., dict[str, Any
     def ask(case: Case, recorder: _RecordingLLM) -> dict:
         if not case.viewer:
             deps = Deps(
-                llm=recorder, retrieve=retrieve, registry=registry, max_steps=EVAL_MAX_STEPS
+                llm=recorder,
+                retrieve=retrieve,
+                registry=registry,
+                max_steps=EVAL_MAX_STEPS,
+                timeout_s=timeout_s,
             )
             return run_chat(case.question, deps, history=case.history or None)
         states: list[dict] = []
-        inner = make_engine(recorder, retrieve, registry, max_steps=EVAL_MAX_STEPS)
+        inner = make_engine(
+            recorder, retrieve, registry, max_steps=EVAL_MAX_STEPS, timeout_s=timeout_s
+        )
 
         def engine(*args):
             state = inner(*args)

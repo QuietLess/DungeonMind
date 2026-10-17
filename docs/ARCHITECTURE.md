@@ -911,3 +911,38 @@ Each item has a regression test.
     campaign-20 and campaign-22.
 - **L1 clarified:** cases with a viewer run through `Hub.ask`; the others, including follow-ups
   without a viewer, run through `run_chat` with their history.
+
+## M8b contract — local open-source models (Ollama)
+
+The owner's budget is small, so DungeonMind can run on a free local model through
+[Ollama](https://ollama.com) and switch to paid Claude with a flag. On this development Mac
+(Intel i5, 8 GB, no usable GPU) only ~3–4B models fit and a question takes about 1–2 minutes.
+Local mode is for free development and trying things; quality is measured, not assumed.
+
+- **P1 Provider flag.** `--provider claude|ollama` on `chat`, `serve` and `eval live`, defaulting
+  to `$DUNGEONMIND_PROVIDER` and then to `claude`.
+  - `claude` behaves exactly as before.
+  - `ollama` needs no API key, and its usage costs $0.
+- **P2 Models.** In Ollama mode every step defaults to `qwen3:4b`, overridable with `--models`
+  (e.g. `all=llama3.2:3b`).
+  - Any Ollama model name is accepted (`[A-Za-z0-9._:/-]{1,100}`).
+  - Claude mode still accepts only priced Claude models.
+  - `$DUNGEONMIND_OLLAMA_URL` sets the server; the default is `http://127.0.0.1:11434`.
+- **P3 Same behaviour, different transport.** `OllamaLLM` reuses `ClaudeLLM`'s prompts,
+  schemas and parsing, and replaces only the request.
+  - It calls `POST /api/chat` with `stream: false`, `think: false`, `options.num_ctx` = 8192
+    (the prompts are ~1–6k tokens; Ollama's default context would truncate them), and the
+    step's JSON schema as `format`.
+  - The graph's verify step, citations and visibility rules are unchanged.
+- **P4 Tools.** The agent's tool definitions are sent as Ollama function tools, and the
+  conversation's tool-use and tool-result turns are translated to Ollama's assistant
+  `tool_calls` and `tool` messages. A tool call becomes an agent tool call with a generated id.
+  A final reply that isn't the answer JSON is kept as the answer text, with its inline
+  citations, `confidence: low`, so a small model's plain-text answer still goes through verify.
+- **P5 Errors.** If Ollama isn't running or the model isn't pulled, the CLI says so before
+  running, with the commands to fix it (`ollama serve`, `ollama pull qwen3:4b`). During a run,
+  any transport error becomes the graph's usual error answer.
+- **P6 Timeouts.** Ollama mode allows 300 s per call and per agent loop (Claude: 60 s), because
+  CPU inference is slow.
+- **P7 Usage.** Each call logs `prompt_eval_count` and `eval_count` as input and output tokens,
+  at cost $0. `eval live --estimate` shows $0.
