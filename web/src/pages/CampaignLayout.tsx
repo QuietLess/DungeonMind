@@ -2,7 +2,7 @@ import { NavLink, Outlet, useParams } from "react-router-dom";
 import { api } from "../api";
 import { TopBar } from "../components/TopBar";
 import { CampaignContext, useLoad, useSession } from "../hooks";
-import { BookIcon, ChatIcon, CrownIcon, ScrollIcon, UsersIcon } from "../icons";
+import { BookIcon, ChatIcon, CrownIcon, HomeIcon, ScrollIcon, UsersIcon } from "../icons";
 
 export function CampaignLayout() {
   const { cid = "" } = useParams();
@@ -33,6 +33,7 @@ export function CampaignLayout() {
   }
 
   const tabs = [
+    { to: "overview", label: "Overview", Icon: HomeIcon },
     { to: "chat", label: "Chat", Icon: ChatIcon },
     { to: "lore", label: "Lore", Icon: ScrollIcon },
     { to: "characters", label: "Characters", Icon: UsersIcon },

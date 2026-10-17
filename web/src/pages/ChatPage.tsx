@@ -8,14 +8,19 @@ import { Drawer } from "../components/Drawer";
 import { EntryPanel } from "../components/EntryPanel";
 import { message, useCampaign, useLoad } from "../hooks";
 import { PlusIcon, SendIcon } from "../icons";
-import type { Citation, Message, Thread } from "../types";
+import type { Citation, Entry, Message, Thread } from "../types";
 
-const STARTERS = [
-  "What do we know about the baron?",
-  "Summarise the last session",
-  "What are the odds a +5 attack hits AC 15 with advantage?",
-  "How does grappling work?",
-];
+/** L5: suggestions from the campaign the viewer can see, plus a rules and a dice question. */
+export function suggestions(entries: Entry[]): string[] {
+  const npc = entries.find((e) => e.board === "lore" && e.kind === "npc");
+  const session = entries.some((e) => e.board === "journal");
+  return [
+    ...(npc ? [`What do we know about ${npc.title}?`] : []),
+    ...(session ? ["Summarise the last session"] : []),
+    "How does grappling work?",
+    "What are the odds a +5 attack hits AC 15 with advantage?",
+  ];
+}
 
 export function ChatPage() {
   const { campaign } = useCampaign();
@@ -24,6 +29,12 @@ export function ChatPage() {
   const threadId = tid ? Number(tid) : null;
   const base = `/c/${campaign.id}/chat`;
   const { data: threads, reload: reloadThreads } = useLoad(() => api.threads(campaign.id), [campaign.id]);
+  // Promise.resolve: a missing or failing list only means generic suggestions.
+  const { data: known } = useLoad(
+    () => Promise.resolve().then(() => api.entries(campaign.id)),
+    [campaign.id],
+  );
+  const starters = suggestions(known ?? []);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   // Which thread is waiting for an answer ("new" while its thread is being created). Busy UI
@@ -240,7 +251,7 @@ export function ChatPage() {
                 sources you can open.
               </p>
               <div className="starters">
-                {STARTERS.map((s) => (
+                {starters.map((s) => (
                   <button key={s} type="button" className="chip" onClick={() => send(s)}>
                     {s}
                   </button>

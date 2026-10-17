@@ -1343,3 +1343,27 @@ dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
 - Tracked: the reveal warning knows only "DM" headings, not `--secret-heading` prefixes, and
   changing visibility in the editor doesn't warn; existing NFD titles in an imported campaign
   stay until it's re-imported.
+
+## UI contract — layout for real campaigns (owner's choice: "better layout")
+
+Front end only; every view uses the existing visibility-bound API calls, so nothing a viewer
+can't read is fetched or counted.
+
+- **L1 Lore grid.** One full-width card grid (no per-kind sections), ordered by kind then
+  title. Each card carries its kind as a coloured badge and a coloured top edge; the colours
+  meet AA in both themes.
+- **L2 Clean previews.** Card previews are plain text: Markdown markers (`#`, `**`, `*`, `_`,
+  `` ` ``, `>`, list bullets) are removed and whitespace collapsed.
+- **L3 Compact filters.** The text filter, the kind chips and (DM only) a segmented
+  All / Secret / Revealed control sit in one toolbar; the segmented control is a radio group.
+- **L4 Overview.** A campaign opens on **Overview**: counts of the lore, characters, journal
+  entries and members the viewer can see (the DM also sees secret vs revealed), the three
+  latest sessions, the six most recently changed entries (each opens the entry), and quick
+  actions (ask the chatbot; new lore entry for the DM, new journal entry for everyone).
+- **L5 Chat.** Suggestions come from the campaign: an NPC the viewer can see ("What do we know
+  about Erius?"), the latest session when there is one, plus one rules and one dice question.
+- **L6 Campaign tiles.** Each tile shows a monogram, the role and when the campaign started.
+- Review fixes: the toggle no longer restyles the editor's visibility picker (own class); the
+  overview refreshes after an entry opened from it changes, shows load errors with a retry,
+  and its "New … entry" actions open the form (`?new=1`); previews also drop links, tables
+  and rules and keep `fire_bolt`; long unbroken titles wrap.

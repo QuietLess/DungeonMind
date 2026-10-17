@@ -91,10 +91,10 @@ describe("UB1 lore filters", () => {
     api.entries.mockResolvedValue(lore());
     renderAt(<BoardPage board="lore" />, dmCampaign, "/c/c1/lore", "/c/:cid/lore");
     await screen.findByText("Baron Vex");
-    const shown = screen.getByRole("group", { name: /show/i });
-    await userEvent.click(within(shown).getByRole("button", { name: "Secret" }));
+    const shown = screen.getByRole("radiogroup", { name: /show/i }); // L3: a radio group
+    await userEvent.click(within(shown).getByRole("radio", { name: "Secret" }));
     expect(titles()).toEqual(["Baron Vex"]);
-    await userEvent.click(within(shown).getByRole("button", { name: "Revealed" }));
+    await userEvent.click(within(shown).getByRole("radio", { name: "Revealed" }));
     expect(titles()).toEqual(["Elara", "Ashvale"]);
     const kinds = screen.getByRole("group", { name: /kind/i });
     await userEvent.click(within(kinds).getByRole("button", { name: /Location/ }));
@@ -105,7 +105,7 @@ describe("UB1 lore filters", () => {
     api.entries.mockResolvedValue(lore().filter((e) => e.visibility === "party"));
     renderAt(<BoardPage board="lore" />, playerCampaign, "/c/c1/lore", "/c/:cid/lore");
     await screen.findByText("Elara");
-    expect(screen.queryByRole("group", { name: /show/i })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: /show/i })).toBeNull();
   });
 });
 
@@ -228,7 +228,7 @@ describe("M9c review fixes", () => {
       </CampaignContext.Provider>,
     );
     await screen.findByText("Baron Vex");
-    await userEvent.click(screen.getByRole("button", { name: "Revealed" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Revealed" }));
     rerender(
       <CampaignContext.Provider value={{ campaign: dmCampaign, user }}>
         <MemoryRouter>
@@ -249,7 +249,7 @@ describe("M9c review fixes", () => {
     await screen.findByText("Ashvale");
     const kinds = screen.getByRole("group", { name: /kind/i });
     await userEvent.click(within(kinds).getByRole("button", { name: /Location/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Secret" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Secret" }));
     const location = within(kinds).getByRole("button", { name: /Location\s*0/ });
     expect(location).toHaveAttribute("aria-pressed", "true");
   });
