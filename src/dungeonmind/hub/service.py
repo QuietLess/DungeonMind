@@ -129,6 +129,15 @@ class Hub:
         # Verified against for unknown usernames, so both failures cost the same time (8).
         self._dummy_hash = auth.hash_password(secrets.token_urlsafe(16), scrypt_n)
 
+    def healthy(self) -> bool:
+        """Whether app.db answers a query that reads it (M9a O1)."""
+        try:
+            with self.storage.app() as db:
+                db.execute("SELECT count(*) FROM users").fetchone()
+        except Exception:
+            return False
+        return True
+
     # --- accounts --------------------------------------------------------------------------
 
     def register(self, username: str, password: str, client: str = "local") -> User:

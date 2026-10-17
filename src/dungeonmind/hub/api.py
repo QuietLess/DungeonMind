@@ -189,6 +189,13 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     public = APIRouter(prefix="/api")
     private = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
+    @public.get("/health")
+    def health():
+        # O1: says only whether the hub can read its database; nothing about models or keys.
+        if hub.healthy():
+            return {"status": "ok"}
+        return JSONResponse({"status": "unavailable"}, 503)
+
     # --- auth --------------------------------------------------------------------------------
 
     @public.post("/auth/register", status_code=201)
