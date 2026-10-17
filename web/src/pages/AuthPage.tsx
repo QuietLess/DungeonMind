@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { message, useSession } from "../hooks";
 import { ShieldIcon } from "../icons";
@@ -10,6 +10,16 @@ export function AuthPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [invite, setInvite] = useState("");
+  const [inviteOnly, setInviteOnly] = useState(false);
+
+  useEffect(() => {
+    // M9d S2: an invite-only hub (shared over a tunnel) asks for the DM's invite code.
+    api
+      .authConfig()
+      .then((c) => setInviteOnly(c?.signup === "invite"))
+      .catch(() => setInviteOnly(false));
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -19,7 +29,7 @@ export function AuthPage() {
       const user =
         mode === "login"
           ? await api.login(username, password)
-          : await api.register(username, password);
+          : await api.register(username, password, inviteOnly ? invite.trim() : undefined);
       setUser(user);
     } catch (err) {
       setError(message(err));
@@ -69,6 +79,24 @@ export function AuthPage() {
             />
           </label>
           {mode === "register" && <p className="hint">At least 10 characters.</p>}
+          {mode === "register" && inviteOnly && (
+            <>
+              <label>
+                Invite code
+                <input
+                  value={invite}
+                  onChange={(e) => setInvite(e.target.value)}
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-describedby="invite-hint"
+                />
+              </label>
+              <p id="invite-hint" className="hint">
+                Ask your DM: they make one under Members. It also adds you to their campaign.
+              </p>
+            </>
+          )}
           {error && (
             <p className="error" role="alert">
               {error}
