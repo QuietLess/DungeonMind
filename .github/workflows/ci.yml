@@ -1,0 +1,81 @@
+# M9a C1–C3: lint, tests, offline eval gate and the web build on every push and pull request.
+# No secrets and no paid model calls: the live eval stays a manual step.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.cache/fastembed
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check src tests scripts
+
+      - name: Restore SRD downloads and embedding models
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw/srd
+            data/processed/open5e_srd-2024_*.json
+            .cache/fastembed
+          key: srd-data-v1-${{ hashFiles('scripts/download_srd.py', 'src/dungeonmind/tools/open5e.py') }}
+
+      - name: Build the SRD data (download, ingest, Open5e snapshot, index)
+        run: |
+          uv run python scripts/download_srd.py
+          uv run dungeonmind ingest
+          ls data/processed/open5e_srd-2024_spells.json data/processed/open5e_srd-2024_creatures.json \
+            || uv run dungeonmind sync-open5e
+          uv run dungeonmind index
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Eval suite and offline gate
+        run: |
+          uv run dungeonmind eval validate
+          uv run dungeonmind eval gate
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

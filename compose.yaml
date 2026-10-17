@@ -1,0 +1,22 @@
+# M9a K3: `docker compose up --build`, then open http://127.0.0.1:8000
+services:
+  dungeonmind:
+    build: .
+    image: dungeonmind:local
+    ports:
+      - "127.0.0.1:8000:8000"  # this computer only; see README before sharing on a network
+    volumes:
+      - hub-data:/data/hub
+    env_file:
+      - path: .env  # ANTHROPIC_API_KEY=... (optional; never committed)
+        required: false
+    environment:
+      DUNGEONMIND_PROVIDER: ${DUNGEONMIND_PROVIDER:-claude}
+      DUNGEONMIND_MODELS: ${DUNGEONMIND_MODELS:-}
+      DUNGEONMIND_OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  hub-data:

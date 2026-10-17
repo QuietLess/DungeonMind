@@ -1,0 +1,19 @@
+# Never send real campaign data, keys or local tooling into the build.
+.git
+.github
+.venv
+.env
+.env.*
+data/
+web/node_modules
+web/dist
+web/tsconfig.tsbuildinfo
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.coverage
+claude.md
+CLAUDE.md
+docs/DungeonMind_handoff.md
+evals/results
+tests

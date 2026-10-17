@@ -21,7 +21,7 @@ assistant, not a chat-with-a-PDF demo.
 | M6 — Campaign hub backend: boards, visibility, per-campaign storage, API | ✅ |
 | M7 — Campaign hub web UI (React) | ✅ |
 | M8 — 209-case eval suite, offline gates, live runner, per-step models | ✅ (live run pending an API key) |
-| M9 — Docker, hosting, tracing, metrics, CI/CD | ⬜ |
+| M9 — Production: CI, Docker, backups ✅ · accounts, UI, hosting, tracing ⬜ | 🔶 |
 
 ## Quickstart
 
@@ -62,6 +62,7 @@ uv run npm --prefix web run build           # builds the UI into web/dist
 uv run dungeonmind serve                    # open http://127.0.0.1:8000, data in data/hub/
 uv run dungeonmind serve --host 0.0.0.0     # let players on your network join (plain HTTP)
 uv run dungeonmind hub reset-password USER  # set a forgotten password
+uv run dungeonmind hub backup --out ~/dungeonmind-backups  # safe while serving
 uv run dungeonmind eval-notes               # note-search benchmark (local, no API calls)
 ```
 
@@ -184,6 +185,35 @@ event or item. `dm_note`/`secrets` text is kept in separate DM-only entries, and
 become private journal entries. Reveal what players know in the web app. Turkish and other
 non-English notes work: search folds diacritics, notes use a multilingual model, and answers
 come in the language you ask in.
+
+## Backups
+
+`dungeonmind hub backup --out DIR` writes `DIR/dungeonmind-backup-<UTC time>/` with `app.db`
+(accounts) and every `campaigns/<id>/campaign.db`. It uses SQLite's backup API, so it's safe
+while `serve` runs. The folder is private to your user (0700/0600), and it holds real campaign
+text, so keep it out of the repo and out of shared folders. To restore: stop the server, then
+copy the folder's contents into `data/hub/`.
+
+## Docker
+
+```bash
+cp .env.example .env              # add ANTHROPIC_API_KEY, or set DUNGEONMIND_PROVIDER=ollama
+docker compose up --build         # open http://127.0.0.1:8000; health: /api/health
+```
+
+The image holds the web app, the API and the SRD data (built at image build time). It runs as a
+non-root user and keeps hub data in the `hub-data` volume, never in the image. Compose
+publishes the port on `127.0.0.1` only. With Ollama, the container reaches the Ollama app on
+your Mac at `host.docker.internal:11434`. To move an existing hub into the volume, make a
+backup and copy it in: `docker compose cp <backup>/. dungeonmind:/data/hub`.
+
+## CI
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request: ruff, the
+full pytest suite on freshly built SRD data, `eval validate`, the offline `eval gate`, and the
+web type check, tests and build. It uses no secrets and makes no paid model calls. The release
+workflow builds the Docker image on pull requests and publishes it to GHCR only when you push
+a `v*` tag.
 
 ## Evaluation (M8)
 
