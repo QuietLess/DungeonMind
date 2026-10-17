@@ -247,3 +247,114 @@ def test_a4_delete_also_cleans_campaigns_the_user_already_left(app, hub):
     assert _delete(player).status_code == 204
     with hub.storage.campaign(cid) as db:
         assert db.execute("SELECT 1 FROM entries WHERE id = ?", (secret,)).fetchone() is None
+
+
+# --- M9b review fixes (service level) ------------------------------------------------------------
+
+from fake_embedder import HashEmbedder  # noqa: E402
+
+from dungeonmind.hub import auth  # noqa: E402
+from dungeonmind.hub.errors import AuthFailed, Conflict, NotFound  # noqa: E402
+
+
+class HookEmbedder(HashEmbedder):
+    """Runs `during` once, in the middle of embedding a document (a slow real model)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.during = None
+
+    def embed_documents(self, texts):
+        hook, self.during = self.during, None
+        if hook:
+            hook()
+        return super().embed_documents(texts)
+
+
+def _service_party(tmp_path, embedder=None):
+    hub = make_hub(tmp_path, embedder=embedder)
+    dm = hub.register("dm_dana", PASSWORD)
+    player = hub.register("player_one", PASSWORD)
+    camp = hub.create_campaign(dm, "Ashvale")
+    hub.accept_invite(player, hub.create_invite(dm, camp.id).code)
+    return hub, dm, player, camp
+
+
+def test_r1_a_private_entry_written_during_deletion_does_not_survive(tmp_path):
+    embedder = HookEmbedder()
+    hub, _, player, camp = _service_party(tmp_path, embedder)
+    embedder.during = lambda: hub.delete_account(player, PASSWORD, "player_one")
+    with pytest.raises(NotFound):
+        hub.create_entry(
+            player, camp.id, board="journal", title="Late", body="written too late",
+            visibility="private",
+        )
+    with hub.storage.campaign(camp.id) as db:
+        assert db.execute("SELECT count(*) FROM entries").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM chunks").fetchone()[0] == 0
+
+
+def test_r2_a_campaign_created_during_deletion_is_409_not_500(tmp_path, monkeypatch):
+    hub, _, player, _ = _service_party(tmp_path)
+    real = hub.storage.campaign
+    state = {"done": False}
+
+    def campaign(cid, immediate=False):
+        if not state["done"]:
+            state["done"] = True
+            hub.create_campaign(player, "Sneaky")
+        return real(cid, immediate)
+
+    monkeypatch.setattr(hub.storage, "campaign", campaign)
+    with pytest.raises(Conflict, match="DM of 1 campaign"):
+        hub.delete_account(player, PASSWORD, "player_one")
+    assert hub.login("player_one", PASSWORD)  # the account is still there and usable
+
+
+def test_r3_deleted_private_text_is_wiped_from_the_file(tmp_path):
+    hub, _, player, camp = _service_party(tmp_path)
+    marker = "zqxsecretmarkerzqx"
+    hub.create_entry(
+        player, camp.id, board="journal", title="Mine", body=f"{marker} " * 50,
+        visibility="private",
+    )
+    hub.delete_account(player, PASSWORD, "player_one")
+    folder = hub.storage.campaign_folder(camp.id)
+    data = b"".join(p.read_bytes() for p in folder.glob("campaign.db*"))
+    assert marker.encode() not in data
+
+
+def test_r4_a_sign_in_racing_a_password_change_gets_no_session(tmp_path, monkeypatch):
+    hub, _, player, _ = _service_party(tmp_path)
+    token = hub.login("player_one", PASSWORD)
+    real = auth.verify_password
+    state = {"done": False}
+
+    def verify(password, hashed):
+        ok = real(password, hashed)  # checked against the old hash ...
+        if not state["done"]:
+            state["done"] = True  # ... while the owner changes the password
+            hub.change_password(player, token, PASSWORD, NEW)
+        return ok
+
+    monkeypatch.setattr(auth, "verify_password", verify)
+    with pytest.raises(AuthFailed):
+        hub.login("player_one", PASSWORD)
+    assert hub.account(player)["sessions"] == 1
+
+
+def test_a4_wrong_passwords_on_delete_are_rate_limited(app):
+    _, player, _ = _campaign_with_player(app)
+    for _ in range(5):
+        assert _delete(player, password="not my password").status_code == 403
+    assert _delete(player).status_code == 429
+    assert player.get("/api/account").status_code == 200
+
+
+def test_a4_usage_rows_go_with_the_account(app, hub):
+    _, player, cid = _campaign_with_player(app)
+    tid = player.post(f"/api/campaigns/{cid}/chats", json={"title": "q"}, headers=H).json()["id"]
+    player.post(f"/api/campaigns/{cid}/chats/{tid}/messages", json={"text": "hi"}, headers=H)
+    assert _delete(player).status_code == 204
+    with hub.storage.app() as db:
+        assert db.execute("SELECT count(*) FROM usage").fetchone()[0] == 0
