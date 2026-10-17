@@ -601,3 +601,18 @@ def test_d3_runner_passes_error_type_and_trace_through(tmp_path):
     result = run(Case(id="rules-1", category="rules", question="q", expect={}))
     assert result["error_type"] == "TimeoutError"
     assert any(t.startswith("route:") for t in result["trace"])
+
+
+# --- H3 scoring (first full Haiku run) -------------------------------------------------------
+
+
+def test_h3_probability_follow_ups_look_for_percentages():
+    case = _case(category="followup", intent="probability", numbers=[79.75])
+    answer = "With advantage you hit about 79.75% of the time (319/400) [T1]."
+    assert score(case, _result(intent="probability", answer=answer))["numbers_ok"]
+
+
+def test_h3_an_intent_list_accepts_any_listed_route():
+    case = _case(category="prep", intent=["session_prep", "campaign_memory"])
+    assert score(case, _result(intent="campaign_memory"))["intent_ok"]
+    assert not score(case, _result(intent="out_of_scope"))["intent_ok"]

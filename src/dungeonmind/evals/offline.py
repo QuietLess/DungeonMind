@@ -101,7 +101,7 @@ class CiteEverythingLLM:
         # Tool intents aren't scripted here; contract-check them as the question they ask.
         return Intent.CAMPAIGN_MEMORY if self.case.viewer else Intent.RULES_QA
 
-    def route(self, question, *, timeout=None):
+    def route(self, question, *, timeout=None, campaign=False):
         return RouteDecision(
             intent=self._intent(),
             reason="scripted",

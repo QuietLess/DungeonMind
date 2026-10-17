@@ -328,7 +328,8 @@ def test_5_within_budget_completes():
 @pytest.mark.parametrize(
     ("name", "args"),
     [
-        ("get_entity", {"kind": "monster", "name": "Beholder"}),
+        # H2: an unknown name is now an answer; an over-long name is still a tool error.
+        ("get_entity", {"kind": "monster", "name": "B" * 201}),
         ("search_spells", {"school": "pyromancy"}),
         ("summon_dragon", {}),
     ],
@@ -1070,7 +1071,7 @@ def test_c1_citing_a_failed_tool_is_a_violation_and_does_not_count():
     llm = FakeLLM(
         _route(Intent.LOOKUP),
         turns=[
-            tool_turn(("tu_1", "get_entity", {"kind": "monster", "name": "Beholder"})),
+            tool_turn(("tu_1", "get_entity", {"kind": "monster", "name": "B" * 201})),
             final_turn(final("Beholders have ten eye rays [T1].", ["T1"])),
         ],
     )

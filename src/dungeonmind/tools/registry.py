@@ -92,7 +92,9 @@ class ToolRegistry:
                 f"{'.'.join(map(str, err['loc'])) or 'input'}: {err['msg']}" for err in e.errors()
             )
             return {"error": f"Invalid arguments for {name}: {problems}"}
-        except (ToolInputError, EntityNotFound, dice.DiceError, ValueError) as e:
+        except EntityNotFound as e:  # H2: "not in the SRD" is an answer the model can cite
+            return {"result": {"found": False, "message": str(e), "suggestions": e.suggestions}}
+        except (ToolInputError, dice.DiceError, ValueError) as e:
             return {"error": str(e)}
 
     def _specs(self) -> list[ToolSpec]:

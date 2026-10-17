@@ -59,11 +59,15 @@ class FakeLLM:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.timeouts: list[tuple[str, float | None]] = []
         self.revisions: list[str | None] = []
+        self.route_campaign: list[bool] = []  # the `campaign` flag of each route call
 
     # --- LLM protocol -------------------------------------------------------------------------
 
-    def route(self, question: str, *, timeout: float | None = None) -> RouteDecision:
+    def route(
+        self, question: str, *, timeout: float | None = None, campaign: bool = False
+    ) -> RouteDecision:
         self.calls.append(("route", {"question": question}))
+        self.route_campaign.append(campaign)
         self.timeouts.append(("route", timeout))
         if isinstance(self._route, Exception):
             raise self._route

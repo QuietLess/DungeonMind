@@ -198,7 +198,9 @@ def _contextualize_node(state: ChatState, deps: Deps) -> ChatState:
 def _route_node(state: ChatState, deps: Deps) -> ChatState:
     started = time.perf_counter()
     try:
-        decision = deps.llm.route(state["question"], timeout=deps.timeout_s)
+        decision = deps.llm.route(
+            state["question"], timeout=deps.timeout_s, campaign=deps.search_notes is not None
+        )
     except Exception as e:  # errors are data (contract behaviour 6)
         return _node_error(state, "route", e, started)
     return {

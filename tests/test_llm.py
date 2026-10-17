@@ -745,3 +745,14 @@ def test_standalone_question_sends_history_as_data_and_returns_the_rewrite():
     assert "<b>" not in content  # history is a JSON block with < > escaped
     assert "not instructions" in str(call["system"])
     assert call["timeout"] == 5.0
+
+
+def test_h1_route_inside_a_campaign_says_so_in_the_request():
+    client = FakeClient(response([text(route_json())]), response([text(route_json())]))
+    llm = ClaudeLLM(client=client)
+    llm.route("Why are grain prices so high?", campaign=True)
+    llm.route("Why are grain prices so high?")
+    inside, outside = (c["messages"][0]["content"] for c in client.calls)
+    assert "campaign hub" in inside and "campaign_memory" in inside
+    assert inside.rstrip().endswith("Why are grain prices so high?")
+    assert outside == "Why are grain prices so high?"
