@@ -26,3 +26,6 @@ docs/DungeonMind_handoff.md
 # Web UI (M7): dependencies and build output
 web/node_modules/
 web/dist/
+
+# Campaign hub data (real accounts and campaigns; never commit)
+data/hub/
