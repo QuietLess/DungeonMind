@@ -156,3 +156,26 @@ def test_offline_srd_retrieval_uses_the_given_retriever(fixture):
 
 def test_suite_module_exposes_a_version():
     assert suite.VERSION == "suite_v1"
+
+
+# --- sampling for slow (local) runs ---------------------------------------------------------
+
+
+def test_select_takes_the_first_n_of_every_category_in_suite_order():
+    from dungeonmind.evals.suite import select
+
+    cases = load()
+    sample = select(cases, per_category=2)
+    counts = Counter(c.category for c in sample)
+    assert set(counts) == set(CATEGORY_MINIMUMS) and set(counts.values()) == {2}
+    assert [c.id for c in sample if c.category == "rules"] == ["rules-01", "rules-02"]
+    assert [c.id for c in sample] == [c.id for c in cases if c in sample]  # suite order kept
+
+
+def test_select_combines_categories_per_category_and_limit():
+    from dungeonmind.evals.suite import select
+
+    cases = load()
+    sample = select(cases, categories=["campaign", "injection"], per_category=3, limit=5)
+    assert [c.category for c in sample] == ["campaign"] * 3 + ["injection"] * 2
+    assert select(cases) == cases

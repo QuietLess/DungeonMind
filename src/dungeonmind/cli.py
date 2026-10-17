@@ -431,7 +431,11 @@ def _srd_titles() -> set[str]:
     return {c.title for c in read_jsonl(DEFAULT_CHUNKS)}
 
 
-def _validated_suite(categories: list[str] | None = None, limit: int | None = None):
+def _validated_suite(
+    categories: list[str] | None = None,
+    limit: int | None = None,
+    per_category: int | None = None,
+):
     from dungeonmind.evals import suite
     from dungeonmind.evals.fixture import note_titles
 
@@ -439,11 +443,7 @@ def _validated_suite(categories: list[str] | None = None, limit: int | None = No
         raise typer.BadParameter(f"{DEFAULT_CHUNKS} not found — run `dungeonmind ingest` first")
     cases = suite.load()
     problems = suite.validate(cases, _srd_titles(), note_titles())
-    if categories:
-        cases = [c for c in cases if c.category in set(categories)]
-    if limit is not None:
-        cases = cases[:limit]
-    return cases, problems
+    return suite.select(cases, categories, per_category, limit), problems
 
 
 def _offline_report():
@@ -536,6 +536,10 @@ def eval_live(
         float, typer.Option(min=0.01, max=100.0, help="Stop once spending reaches this (USD)")
     ] = 2.0,
     limit: Annotated[int | None, typer.Option(min=1, help="Run only the first N cases")] = None,
+    per_category: Annotated[
+        int | None,
+        typer.Option(min=1, help="Run the first N cases of every category (a spread sample)"),
+    ] = None,
     category: Annotated[list[str] | None, typer.Option(help="Only these categories")] = None,
     estimate_only: Annotated[
         bool, typer.Option("--estimate", help="Print the expected cost; no API calls")
@@ -558,7 +562,7 @@ def eval_live(
 
     backend = resolve_provider(provider)
     config = model_config(models, backend)
-    cases, problems = _validated_suite(category, limit)
+    cases, problems = _validated_suite(category, limit, per_category)
     if problems:
         raise typer.BadParameter("the suite is invalid; run `dungeonmind eval validate`")
     expected = estimate(cases, config)

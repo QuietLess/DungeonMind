@@ -125,3 +125,25 @@ def _check_probability(c: Case) -> list[str]:
     if not got or abs(got[0] - expected) > 0.01:
         return [f"{c.id}: numbers {got} but the tool computes {expected}"]
     return []
+
+
+def select(
+    cases: list[Case],
+    categories: list[str] | None = None,
+    per_category: int | None = None,
+    limit: int | None = None,
+) -> list[Case]:
+    """A subset in suite order: only `categories`, at most `per_category` of each, then `limit`.
+
+    `per_category` gives a sample that spans every category, for slow local-model runs.
+    """
+    chosen = [c for c in cases if not categories or c.category in set(categories)]
+    if per_category is not None:
+        seen: Counter[str] = Counter()
+        sample = []
+        for c in chosen:
+            if seen[c.category] < per_category:
+                seen[c.category] += 1
+                sample.append(c)
+        chosen = sample
+    return chosen[:limit] if limit is not None else chosen
