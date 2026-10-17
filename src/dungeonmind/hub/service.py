@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import threading
+import unicodedata
 import uuid
 from collections import deque
 from collections.abc import Callable
@@ -90,7 +91,7 @@ def _iso(dt: datetime) -> str:
 def _text(value: Any, field: str, max_chars: int, *, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise Invalid(f"{field} must be text.")
-    stripped = value.strip()
+    stripped = unicodedata.normalize("NFC", value.strip())  # one form for every stored text
     if (not stripped and not allow_empty) or len(value) > max_chars:
         lower = 0 if allow_empty else 1
         raise Invalid(f"{field} must be {lower}–{max_chars} characters.")

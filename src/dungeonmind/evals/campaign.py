@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,10 @@ class CampaignCase:
     viewer: str
     expect: list[str]
     no_leak: list[str] = field(default_factory=list)
+
+
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
 
 
 def make_embedder():
@@ -75,14 +80,14 @@ def load_cases(path: Path, hub, cid: str) -> tuple[list[tuple[CampaignCase, User
 def evaluate(hub, cid: str, cases: list[tuple[CampaignCase, User]], k: int = 5) -> dict[str, Any]:
     """E2: R@k and MRR over cases with expectations; misses; leaks per viewer."""
     with hub.storage.campaign(cid) as db:
-        titles = {r["id"]: r["title"] for r in db.execute("SELECT id, title FROM entries")}
+        titles = {r["id"]: _nfc(r["title"]) for r in db.execute("SELECT id, title FROM entries")}
     recalls, rrs, misses, leaks = [], [], [], []
     for case, user in cases:
         viewer = hub._viewer(user, hub._member(user, cid))
         hits = hub._search(cid, viewer, case.question, max(k, LEAK_K))
         ranked = [titles.get(h.entry_id, "?") for h in hits]
         if case.expect:
-            expected = set(case.expect)
+            expected = {_nfc(t) for t in case.expect}
             found = expected & set(ranked[:k])
             recalls.append(len(found) / len(expected))
             rrs.append(next((1 / i for i, t in enumerate(ranked, 1) if t in expected), 0.0))

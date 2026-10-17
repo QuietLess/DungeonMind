@@ -8,6 +8,7 @@ shows); `apply_import` writes the plan into the hub, never back to the vault.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -63,9 +64,15 @@ class ImportPlan:
     skipped: list[tuple[str, str]] = field(default_factory=list)  # (relative path, reason)
 
 
+def _nfc(text: str) -> str:
+    """I9: one Unicode form. File names unzipped on macOS arrive decomposed (NFD), and then
+    'Köy' and 'Köy' would be two different titles."""
+    return unicodedata.normalize("NFC", text)
+
+
 def _read(path: Path) -> str:
     with path.open("r", encoding="utf-8", errors="replace") as f:  # read-only (I1)
-        return f.read()
+        return _nfc(f.read())
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
@@ -184,7 +191,7 @@ def _add_note(
 ) -> None:
     """One vault (or archive) note → a private lore entry, plus a DM-notes entry for secrets."""
     meta, text = _split_frontmatter(_read(path))
-    title = path.stem
+    title = _nfc(path.stem)
     body = _strip_title_heading(_clean(text), title)
     # `dm_note: true` is a flag (the whole note is DM-only); text values are secrets.
     dm_only = meta.get("dm_note") is True
@@ -269,7 +276,7 @@ def plan_import(
             header = _header(meta)
             full = "\n\n".join(x for x in (header, body) if x)
             session = _session_number(meta, path.stem, session_numbers)
-            _add(plan, f"sessions/{path.name}", "journal", "note", path.stem, full, session)
+            _add(plan, f"sessions/{path.name}", "journal", "note", _nfc(path.stem), full, session)
     return plan
 
 
