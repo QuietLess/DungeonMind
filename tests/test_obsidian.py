@@ -341,3 +341,9 @@ def test_r10_a_long_title_keeps_the_dm_notes_label():
     assert len(titles) == 2 and len(set(titles)) == 2
     assert any(t.endswith("— DM notes") and len(t) <= 120 for t in titles)
     assert plan
+
+
+def test_r4b_a_fence_closes_only_with_its_own_marker():
+    plan = _split("Açık.\n\n## DM notu\n```\nx\n~~~\n# yorum\nsır C\n```\n\n## Sonra\nherkes\n")
+    assert "sır C" not in plan["Not"] and "sır C" in plan["Not — DM notes"]
+    assert "herkes" in plan["Not"]
