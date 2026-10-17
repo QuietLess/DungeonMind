@@ -9,7 +9,7 @@
 | M5 Encounter builder | End-to-end planning workflow | Repeatable, cited, constraint-aware results | ✅ |
 | M6 Campaign hub backend | FastAPI: accounts, campaigns, invites, boards with visibility, per-campaign storage, campaign-aware chat | Visibility matrix + cross-campaign tests pass; the model never receives an unreadable note | ✅ |
 | M7 Campaign hub UI | React (Vite, TS): login, campaigns, notes, chat with linked citations; thread context | Main journeys work in the browser for DM and player; frontend + accessibility review | ✅ |
-| M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ⬜ |
+| M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ✅ offline · live run pending key |
 | M9 Production | Docker, hosting + TLS, tracing, metrics, CI/CD | Deployable demo + monitored runs | ⬜ |
 
 Direction change (2026-10-16): DungeonMind becomes a campaign hub — a web chat UI plus notes
@@ -91,6 +91,26 @@ items previously due "M8" are now due M9.
   - The security review found no leaks; its four LOWs are fixed (W1–W4) and re-reviewed.
   - 663 Python + 46 frontend tests.
 
+- **M8:** A versioned 209-case suite (`suite_v1`) covers 11 categories, including campaign
+  questions as a DM and as a player on a fixture campaign with secrets, follow-ups, and prompt
+  injection.
+  - `dungeonmind eval validate | offline | gate | live | compare`.
+  - Offline, with no API calls: SRD R@5 0.87 / MRR 0.81, notes R@5 0.98 / MRR 0.88, leak rate
+    0, and 0 citation-contract violations over 140 cases. `eval gate` passes and exits non-zero
+    on any breach of `evals/gates.json`.
+  - Live runner:
+    - every case goes through the production engine (`Hub.ask` as its viewer, or `run_chat`);
+    - per-case scores, per-step usage and cost;
+    - a cost estimate up front (about $10 Opus-only, $0.26 Haiku-only), and a budget that
+      stops between cases and inside a case.
+  - Per-step models via `--models` / `$DUNGEONMIND_MODELS`. Haiku requests omit the refusal
+    fallback, which Haiku doesn't support.
+  - The backend + security review found that error answers could pass and that some intent
+    labels contradicted the router. Both are fixed test-first (R1–R7), and the reviewer
+    checked the fixes again.
+  - 754 tests.
+  - **Pending:** the live run and the model decision, which need the API key (see "Next").
+
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
 | Id | Item | Do by |
@@ -110,7 +130,10 @@ items previously due "M8" are now due M9.
 | S6 | Conversation store keeps one `.bak`; a second damage event overwrites it (timestamped backups) | M9 |
 | S7 | Unlink an existing `.bak` before copying (a pre-placed symlink would be followed) | M9 |
 | H1 | ~~Bot answers in the UI must not render remote images or auto-link URLs~~ (done in M7: UI3 + CSP) | ✅ M7 |
-| U1 | Real bot answers haven't been seen in the UI yet (no API key in the dev shell); one live check with a key | next session |
+| U1 | Real bot answers haven't been seen in the UI yet (no API key in the dev shell); one live check with a key | testing phase |
+| E1 | First live step: a 1-case smoke run per model (`eval live --limit 1 --models all=<model>`), checking that each model accepts the request shape (effort + JSON schema; Haiku without fallback) | testing phase |
+| E2 | Re-fit `STEP_TOKENS` (the cost estimate) from the first live run's measured usage | testing phase |
+| E3 | Leak check O3 inspects each entry's best chunk; a hidden string in another chunk of a long entry could be missed (fine for the fixture) | when convenient |
 | U2 | Only one process can open the embedded SRD index: run `serve` or `chat`, not both | M9 |
 | H2 | Behind a reverse proxy every client looks like 127.0.0.1: an explicit forwarded-IP setting, a global per-username login limit, IPv6 /64 grouping | M9 |
 | H3 | The DM runs the server, so `campaign.db` is readable by them in plain text; "private" is enforced by the app, not cryptography. Document clearly, or add per-user encryption | M9 |
@@ -139,5 +162,11 @@ items previously due "M8" are now due M9.
 
 ## Next
 
-- M8 evaluation: a 200+ question suite covering rules and campaign notes, regression gates,
-  and the per-step model choice (Opus vs Haiku) with measured cost and latency.
+- **Testing phase (needs the Anthropic API key):**
+  1. Smoke run per model (E1), about $0.05.
+  2. Full live run on Opus (`eval live --label opus --max-cost 12`).
+  3. A cheaper mix, e.g. Haiku for `route`/`contextualize` (`--label mixed`).
+  4. `eval compare`, record the per-step model decision here, then `eval gate --live`.
+
+  Also check real answers in the web UI (U1).
+- M9 production: Docker, hosting + TLS, CI running `pytest` + `eval gate`, tracing.
