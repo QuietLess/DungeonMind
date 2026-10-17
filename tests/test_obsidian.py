@@ -216,3 +216,65 @@ def test_i9_titles_are_nfc_so_archive_duplicates_are_recognised(tmp_path, vault)
     titles = [e.title for e in plan_import(vault[0], extra_lore=[a]).entries]
     assert "Kızıl Köy (arşiv)" in titles  # recognised as the vault note's namesake
     assert all(t == unicodedata.normalize("NFC", t) for t in titles)
+
+
+SECTIONED = """---
+kind: item
+---
+Eski bir madalyon.
+
+## Bilinenler
+Sahibi Erius.
+
+## DM notu
+Madalyon arzuyu duyar.
+
+### Alt not
+Bu da gizli.
+
+## Sonra
+Herkesin bildiği kısım.
+
+## Gerçek
+Aslında bir tanrının parçası.
+"""
+
+
+def test_i10_dm_sections_move_to_the_dm_notes_entry(tmp_path):
+    v = tmp_path / "v"
+    v.mkdir()
+    (v / "Madalyon.md").write_text(SECTIONED, encoding="utf-8")
+    plan = {e.title: e for e in plan_import(v).entries}
+    main, notes = plan["Madalyon"].body, plan["Madalyon — DM notes"].body
+    assert "arzuyu duyar" not in main and "Bu da gizli" not in main
+    assert "Sahibi Erius" in main and "Herkesin bildiği" in main
+    assert "## DM notu" in notes and "Bu da gizli" in notes  # subsections go along
+    assert "Aslında bir tanrının" in main  # not a DM heading by default
+    assert plan["Madalyon — DM notes"].visibility == "private"
+
+
+def test_i10_more_secret_headings_on_request(tmp_path):
+    v = tmp_path / "v"
+    v.mkdir()
+    (v / "Madalyon.md").write_text(SECTIONED, encoding="utf-8")
+    plan = {e.title: e for e in plan_import(v, secret_headings=("DM", "Gerçek")).entries}
+    assert "Aslında bir tanrının" not in plan["Madalyon"].body
+    assert "Aslında bir tanrının" in plan["Madalyon — DM notes"].body
+
+
+def test_i10_cli_passes_secret_headings(tmp_path):
+    from typer.testing import CliRunner
+
+    from dungeonmind import cli
+
+    v = tmp_path / "v"
+    v.mkdir()
+    (v / "Madalyon.md").write_text(SECTIONED, encoding="utf-8")
+    result = CliRunner().invoke(
+        cli.app,
+        ["hub", "import-obsidian", str(v), "--dm", "x", "--campaign-name", "y", "--preview",
+         "--secret-heading", "DM", "--secret-heading", "Gerçek", "--root", str(tmp_path / "h")],
+        env={"COLUMNS": "200"},
+    )
+    assert result.exit_code == 0, result.output
+    assert "Madalyon — DM notes" in result.output

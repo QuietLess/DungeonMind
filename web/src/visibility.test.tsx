@@ -77,3 +77,17 @@ describe("EntryCard reveal", () => {
     expect(onOpen).toHaveBeenCalledWith(lore);
   });
 });
+
+describe("M9f reveal warning", () => {
+  it("warns when an entry still has a DM section", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const entry: Entry = {
+      id: 1, board: "lore", character_id: null, author_id: "u1", kind: "item",
+      title: "Madalyon", body: "Eski.\n\n## DM notu\nGizli.", visibility: "private",
+      session: null, created_at: "", updated_at: "",
+    };
+    render(<EntryCard entry={entry} role="dm" userId="u1" onOpen={() => {}} onReveal={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: /reveal/i }));
+    expect(confirm.mock.calls[0][0]).toMatch(/DM notu/);
+  });
+});
