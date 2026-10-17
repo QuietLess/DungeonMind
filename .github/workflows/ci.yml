@@ -4,6 +4,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -42,7 +43,8 @@ jobs:
             data/raw/srd
             data/processed/open5e_srd-2024_*.json
             .cache/fastembed
-          key: srd-data-v1-${{ hashFiles('scripts/download_srd.py', 'src/dungeonmind/tools/open5e.py') }}
+          # Includes the files naming the embedding models, so a model change refreshes the cache.
+          key: srd-data-v1-${{ hashFiles('scripts/download_srd.py', 'src/dungeonmind/tools/open5e.py', 'src/dungeonmind/rag/dense.py', 'src/dungeonmind/rag/hybrid.py', 'src/dungeonmind/hub/app.py') }}
 
       - name: Build the SRD data (download, ingest, Open5e snapshot, index)
         run: |
