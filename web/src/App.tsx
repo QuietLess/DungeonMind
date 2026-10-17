@@ -10,6 +10,7 @@ import { CampaignsPage } from "./pages/CampaignsPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ChatPage } from "./pages/ChatPage";
 import { MembersPage } from "./pages/MembersPage";
+import { OverviewPage } from "./pages/OverviewPage";
 import type { User } from "./types";
 
 export function App() {
@@ -44,7 +45,8 @@ export function App() {
         <Route path="/" element={user ? <CampaignsPage /> : <Navigate to="/login" replace />} />
         <Route path="/account" element={user ? <AccountPage /> : <Navigate to="/login" replace />} />
         <Route path="/c/:cid" element={user ? <CampaignLayout /> : <Navigate to="/login" replace />}>
-          <Route index element={<Navigate to="chat" replace />} />
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<OverviewPage />} />
           <Route path="lore" element={<BoardPage key="lore" board="lore" />} />
           <Route path="characters" element={<CharactersPage />} />
           <Route path="characters/:chid" element={<CharactersPage />} />

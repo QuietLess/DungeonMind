@@ -81,3 +81,10 @@ export const ShieldIcon = () => (
     <path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z" />
   </Icon>
 );
+export const HomeIcon = () => (
+  <Icon>
+    <path d="M3 11l9-7 9 7" />
+    <path d="M5 10v10h14V10" />
+    <path d="M10 20v-6h4v6" />
+  </Icon>
+);

@@ -32,9 +32,9 @@ export function CampaignsPage() {
   };
 
   const create = (e: FormEvent) =>
-    once(e, async () => `/c/${(await api.createCampaign(name)).id}/lore`);
+    once(e, async () => `/c/${(await api.createCampaign(name)).id}/overview`);
   const join = (e: FormEvent) =>
-    once(e, async () => `/c/${(await api.acceptInvite(code.trim())).id}/chat`);
+    once(e, async () => `/c/${(await api.acceptInvite(code.trim())).id}/overview`);
 
   return (
     <>
@@ -49,8 +49,22 @@ export function CampaignsPage() {
         <ul className="campaign-list">
           {campaigns?.map((c) => (
             <li key={c.id}>
-              <Link to={`/c/${c.id}/${c.role === "dm" ? "lore" : "chat"}`} className="campaign-tile">
-                <span className="campaign-name">{c.name}</span>
+              <Link to={`/c/${c.id}/overview`} className="campaign-tile">
+                <span className="monogram" aria-hidden="true">
+                  {c.name.trim().charAt(0).toLocaleUpperCase("tr")}
+                </span>
+                <span className="campaign-text">
+                  <span className="campaign-name">{c.name}</span>
+                  {c.created_at && (
+                    <span className="campaign-since">
+                      Started{" "}
+                      {new Date(c.created_at).toLocaleDateString(undefined, {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </span>
+                  )}
+                </span>
                 <span className="role-tag">
                   {c.role === "dm" ? <CrownIcon /> : <UsersIcon />}
                   {c.role === "dm" ? "Dungeon Master" : "Player"}

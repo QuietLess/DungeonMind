@@ -69,13 +69,16 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
     .map((kind) => ({ kind, count: visible.filter((e) => e.kind === kind).length }))
     .filter((k) => k.count || k.kind === kindFilter);
   const filtering = kindFilter !== null || shown !== "all";
-  const groups =
-    board === "lore"
-      ? BOARD_KINDS.lore
-          .filter((kind) => !lore || kindFilter === null || kind === kindFilter)
-          .map((kind) => ({ kind, items: visible.filter((e) => e.kind === kind) }))
-          .filter((g) => g.items.length)
-      : [{ kind: "", items: [...visible].sort(journalOrder) }];
+  // L1: one grid, ordered by kind then title (Turkish collation for Turkish names).
+  const kindRank = (k: string) => {
+    const i = BOARD_KINDS.lore.indexOf(k);
+    return i === -1 ? BOARD_KINDS.lore.length : i;
+  };
+  const items = lore
+    ? visible
+        .filter((e) => kindFilter === null || e.kind === kindFilter)
+        .sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || a.title.localeCompare(b.title, "tr"))
+    : [...visible].sort(journalOrder);
 
   return (
     <section className="board">
@@ -90,53 +93,54 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
           </button>
         )}
       </header>
-      <label className="search">
-        <span className="sr-only">Filter entries</span>
-        <input
-          type="search"
-          placeholder="Filter by title or text"
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-        />
-      </label>
-      {lore && entries && (entries.length > 0 || filtering) && (
-        <div className="filters">
-          <div role="group" aria-label="Kind" className="chip-row">
-            <button
-              type="button"
-              className="chip"
-              aria-pressed={kindFilter === null}
-              onClick={() => setKindFilter(null)}
-            >
-              All <span className="count">{visible.length}</span>
-            </button>
-            {kindCounts.map(({ kind, count }) => (
-              <button
-                key={kind}
-                type="button"
-                className="chip"
-                aria-pressed={kindFilter === kind}
-                onClick={() => setKindFilter(kindFilter === kind ? null : kind)}
-              >
-                {kindLabel(kind)} <span className="count">{count}</span>
-              </button>
+      <div className="toolbar">
+        <label className="search">
+          <span className="sr-only">Filter entries</span>
+          <input
+            type="search"
+            placeholder="Filter by title or text"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+        </label>
+        {lore && campaign.role === "dm" && entries && (entries.length > 0 || filtering) && (
+          <div role="radiogroup" aria-label="Show" className="segmented">
+            {(["all", "secret", "revealed"] as const).map((value) => (
+              <label key={value} className={shown === value ? "active" : undefined}>
+                <input
+                  type="radio"
+                  name="shown"
+                  value={value}
+                  checked={shown === value}
+                  onChange={() => setShown(value)}
+                />
+                {value === "all" ? "All" : value === "secret" ? "Secret" : "Revealed"}
+              </label>
             ))}
           </div>
-          {campaign.role === "dm" && (
-            <div role="group" aria-label="Show" className="chip-row">
-              {(["all", "secret", "revealed"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className="chip"
-                  aria-pressed={shown === value}
-                  onClick={() => setShown(value)}
-                >
-                  {value === "all" ? "All" : value === "secret" ? "Secret" : "Revealed"}
-                </button>
-              ))}
-            </div>
-          )}
+        )}
+      </div>
+      {lore && entries && (entries.length > 0 || filtering) && (
+        <div role="group" aria-label="Kind" className="chip-row kind-chips">
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={kindFilter === null}
+            onClick={() => setKindFilter(null)}
+          >
+            All <span className="count">{visible.length}</span>
+          </button>
+          {kindCounts.map(({ kind, count }) => (
+            <button
+              key={kind}
+              type="button"
+              className={`chip chip-${kind}`}
+              aria-pressed={kindFilter === kind}
+              onClick={() => setKindFilter(kindFilter === kind ? null : kind)}
+            >
+              {kindLabel(kind)} <span className="count">{count}</span>
+            </button>
+          ))}
         </div>
       )}
       {(error || loadError) && <p className="error" role="alert">{error ?? loadError}</p>}
@@ -148,26 +152,21 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
             : "No entries yet."}
         </p>
       )}
-      {entries && entries.length > 0 && groups.every((g) => g.items.length === 0) && (
+      {entries && entries.length > 0 && items.length === 0 && (
         <p className="empty">Nothing matches these filters.</p>
       )}
-      {groups.map((group) => (
-        <div key={group.kind || "all"} className="entry-group">
-          {group.kind && <h2>{kindLabel(group.kind)}</h2>}
-          <div className="entry-grid">
-            {group.items.map((entry) => (
-              <EntryCard
-                key={entry.id}
-                entry={entry}
-                role={campaign.role}
-                userId={user.id}
-                onOpen={(e) => setOpen(e.id)}
-                onReveal={reveal}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
+      <div className="entry-grid">
+        {items.map((entry) => (
+          <EntryCard
+            key={entry.id}
+            entry={entry}
+            role={campaign.role}
+            userId={user.id}
+            onOpen={(e) => setOpen(e.id)}
+            onReveal={reveal}
+          />
+        ))}
+      </div>
       {open !== null && <EntryPanel entryId={open} onClose={() => setOpen(null)} onChanged={reload} />}
       {creating && (
         <Drawer
