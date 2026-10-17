@@ -1,12 +1,12 @@
 """M10a: character sheets — model (S1), 2024 derived values (S2), access and versions (S3)."""
 
 import pytest
-from dungeonmind.hub.sheets import Sheet, derive
 from fastapi.testclient import TestClient
 from hub_support import PASSWORD, make_hub
 from pydantic import ValidationError
 
 from dungeonmind.hub.api import CSRF_HEADER, create_app
+from dungeonmind.hub.sheets import Sheet, derive
 
 H = {CSRF_HEADER: "1"}
 
@@ -116,7 +116,7 @@ def test_s2_an_empty_sheet_is_level_one():
         {"exhaustion": 7},
         {"conditions": ["sleepy"]},
         {"custom_dice": [{"name": "Bad", "expression": "1d20+rm -rf"}]},
-        {"attacks": [{"name": "Axe", "damage": "100d100"}]},
+        {"attacks": [{"name": "Axe", "damage": "101d6"}]},  # over the dice limit
         {"spellcasting": {"slots": [{"max": 2, "used": 3}]}},
         {"unknown_field": 1},
     ],
@@ -185,7 +185,7 @@ def test_s3_owner_and_dm_edit_everyone_views(table):
 def test_s3_a_stale_version_is_409_and_saves_nothing(table):
     dm, mia, bo, cid, chid = table
     sheet = _rogue().model_dump()
-    assert mia.put(_path(cid, chid), json={"sheet": sheet, "version": 0}, headers=H).ok
+    assert mia.put(_path(cid, chid), json={"sheet": sheet, "version": 0}, headers=H).is_success
     r = dm.put(
         _path(cid, chid), json={"sheet": {**sheet, "armor_class": 20}, "version": 0}, headers=H
     )

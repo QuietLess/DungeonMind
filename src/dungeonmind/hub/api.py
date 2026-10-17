@@ -24,6 +24,7 @@ from dungeonmind.hub.service import Hub
 
 SESSION_COOKIE = "dm_session"
 CSRF_HEADER = "X-DungeonMind"
+SHEET_BODY_BYTES = 256 * 1024  # M10 S3: a full sheet
 MAX_BODY_BYTES = 64 * 1024
 UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 INTERNAL_ERROR = "Something went wrong. Please try again."
@@ -117,6 +118,20 @@ class ThreadPatch(_In):
     title: str
 
 
+class SheetIn(_In):
+    sheet: dict[str, Any]
+    version: StrictInt
+
+
+class RollIn(_In):
+    kind: str
+    key: str | None = None
+    mode: str = "normal"
+    to_dm: bool = False
+    character_id: StrictInt | None = None
+    expression: str | None = None
+
+
 class MessageIn(_In):
     text: str
 
@@ -198,8 +213,10 @@ def create_app(
             length = request.headers.get("content-length")
             if length is None and request.headers.get("transfer-encoding"):
                 return JSONResponse({"detail": "Send a Content-Length header."}, 411)
-            if length is not None and (not length.isdigit() or int(length) > MAX_BODY_BYTES):
-                return JSONResponse({"detail": "Request body is too large (64 KB max)."}, 413)
+            limit = SHEET_BODY_BYTES if request.url.path.endswith("/sheet") else MAX_BODY_BYTES
+            if length is not None and (not length.isdigit() or int(length) > limit):
+                kb = limit // 1024
+                return JSONResponse({"detail": f"Request body is too large ({kb} KB max)."}, 413)
             if request.headers.get(CSRF_HEADER) != "1":
                 return JSONResponse({"detail": f"Missing {CSRF_HEADER} header."}, 403)
         return None
@@ -392,6 +409,24 @@ def create_app(
     @private.get("/campaigns/{cid}/search")
     def search(cid: str, q: str, user: Me, k: int = 8):
         return [asdict(h) for h in hub.search(user, cid, q, k)]
+
+    # --- character sheets and dice (M10) -----------------------------------------------------
+
+    @private.get("/campaigns/{cid}/characters/{chid}/sheet")
+    def sheet(cid: str, chid: int, user: Me):
+        return hub.sheet(user, cid, chid)
+
+    @private.put("/campaigns/{cid}/characters/{chid}/sheet")
+    def save_sheet(cid: str, chid: int, body: SheetIn, user: Me):
+        return hub.save_sheet(user, cid, chid, body.sheet, body.version)
+
+    @private.post("/campaigns/{cid}/rolls", status_code=201)
+    def roll(cid: str, body: RollIn, user: Me):
+        return hub.roll(user, cid, **body.model_dump())
+
+    @private.get("/campaigns/{cid}/rolls")
+    def rolls(cid: str, user: Me, after: int = 0):
+        return hub.rolls(user, cid, after)
 
     # --- chats -------------------------------------------------------------------------------
 

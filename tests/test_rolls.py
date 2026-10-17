@@ -175,7 +175,7 @@ def test_r3_log_shows_public_rolls_and_hides_dm_only_ones(table):
 def test_r3_a_campaign_keeps_its_last_500_rolls(table):
     hub, dm, mia, bo, cid, chid = table
     with hub.storage.campaign(cid) as db:
-        for i in range(520):
+        for _ in range(520):
             db.execute(
                 "INSERT INTO rolls (user_id, author_name, character_id, label, expression, "
                 "detail, total, to_dm, created_at) VALUES ('x', 'x', NULL, 'l', 'e', '{}', 1, 0, "

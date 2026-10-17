@@ -9,6 +9,7 @@ can see but their role doesn't allow them to change.
 from __future__ import annotations
 
 import json
+import random
 import re
 import secrets
 import shutil
@@ -21,9 +22,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from dungeonmind.graph.state import NoteHit
 from dungeonmind.hub import auth, models
 from dungeonmind.hub import entries as store
+from dungeonmind.hub import rolls as dice_rolls
 from dungeonmind.hub.chats import (
     ChatEngine,
     ThreadEncounterStore,
@@ -56,6 +60,7 @@ from dungeonmind.hub.models import (
     Thread,
     User,
 )
+from dungeonmind.hub.sheets import Sheet, derive
 
 DEFAULT_ROOT = Path("data/hub")
 INVITE_DAYS = 7
@@ -64,6 +69,8 @@ INVITE_LENGTH = 12
 MAX_SEARCH_K = 50
 SEARCHES_PER_MINUTE = 20
 SESSIONS_PER_USER = 20
+ROLLS_PER_MINUTE = 30  # M10 R4
+ROLLS_KEPT = 500  # M10 R3: per campaign
 REFUNDS_PER_DAY = 3
 LOGIN_FAILED = "Wrong username or password."
 SIGNUP_MODES = ("open", "invite")
@@ -125,6 +132,7 @@ class Hub:
         daily_message_limit: int = 50,
         signup: str = "open",
         read_only: bool = False,
+        rng: random.Random | None = None,
     ) -> None:
         if signup not in SIGNUP_MODES:
             raise ValueError(f"signup must be one of {', '.join(SIGNUP_MODES)}")
@@ -143,6 +151,8 @@ class Hub:
         self._accounts = auth.Limiter(auth.LOGIN_WINDOW)
         self._registrations = auth.Limiter(auth.REGISTER_WINDOW)
         self._searches: dict[str, deque[datetime]] = {}
+        self._roll_times: dict[str, deque[datetime]] = {}  # R4
+        self.rng = rng  # None: the dice tool uses SystemRandom
         self._search_lock = threading.Lock()
         # Verified against for unknown usernames, so both failures cost the same time (8).
         self._dummy_hash = auth.hash_password(secrets.token_urlsafe(16), scrypt_n)
@@ -687,6 +697,155 @@ class Hub:
                 )
             db.execute("DELETE FROM characters WHERE id = ?", (row["id"],))
 
+    # --- character sheets (M10a) -------------------------------------------------------------
+
+    def _character_row(self, db, chid: Any):
+        row = db.execute("SELECT * FROM characters WHERE id = ?", (_id(chid, "Character"),))
+        row = row.fetchone()
+        if row is None:
+            raise NotFound("Character not found.")
+        return row
+
+    @staticmethod
+    def _load_sheet(db, character_id: int) -> tuple[Sheet, int]:
+        row = db.execute(
+            "SELECT data, version FROM sheets WHERE character_id = ?", (character_id,)
+        ).fetchone()
+        if row is None:
+            return Sheet(), 0
+        return Sheet.model_validate_json(row["data"]), row["version"]
+
+    def sheet(self, user: User, cid: str, chid: int) -> dict[str, Any]:
+        """S3: every member may view; the player and the DM may edit."""
+        camp = self._member(user, cid)
+        with self.storage.campaign(cid) as db:
+            character = self._character_row(db, chid)
+            sheet, version = self._load_sheet(db, character["id"])
+        return {
+            "sheet": sheet.model_dump(),
+            "derived": derive(sheet),
+            "version": version,
+            "can_edit": character["owner_id"] == user.id or camp.role == "dm",
+        }
+
+    def save_sheet(
+        self, user: User, cid: str, chid: int, data: Any, version: Any
+    ) -> dict[str, Any]:
+        camp = self._member(user, cid)
+        if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+            raise Invalid("version must be a whole number.")
+        try:
+            sheet = Sheet.model_validate(data)
+        except ValidationError as e:
+            err = e.errors()[0]
+            where = ".".join(str(p) for p in err.get("loc", ()))
+            message = f"{where}: {err.get('msg', 'invalid value')}" if where else "Invalid sheet."
+            raise Invalid(message) from None
+        with self.storage.campaign(cid, immediate=True) as db:
+            character = self._character_row(db, chid)
+            if character["owner_id"] != user.id and camp.role != "dm":
+                raise Forbidden("Only the character's player or the DM can edit this sheet.")
+            _, current = self._load_sheet(db, character["id"])
+            if current != version:
+                raise Conflict("This sheet changed while you were editing. Reload and try again.")
+            db.execute(
+                "INSERT INTO sheets (character_id, data, version, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(character_id) DO UPDATE SET data = excluded.data, "
+                "version = excluded.version, updated_at = excluded.updated_at",
+                (character["id"], sheet.model_dump_json(), version + 1, _iso(self.clock())),
+            )
+        return {
+            "sheet": sheet.model_dump(),
+            "derived": derive(sheet),
+            "version": version + 1,
+            "can_edit": True,
+        }
+
+    # --- dice and the game log (M10b) ---------------------------------------------------------
+
+    def _count_roll(self, user: User) -> None:
+        now = self.clock()
+        with self._search_lock:
+            times = self._roll_times.setdefault(user.id, deque())
+            while times and now - times[0] >= timedelta(minutes=1):
+                times.popleft()
+            if len(times) >= ROLLS_PER_MINUTE:
+                raise RateLimited("Too many rolls. Wait a minute and try again.")
+            times.append(now)
+
+    def roll(
+        self,
+        user: User,
+        cid: str,
+        *,
+        kind: str,
+        key: str | None = None,
+        mode: str = "normal",
+        to_dm: bool = False,
+        character_id: int | None = None,
+        expression: str | None = None,
+    ) -> dict[str, Any]:
+        """R1/R2: rolls on the server with the sheet's bonus and logs it."""
+        camp = self._member(user, cid)
+        if kind not in dice_rolls.KINDS:
+            raise Invalid("Unknown roll.")
+        if mode not in dice_rolls.MODES:
+            raise Invalid("Mode must be normal, advantage, disadvantage or critical.")
+        name = user.username
+        if kind == "expression":
+            spec = dice_rolls.spec_for_expression(expression, mode)
+            character_id = None
+        else:
+            if character_id is None:
+                raise Invalid("Which character is rolling?")
+            with self.storage.campaign(cid) as db:
+                character = self._character_row(db, character_id)
+                if character["owner_id"] != user.id and camp.role != "dm":
+                    raise Forbidden("Only the character's player or the DM can roll for them.")
+                sheet, _ = self._load_sheet(db, character["id"])
+            spec = dice_rolls.spec_for(kind, key, mode, sheet, derive(sheet))
+            name = character["name"]
+            character_id = character["id"]
+        self._count_roll(user)
+        detail = dice_rolls.perform(spec, self.rng)
+        label = f"{name} — {spec.label}"
+        now = _iso(self.clock())
+        with self.storage.campaign(cid, immediate=True) as db:
+            cur = db.execute(
+                "INSERT INTO rolls (user_id, author_name, character_id, label, expression, detail, "
+                "total, to_dm, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    user.id,
+                    user.username,
+                    character_id,
+                    label,
+                    detail["expression"],
+                    json.dumps({**detail, "mode": mode}),
+                    detail["total"],
+                    int(bool(to_dm)),
+                    now,
+                ),
+            )
+            db.execute(  # R3: keep the newest rolls only
+                "DELETE FROM rolls WHERE id NOT IN (SELECT id FROM rolls ORDER BY id DESC LIMIT ?)",
+                (ROLLS_KEPT,),
+            )
+            row = db.execute("SELECT * FROM rolls WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return _roll_from_row(row)
+
+    def rolls(self, user: User, cid: str, after: int = 0) -> list[dict[str, Any]]:
+        """R3: newer rolls this viewer may see (public, their own, and all for the DM)."""
+        camp = self._member(user, cid)
+        if isinstance(after, bool) or not isinstance(after, int) or after < 0:
+            raise Invalid("after must be a whole number.")
+        with self.storage.campaign(cid) as db:
+            rows = db.execute(
+                "SELECT * FROM rolls WHERE id > ? AND (to_dm = 0 OR user_id = ? OR ?) "
+                "ORDER BY id LIMIT 100",
+                (after, user.id, int(camp.role == "dm")),
+            ).fetchall()
+        return [_roll_from_row(r) for r in rows]
+
     # --- entries ---------------------------------------------------------------------------
 
     def _visibility(self, board: str, visibility: Any, author_is_dm: bool) -> str:
@@ -1089,6 +1248,25 @@ def _history(db, thread_id: int, exchanges: int = 3) -> list[dict[str, str]]:
         ):
             pairs.append({"question": question["text"], "answer": answer["text"]})
     return pairs[-exchanges:]
+
+
+def _roll_from_row(row) -> dict[str, Any]:
+    detail = json.loads(row["detail"])
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "author": row["author_name"],
+        "character_id": row["character_id"],
+        "expression": row["expression"],
+        "terms": detail.get("terms", []),
+        "bonus": detail.get("bonus", 0),
+        "total": row["total"],
+        "natural": detail.get("natural"),
+        "outcome": detail.get("outcome"),
+        "mode": detail.get("mode", "normal"),
+        "to_dm": bool(row["to_dm"]),
+        "created_at": row["created_at"],
+    }
 
 
 def _invite_code(code: Any) -> str:

@@ -124,6 +124,25 @@ CREATE TABLE IF NOT EXISTS messages (
     meta TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+-- M10: one sheet per character (validated JSON) and the campaign's game log.
+CREATE TABLE IF NOT EXISTS sheets (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    data TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rolls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    character_id INTEGER,
+    label TEXT NOT NULL,
+    expression TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    total INTEGER NOT NULL,
+    to_dm INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS encounter_state (
     thread_id INTEGER PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
     request TEXT NOT NULL
@@ -190,6 +209,7 @@ class Storage:
         self.campaigns_root = self.root / "campaigns"
         self.app_db = self.root / "app.db"
         self.read_only = read_only
+        self._ready: set[str] = set()  # campaigns whose schema is current in this process
         if read_only:  # E3: no folders, no schema, nothing written
             if not self.app_db.is_file():
                 raise StorageError("No hub here.")
@@ -233,4 +253,8 @@ class Storage:
         init_db(folder / "campaign.db", CAMPAIGN_SCHEMA)
 
     def campaign(self, cid: str, immediate: bool = False):
-        return transaction(self.campaign_db(cid), immediate, self.read_only)
+        path = self.campaign_db(cid)
+        if not self.read_only and cid not in self._ready:
+            init_db(path, CAMPAIGN_SCHEMA)  # M10: older campaigns gain new tables once
+            self._ready.add(cid)
+        return transaction(path, immediate, self.read_only)
