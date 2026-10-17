@@ -205,3 +205,43 @@ def test_r4_thirty_rolls_a_minute(table):
     assert _roll(bo, cid, kind="expression", expression="1d4").status_code == 429
     hub.clock.advance(minutes=1, seconds=1)
     assert _roll(bo, cid, kind="expression", expression="1d4").status_code == 201
+
+
+def test_r3_the_first_page_is_the_newest_rolls(table):
+    hub, dm, mia, bo, cid, chid = table
+    with hub.storage.campaign(cid) as db:
+        for _ in range(150):
+            db.execute(
+                "INSERT INTO rolls (user_id, author_name, character_id, label, expression, "
+                "detail, total, to_dm, created_at) VALUES ('x', 'x', NULL, 'l', 'e', '{}', 1, 0, "
+                "'2026-10-18T00:00:00+00:00')"
+            )
+    newest = _roll(bo, cid, kind="expression", expression="1d4").json()
+    first = bo.get(f"/api/campaigns/{cid}/rolls").json()
+    assert len(first) == 100
+    assert first[-1]["id"] == newest["id"]  # oldest first within the page, ending at the newest
+    assert [r["id"] for r in first] == sorted(r["id"] for r in first)
+
+
+def test_f3_huge_constants_are_refused_not_500(table):
+    hub, dm, mia, bo, cid, chid = table
+    r = _roll(bo, cid, kind="expression", expression="1d4+99999999999999999999")
+    assert r.status_code == 422
+
+
+def test_f4_f5_odd_keys_and_cursors_are_422_not_500(table):
+    hub, dm, mia, bo, cid, chid = table
+    assert _roll(mia, cid, character_id=chid, kind="attack", key="²").status_code == 422
+    assert bo.get(f"/api/campaigns/{cid}/rolls?after=99999999999999999999999").status_code == 422
+
+
+def test_f9_a_critical_keeps_twice_as_many_dice(table):
+    hub, dm, mia, bo, cid, chid = table
+    sheet = {**SHEET, "custom_dice": [{"name": "Brutal", "expression": "4d6kh3"}]}
+    mia.put(
+        f"/api/campaigns/{cid}/characters/{chid}/sheet",
+        json={"sheet": sheet, "version": 1},
+        headers=H,
+    )
+    crit = _roll(mia, cid, character_id=chid, kind="custom", key="0", mode="critical").json()
+    assert crit["terms"][0]["term"] == "8d6kh6"

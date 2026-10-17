@@ -213,3 +213,44 @@ def test_s3_a_large_sheet_fits(table):
     ).model_dump()
     r = mia.put(_path(cid, chid), json={"sheet": sheet, "version": 0}, headers=H)
     assert r.status_code == 200, r.text[:200]
+
+
+# --- M10 review fixes ----------------------------------------------------------------------------
+
+
+def test_f8_jack_of_all_trades_does_not_touch_initiative_in_2024():
+    d = derive(_rogue(jack_of_all_trades=True))
+    assert d["initiative"] == 4  # plain DEX check: no half proficiency (2024)
+    assert d["skills"]["arcana"] == 1 + 1  # skill checks still get it
+
+
+def test_f1_a_failed_index_saves_nothing(table, monkeypatch):
+    dm, mia, bo, cid, chid = table
+    from dungeonmind.hub import service
+
+    def boom(*a, **k):
+        raise service.StorageError("Couldn't index this entry right now; it wasn't saved.")
+
+    monkeypatch.setattr(service.Hub, "_embed", boom)
+    r = mia.put(_path(cid, chid), json={"sheet": _rogue().model_dump(), "version": 0}, headers=H)
+    assert r.status_code == 500
+    assert mia.get(_path(cid, chid)).json()["version"] == 0  # the sheet wasn't saved either
+
+
+def test_f6_renaming_the_character_renames_its_sheet_entry(table):
+    dm, mia, bo, cid, chid = table
+    mia.put(_path(cid, chid), json={"sheet": _rogue().model_dump(), "version": 0}, headers=H)
+    mia.patch(f"/api/campaigns/{cid}/characters/{chid}", json={"name": "Mirabel"}, headers=H)
+    entries = mia.get(f"/api/campaigns/{cid}/entries?board=character&character_id={chid}").json()
+    sheet_entry = next(e for e in entries if e["kind"] == "sheet")
+    assert sheet_entry["title"] == "Mirabel — character sheet"
+    assert sheet_entry["body"].startswith("Mirabel:")
+
+
+def test_f10_a_full_sheet_fits_the_body_limit(table):
+    dm, mia, bo, cid, chid = table
+    sheet = _rogue(
+        features=[{"name": "Ö" * 80, "source": "ş" * 60, "text": "ğ" * 2000} for _ in range(60)],
+    ).model_dump()
+    r = mia.put(_path(cid, chid), json={"sheet": sheet, "version": 0}, headers=H)
+    assert r.status_code == 200, r.text[:200]
