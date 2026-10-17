@@ -194,3 +194,12 @@ def test_14_timeout_is_passed_to_answer_campaign():
     llm = FakeLLM(_route(), campaign=final("Hoard [N1].", ["N1"]))
     run_chat(Q, _deps(llm, FakeNotes({Q: HITS}), timeout_s=12.5))
     assert ("answer_campaign", 12.5) in llm.timeouts
+
+
+def test_h1_route_knows_when_it_is_inside_a_campaign():
+    llm = FakeLLM(_route(), campaign=final("Hoard [N1].", ["N1"]))
+    run_chat(Q, _deps(llm, FakeNotes({Q: HITS})))
+    assert llm.route_campaign == [True]
+    llm = FakeLLM(_route(Intent.OUT_OF_SCOPE))
+    run_chat("hi", _deps(llm, None))
+    assert llm.route_campaign == [False]

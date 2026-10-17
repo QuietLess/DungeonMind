@@ -42,7 +42,6 @@ def test_save_has_no_auto_success(reg):
         ("probability", {"roll_type": "attack", "bonus": 7, "target": 15, "luck": 1}, "luck"),
         ("search_spells", {"school": "pyromancy"}, "Valid: abjuration"),
         ("search_monsters", {"min_cr": "3/7"}, "challenge rating"),
-        ("get_entity", {"kind": "monster", "name": "Beholder"}, "No monster named"),
         ("dice_roll", {"expression": "1d20 7"}, "whitespace"),
         ("encounter_budget", {"party_levels": [25]}, "level must be 1"),
         ("teleport", {}, "Unknown tool"),
@@ -135,3 +134,11 @@ def test_h2_oversized_inputs_get_readable_errors(reg, name, args, field, limit):
 def test_h2_inputs_at_the_limit_are_accepted(reg, name, args):
     out = reg.call(name, args)
     assert "result" in out, out
+
+
+def test_h2_unknown_entities_are_an_answer_not_an_error(reg):
+    out = reg.call("get_entity", {"kind": "monster", "name": "Beholder"})
+    assert "error" not in out
+    assert out["result"]["found"] is False
+    assert "No monster named 'Beholder'" in out["result"]["message"]
+    assert isinstance(out["result"]["suggestions"], list)

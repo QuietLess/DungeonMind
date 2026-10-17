@@ -946,3 +946,28 @@ Local mode is for free development and trying things; quality is measured, not a
   CPU inference is slow.
 - **P7 Usage.** Each call logs `prompt_eval_count` and `eval_count` as input and output tokens,
   at cost $0. `eval live --estimate` shows $0.
+
+### M8 live findings (first full Haiku run: 190/209, 91%, $0.18, p50 4.7 s)
+
+Each item has a regression test.
+
+- **H1 The router knows when it is inside a campaign.** `route` gains keyword-only
+  `campaign: bool`. The graph sets it when `search_notes` is bound (the hub). The prompt then
+  says that questions about the campaign's people, places, events, sessions, items or plans are
+  `campaign_memory`, never `out_of_scope`. This was observed with "Why are grain prices so
+  high?" and "What's on our shopping list?", which were declined in the hub.
+- **H2 "Not found" is an answer, not a tool failure.** `get_entity` for a name not in the SRD
+  returns `{"result": {"found": false, "message", "suggestions"}}`. It can be cited as evidence
+  that the SRD lacks the creature or spell (observed with Beholder, Mind Flayer, Strahd and
+  Tiamat, where correct abstentions lost their citation).
+- **H3 Scoring.** Expected numbers are percentages when the case has `args`, expects the
+  `probability` intent, or is in the probability category. A case's `intent` may list
+  acceptable routes, e.g. `["session_prep", "campaign_memory"]`.
+- **H4 Dataset.**
+  - Widened `srd` for rules-19, rules-39 (Telepathic Bond also fits) and followup-03.
+  - rules-35 accepts `lookup` or `rules_qa`; prep cases accept `campaign_memory`.
+  - unanswerable-06 now asks for an off-SRD NPC's stats.
+  - injection-06 now carries the payload in a party note, not in the user's own question.
+- **Known limits (not fixed):** paraphrased questions can miss the right SRD section
+  (rules-21: Concentration) or note (campaign-40). The model sometimes writes an invalid
+  citation id; verify removes it.
