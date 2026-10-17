@@ -219,17 +219,27 @@ describe("M10 review fixes", () => {
     expect(screen.getAllByText("Mira — Insight")).toHaveLength(1);
   });
 
-  it("quick HP clicks wait for the save instead of conflicting", async () => {
-    let finish: (v: unknown) => void = () => {};
-    api.saveSheet.mockReturnValue(new Promise((r) => { finish = r; }));
+  it("quick HP clicks queue up: none lost, focus kept, saved one after another", async () => {
+    const finishers: ((v: unknown) => void)[] = [];
+    api.saveSheet.mockImplementation((_c: string, _id: number, next: typeof sheet, version: number) =>
+      new Promise((r) => finishers.push(() => r({ sheet: next, derived, version: version + 1, can_edit: true }))),
+    );
     renderSheet();
     const lose = await screen.findByRole("button", { name: /lose 1 hp/i });
-    await userEvent.click(lose);
-    expect(lose).toBeDisabled();
-    await userEvent.click(lose);
+    lose.focus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Enter}");
+    expect(lose).toHaveFocus();
+    expect(lose).not.toBeDisabled();
     expect(api.saveSheet).toHaveBeenCalledTimes(1);
-    await act(async () => finish({ sheet: { ...sheet, hp: { ...sheet.hp, current: 29 } }, derived, version: 4, can_edit: true }));
-    expect(await screen.findByRole("button", { name: /lose 1 hp/i })).toBeEnabled();
+    expect(api.saveSheet.mock.calls[0][2].hp.current).toBe(29);
+    await act(async () => finishers[0](undefined));
+    expect(api.saveSheet).toHaveBeenCalledTimes(2);
+    expect(api.saveSheet.mock.calls[1][2].hp.current).toBe(27); // the two queued clicks together
+    expect(api.saveSheet.mock.calls[1][3]).toBe(4);
+    await act(async () => finishers[1](undefined));
+    expect(screen.getByRole("group", { name: "Hit points" })).toHaveTextContent("27");
   });
 
   it("a conflict reloads the newest sheet", async () => {
