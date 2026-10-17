@@ -93,8 +93,9 @@ def score(case: Case, result: dict[str, Any]) -> dict[str, bool]:
     s: dict[str, bool] = {}
     # R1: an error or out-of-budget answer never passes, even where abstaining is expected.
     s["completed_ok"] = result.get("stop_reason") in FINISHED
-    if "intent" in e:
-        s["intent_ok"] = result.get("intent") == e["intent"]
+    if "intent" in e:  # one route, or a list of acceptable routes (H3)
+        allowed = e["intent"] if isinstance(e["intent"], list) else [e["intent"]]
+        s["intent_ok"] = result.get("intent") in allowed
     s["citations_ok"] = not result.get("violations")
     expected_sources = [*e.get("srd", []), *e.get("notes", [])]
     if expected_sources:
@@ -109,7 +110,8 @@ def score(case: Case, result: dict[str, Any]) -> dict[str, bool]:
     if "contains" in e:
         s["contains_ok"] = all(re.search(rx, answer, re.IGNORECASE) for rx in e["contains"])
     if "numbers" in e:
-        found = _numbers(answer, "percent" if "args" in e else "xp")
+        odds = "args" in e or e.get("intent") == "probability" or case.category == "probability"
+        found = _numbers(answer, "percent" if odds else "xp")
         s["numbers_ok"] = all(
             any(abs(x - n) <= NUMBER_TOLERANCE for x in found) for n in e["numbers"]
         )

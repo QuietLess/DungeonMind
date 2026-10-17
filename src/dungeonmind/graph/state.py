@@ -123,7 +123,11 @@ class LLM(Protocol):
 
     # `timeout` is the wall-clock budget in seconds for this one call (None = adapter default).
 
-    def route(self, question: str, *, timeout: float | None = None) -> RouteDecision: ...
+    def route(
+        self, question: str, *, timeout: float | None = None, campaign: bool = False
+    ) -> RouteDecision:
+        """`campaign` is True inside the campaign hub (M8 finding H1)."""
+        ...
 
     def answer(
         self, question: str, evidence: list[Evidence], *, timeout: float | None = None

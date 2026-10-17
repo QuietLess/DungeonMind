@@ -75,6 +75,14 @@ backstories or notes (including rules questions about something in the campaign)
 Set other_edition to true only when the user explicitly asks about the 2014 rules, \
 "5e legacy", or another older edition. Give a one-sentence reason."""
 
+# H1: in the hub the user is inside a campaign, so non-rules questions are usually about it.
+CAMPAIGN_ROUTE_CONTEXT = (
+    "Context: this question was asked inside a campaign hub, where the user's campaign notes "
+    "are available. Questions about the campaign's people, places, factions, items, events, "
+    "sessions, prices, plans or anything the party did are campaign_memory (or session_prep "
+    "when planning), never out_of_scope, even if they don't mention D&D."
+)
+
 AGENT_PROMPT = """\
 You are DungeonMind, an assistant for game masters running Dungeons & Dragons with the \
 System Reference Document 5.2.1 (the 2024 rules).
@@ -271,11 +279,14 @@ class ClaudeLLM:
         # One entry per API call: step, model, tokens, latency, cost (M8 contract M3).
         self.usage_log: list[dict[str, Any]] = []
 
-    def route(self, question: str, *, timeout: float | None = None) -> RouteDecision:
+    def route(
+        self, question: str, *, timeout: float | None = None, campaign: bool = False
+    ) -> RouteDecision:
+        content = f"{CAMPAIGN_ROUTE_CONTEXT}\n\nQuestion: {question}" if campaign else question
         response = self._create(
             "route",
             ROUTE_PROMPT,
-            [{"role": "user", "content": question}],
+            [{"role": "user", "content": content}],
             ROUTE_SCHEMA,
             max_tokens=ROUTE_MAX_TOKENS,
             timeout=timeout,
