@@ -1306,8 +1306,9 @@ dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
 - **E2** For each case, notes search runs as that viewer (the same visibility-bound search the
   chat uses) and the report gives R@k, MRR, every miss (expected titles and the top titles
   found), and any `no_leak` string found in the viewer's top 50 hits.
-- **E3** No model calls and no SRD index: it can run while `serve` runs. It reads the hub
-  without writing to it (the notes model loads from the local cache).
+- **E3** No model calls and no SRD index: it can run while `serve` runs. It opens the hub
+  read-only (SQLite `mode=ro`; at most empty `-wal`/`-shm` sidecar files appear when no
+  server has them open). The notes model loads from the local cache, or downloads once.
 - **E4** Exit 1 when a leak is found, so a leak can't pass unnoticed.
 
 ### M9f findings from the owner's campaign (40 questions; R@5 0.85 → 0.88, MRR 0.67 → 0.70)
@@ -1319,7 +1320,10 @@ dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
 - **I10 DM sections.** 8 vault notes keep their DM notes under a "## DM notu" heading inside
   the text; revealing the entry would reveal them. Sections whose heading starts with "DM"
   (or any `--secret-heading` prefix, e.g. "Gerçek") go to the "— DM notes" entry, subsections
-  included. Reveal also warns when a DM heading is still in the text.
+  included. Reveal also warns when a DM heading is still in the text. Scope: ATX headings
+  (`## …`, up to 3 spaces of indent) outside code fences, prefixes as whole words ("DM notu"
+  yes, "DMler için" no). Setext, HTML and bold pseudo-headings are not recognised; an
+  unclosed fence hides later headings, as Obsidian renders it.
 - Leak probe on a backup copy with a test player who sees one revealed entry: no private text
   reached the player's search, including a prompt-injection query.
 

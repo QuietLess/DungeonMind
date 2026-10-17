@@ -42,7 +42,7 @@ SECRET_FIELDS = ("dm_note", "secrets")
 # I10: sections whose heading starts with one of these go to the "— DM notes" entry too.
 SECRET_HEADINGS = ("DM",)
 _HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*)$")
-_FENCE = re.compile(r"^ {0,3}(```|~~~)")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 _EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
@@ -210,11 +210,14 @@ def _split_sections(body: str, prefixes: tuple[str, ...]) -> tuple[str, list[str
     kept: list[str] = []
     secret: list[list[str]] = []
     level = 0  # > 0 while inside a secret section of that heading level
-    fenced = False
+    fence = ""  # the opening marker while inside a code fence
     for line in body.split("\n"):
-        heading = None if fenced else _HEADING.match(line)
-        if _FENCE.match(line):
-            fenced = not fenced
+        heading = None if fence else _HEADING.match(line)
+        marker = _FENCE.match(line)
+        if marker and not fence:
+            fence = marker.group(1)
+        elif marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+            fence = ""  # closed by the same kind of marker, at least as long
         if heading and level and len(heading.group(1)) <= level:
             level = 0
         if heading and not level and _starts_with_word(heading.group(2), wanted):
