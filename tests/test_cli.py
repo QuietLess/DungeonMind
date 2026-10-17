@@ -411,3 +411,33 @@ def test_m8d_import_preview_writes_nothing(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Arden" in result.output and "Preview only" in result.output
     assert not root.exists()
+
+
+def test_m8d_import_preview_with_archive_options(tmp_path):
+    vault, archive, sessions = tmp_path / "v", tmp_path / "a", tmp_path / "s"
+    for d in (vault, archive, sessions):
+        d.mkdir()
+    (archive / "Dünya.md").write_text("Dünya özeti.\n", encoding="utf-8")
+    (sessions / "01 - Madalyon.md").write_text("Madalyon.\n", encoding="utf-8")
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "hub",
+            "import-obsidian",
+            str(vault),
+            "--dm",
+            "d",
+            "--campaign-name",
+            "c",
+            "--preview",
+            "--extra-lore",
+            str(archive),
+            "--sessions",
+            str(sessions),
+            "--root",
+            str(tmp_path / "h"),
+        ],
+        env=WIDE,
+    )
+    assert result.exit_code == 0, result.output
+    assert "Dünya" in result.output and "01 - Madalyon" in result.output

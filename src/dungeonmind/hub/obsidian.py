@@ -26,7 +26,17 @@ KIND_MAP = {
     "plot": "plot",
 }
 CHARACTER_FOLDERS = {"karakterler", "characters", "npcs", "npc", "kisiler", "kişiler"}
-HEADER_FIELDS = ("aliases", "status", "role", "race", "faction", "location", "importance")
+HEADER_FIELDS = (
+    "aliases",
+    "type",
+    "status",
+    "certainty",
+    "role",
+    "race",
+    "faction",
+    "location",
+    "importance",
+)
 SECRET_FIELDS = ("dm_note", "secrets")
 _FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 _EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)")
@@ -169,7 +179,58 @@ def _add(
         )
 
 
-def plan_import(vault: Path, sessions: Path | None = None) -> ImportPlan:
+def _add_note(
+    plan: ImportPlan, path: Path, rel: Path, used: dict[str, str], suffix: str | None = None
+) -> None:
+    """One vault (or archive) note → a private lore entry, plus a DM-notes entry for secrets."""
+    meta, text = _split_frontmatter(_read(path))
+    title = path.stem
+    body = _strip_title_heading(_clean(text), title)
+    # `dm_note: true` is a flag (the whole note is DM-only); text values are secrets.
+    dm_only = meta.get("dm_note") is True
+    secrets = [
+        f"**{k}:** {_value(meta[k])}"
+        for k in SECRET_FIELDS
+        if not isinstance(meta.get(k), bool) and _value(meta.get(k))
+    ]
+    if not body and not secrets:
+        plan.skipped.append((str(rel), "empty note"))
+        return
+    kind, is_pc = _lore_kind(meta, rel)
+    if is_pc:
+        title = f"{title} (PC)"
+    marks = ["**DM only:** yes" if dm_only else "", "**source:** archive" if suffix else ""]
+    header = "\n".join(x for x in (*marks, _header(meta)) if x)
+    main = "\n\n".join(x for x in (header, body) if x) or "(no text)"
+    folder = suffix or (rel.parts[-2] if len(rel.parts) > 1 else "")
+    final = _title_for(title, folder, used, main)
+    if final is None:
+        plan.skipped.append((str(rel), f"same text as an earlier note titled {title!r}"))
+        return
+    _add(plan, str(rel), "lore", kind, final, main)
+    if secrets:  # I5: secrets never ride along when the main entry is revealed
+        _add(plan, str(rel), "lore", kind, f"{final} — DM notes", "\n".join(secrets))
+
+
+def _session_number(meta: dict[str, Any], stem: str, mode: str) -> int | None:
+    """I7: a `session:` field wins; file-name numbers only with mode "name" (reading-order
+    prefixes like "01 - …" are not session numbers in the owner's archive)."""
+    field_value = meta.get("session")
+    if isinstance(field_value, int) and not isinstance(field_value, bool):
+        return field_value if 1 <= field_value <= 999 else None
+    if mode == "name":
+        number = _FIRST_NUMBER.search(stem)
+        if number and 1 <= int(number.group()) <= 999:
+            return int(number.group())
+    return None
+
+
+def plan_import(
+    vault: Path,
+    sessions: Path | None = None,
+    extra_lore: list[Path] | tuple[Path, ...] = (),
+    session_numbers: str = "field",
+) -> ImportPlan:
     vault = Path(vault)
     plan = ImportPlan()
     used: dict[str, str] = {}
@@ -184,36 +245,15 @@ def plan_import(vault: Path, sessions: Path | None = None) -> ImportPlan:
         rel = path.relative_to(vault)
         if path.suffix.lower() != ".md":
             plan.skipped.append((str(rel), f"not a note ({path.suffix or 'no extension'})"))
-            continue
-        if path.name.endswith(".excalidraw.md"):
+        elif path.name.endswith(".excalidraw.md"):
             plan.skipped.append((str(rel), "Excalidraw drawing"))
-            continue
-        meta, text = _split_frontmatter(_read(path))
-        title = path.stem
-        body = _strip_title_heading(_clean(text), title)
-        # `dm_note: true` is a flag (the whole note is DM-only); text values are secrets.
-        dm_only = meta.get("dm_note") is True
-        secrets = [
-            f"**{k}:** {_value(meta[k])}"
-            for k in SECRET_FIELDS
-            if not isinstance(meta.get(k), bool) and _value(meta.get(k))
-        ]
-        if not body and not secrets:
-            plan.skipped.append((str(rel), "empty note"))
-            continue
-        kind, is_pc = _lore_kind(meta, rel)
-        if is_pc:
-            title = f"{title} (PC)"
-        header = "\n".join(x for x in ("**DM only:** yes" if dm_only else "", _header(meta)) if x)
-        main = "\n\n".join(x for x in (header, body) if x) or "(no text)"
-        folder = rel.parts[-2] if len(rel.parts) > 1 else ""
-        final = _title_for(title, folder, used, main)
-        if final is None:
-            plan.skipped.append((str(rel), f"same text as an earlier note titled {title!r}"))
-            continue
-        _add(plan, str(rel), "lore", kind, final, main)
-        if secrets:  # I5: secrets never ride along when the main entry is revealed
-            _add(plan, str(rel), "lore", kind, f"{final} — DM notes", "\n".join(secrets))
+        else:
+            _add_note(plan, path, rel, used)
+    for folder in extra_lore:  # I8: archive summaries, top-level notes only
+        folder = Path(folder)
+        for path in sorted(folder.iterdir()):
+            if path.is_file() and path.suffix.lower() == ".md" and not path.name.startswith("."):
+                _add_note(plan, path, Path(folder.name) / path.name, used, suffix="arşiv")
     if sessions is not None:
         for path in sorted(Path(sessions).iterdir()):
             if not path.is_file() or path.name.startswith("."):
@@ -226,9 +266,10 @@ def plan_import(vault: Path, sessions: Path | None = None) -> ImportPlan:
             if not body:
                 plan.skipped.append((f"sessions/{path.name}", "empty note"))
                 continue
-            number = _FIRST_NUMBER.search(path.stem)
-            session = int(number.group()) if number and 1 <= int(number.group()) <= 999 else None
-            _add(plan, f"sessions/{path.name}", "journal", "note", path.stem, body, session)
+            header = _header(meta)
+            full = "\n\n".join(x for x in (header, body) if x)
+            session = _session_number(meta, path.stem, session_numbers)
+            _add(plan, f"sessions/{path.name}", "journal", "note", path.stem, full, session)
     return plan
 
 
