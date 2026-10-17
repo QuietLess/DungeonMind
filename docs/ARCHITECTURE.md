@@ -1043,3 +1043,56 @@ dungeonmind hub import-obsidian VAULT --dm USERNAME --campaign-name NAME
 - **I8 Extra lore.** `--extra-lore DIR` (repeatable) imports the `.md` files directly inside
   DIR, not its subfolders, as private lore marked `**source:** archive`. A title that clashes
   with a vault note gets the suffix "(arşiv)".
+
+## M9a contract — operations: CI, Docker, health, backups
+
+Goal: every push is checked automatically, the hub runs from one container, and the owner can
+back up real campaign data while the server runs. No hosting yet (it costs money, so the owner
+decides that separately).
+
+### Health (Python, tested)
+
+- **O1** `GET /api/health` needs no session and no CSRF header. When `app.db` answers a
+  trivial query it returns 200 `{"status": "ok"}`, otherwise 503 `{"status": "unavailable"}`.
+  It never names the provider, the models, the version, or whether a key is set.
+
+### Backups (`dungeonmind hub backup`, Python, tested)
+
+```
+dungeonmind hub backup --out DIR [--root data/hub]
+```
+
+- **B1 Consistent copy.** Writes `DIR/dungeonmind-backup-<UTC yyyymmdd-hhmmss>/` holding
+  `app.db` and `campaigns/<id>/campaign.db` for every campaign, made with SQLite's backup API,
+  so it's safe while `serve` is running. Every copy passes `PRAGMA integrity_check`.
+- **B2 Private.** The backup folder is created `0700` and every file `0600` (campaign text is
+  private). It refuses an `--out` inside `--root`, and an existing backup folder (never
+  overwrites).
+- **B3 Honest.** Prints the folder and the number of campaigns. A missing `--root` or
+  `app.db` is an error with a plain message (exit 1), not a traceback. Restoring = stop the
+  server, copy the folder's contents to the root (documented in the README).
+
+### CI (`.github/workflows/ci.yml`)
+
+- **C1** Runs on every push and pull request. Read-only token (`permissions: contents: read`);
+  no secrets, no paid model calls.
+- **C2 Python job:** `uv sync --locked`, `ruff check`, `ruff format --check src tests scripts`,
+  the SRD data pipeline (download → ingest → `sync-open5e` → index, the downloads cached), the
+  full `pytest` run, `eval validate`, and `eval gate` (offline gates from `evals/gates.json`).
+- **C3 Web job:** `npm ci`, type check, Vitest, production build.
+- **C4 Release:** `.github/workflows/release.yml` builds the Docker image on pull requests
+  (no push) and pushes it to GHCR only for a `v*` tag the owner creates.
+
+### Docker (`Dockerfile`, `compose.yaml`)
+
+- **K1** Multi-stage: Node builds `web/dist`; the Python stage installs the locked
+  dependencies and builds the SRD data (PDF, chunks, Open5e snapshot, index) at image build
+  time, so start-up needs no network beyond the model provider.
+- **K2** Runs as a non-root user. Hub data lives on a volume at `/data/hub`; the image holds no
+  campaign data and no key (`ANTHROPIC_API_KEY` comes from the environment or an env file).
+- **K3** `HEALTHCHECK` calls `/api/health`. Compose publishes the port on `127.0.0.1` only by
+  default; Ollama on the host is reached with `DUNGEONMIND_OLLAMA_URL`.
+
+### Out of scope for M9a
+
+Hosting, TLS and a domain (owner's decision, recurring cost); tracing and metrics (later M9).
