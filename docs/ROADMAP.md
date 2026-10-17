@@ -126,6 +126,11 @@ items previously due "M8" are now due M9.
   filter, notes rendered as safe Markdown, journal by session, chat rename/delete (a thread
   deleted mid-answer is a 404, not a 500).
 
+- **M9d sharing:** `dungeonmind share` runs a free Cloudflare quick tunnel plus the hub
+  (`--proxy cloudflare`: real client addresses from `CF-Connecting-IP`, trusted from loopback
+  only; Secure cookie on forwarded HTTPS) with invite-only sign-up (`--signup invite`; the
+  first account on an empty hub is the owner's). Checked end to end through a real tunnel.
+
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
 | Id | Item | Do by |
