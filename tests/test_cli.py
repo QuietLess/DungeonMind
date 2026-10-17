@@ -216,7 +216,7 @@ def test_m6b_show_evidence_output_has_no_control_characters(monkeypatch):
 def serve_env(monkeypatch):
     rec = SimpleNamespace(run=None)
     monkeypatch.setattr("dungeonmind.hub.app.build_hub", lambda *a, **k: object())
-    monkeypatch.setattr("dungeonmind.hub.api.create_app", lambda hub: "app")
+    monkeypatch.setattr("dungeonmind.hub.api.create_app", lambda hub, **kw: "app")  # M9d: proxy kwarg
     monkeypatch.setattr("uvicorn.run", lambda app, **kw: setattr(rec, "run", kw))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-placeholder")
     return rec
