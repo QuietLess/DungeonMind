@@ -1291,3 +1291,19 @@ not automated), Cloudflare Access.
   the first account registers; a hub from before M9e records its oldest account on first use.
   Only the owner's campaigns can invite new accounts (M9d R1). The owner can't delete their
   account (409 "The hub's owner can't delete their account."), so ownership never moves.
+
+## M9f contract — evaluating a real campaign locally
+
+```
+dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
+```
+
+- **E1** CASES is JSONL: `{"id", "question", "viewer": <username>, "expect": [entry titles]}`
+  plus optional `"no_leak": [strings]`. It lives in git-ignored `data/evals/` because it
+  quotes real campaign text. Invalid lines are reported with their line number (exit 1).
+- **E2** For each case, notes search runs as that viewer (the same visibility-bound search the
+  chat uses) and the report gives R@k, MRR, every miss (expected titles and the top titles
+  found), and any `no_leak` string found in the viewer's top 50 hits.
+- **E3** No model calls and no SRD index: it can run while `serve` runs. It reads the hub
+  without writing to it (the notes model loads from the local cache).
+- **E4** Exit 1 when a leak is found, so a leak can't pass unnoticed.
