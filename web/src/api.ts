@@ -10,6 +10,10 @@ import type {
   Invite,
   Member,
   Message,
+  Roll,
+  RollRequest,
+  SheetData,
+  SheetView,
   Thread,
   User,
 } from "./types";
@@ -118,6 +122,12 @@ export const api = {
   deleteEntry: (cid: string, eid: number) => request<void>("DELETE", `${c(cid)}/entries/${eid}`),
   search: (cid: string, q: string) =>
     request<SearchHit[]>("GET", `${c(cid)}/search?q=${encodeURIComponent(q)}`),
+
+  sheet: (cid: string, chid: number) => request<SheetView>("GET", `${c(cid)}/characters/${chid}/sheet`),
+  saveSheet: (cid: string, chid: number, sheet: SheetData, version: number) =>
+    request<SheetView>("PUT", `${c(cid)}/characters/${chid}/sheet`, { sheet, version }),
+  roll: (cid: string, body: RollRequest) => request<Roll>("POST", `${c(cid)}/rolls`, body),
+  rolls: (cid: string, after = 0) => request<Roll[]>("GET", `${c(cid)}/rolls?after=${after}`),
 
   threads: (cid: string) => request<Thread[]>("GET", `${c(cid)}/chats`),
   createThread: (cid: string, title: string) =>

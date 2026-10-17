@@ -10,7 +10,9 @@ import { CampaignsPage } from "./pages/CampaignsPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ChatPage } from "./pages/ChatPage";
 import { MembersPage } from "./pages/MembersPage";
+import { DicePage } from "./pages/DicePage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { SheetPage } from "./pages/SheetPage";
 import type { User } from "./types";
 
 export function App() {
@@ -50,6 +52,8 @@ export function App() {
           <Route path="lore" element={<BoardPage key="lore" board="lore" />} />
           <Route path="characters" element={<CharactersPage />} />
           <Route path="characters/:chid" element={<CharactersPage />} />
+          <Route path="characters/:chid/sheet" element={<SheetPage />} />
+          <Route path="dice" element={<DicePage />} />
           <Route path="journal" element={<BoardPage key="journal" board="journal" />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="chat/:tid" element={<ChatPage />} />

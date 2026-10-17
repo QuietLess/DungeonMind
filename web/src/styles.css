@@ -277,6 +277,106 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .composer textarea { flex: 1; }
 .composer .btn { align-self: flex-end; height: 2.75rem; width: 2.75rem; padding: 0; font-size: 1.15rem; }
 
+/* --- character sheet, dice and the game log (M10) ------------------------------------------------ */
+.sheet { padding: 1.5rem; max-width: 1500px; display: grid; gap: 1rem; }
+.sheet-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+.sheet-head h1 { margin: 0; font-size: 2rem; }
+.sheet-head .eyebrow a { color: var(--muted); text-decoration: none; }
+.sheet-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.check { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; font-weight: 500; }
+.check input { width: auto; }
+.sheet-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
+.sheet-main { display: grid; gap: 1rem; min-width: 0; }
+.sheet-side { position: sticky; top: 1rem; }
+.combat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; }
+.combat-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 0.7rem 0.9rem; display: grid; gap: 0.2rem; justify-items: center; text-align: center;
+}
+.box-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.box-value { font-family: var(--serif); font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+.box-value small { font-size: 0.95rem; color: var(--muted); font-weight: 500; }
+.box-value .temp { color: var(--k-event); }
+.hp-buttons { display: flex; gap: 0.25rem; }
+.combat-box > .roll-btn, .combat-box > .roll-value { align-self: center; font-size: 1.5rem; }
+.hp-buttons .icon-button { border: 1px solid var(--border); min-width: 2rem; justify-content: center; }
+.status-box { justify-items: start; align-content: center; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.abilities { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.6rem; }
+.ability {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 0.6rem 0.4rem; display: grid; justify-items: center; gap: 0.25rem; text-align: center;
+}
+.ability-name { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.ability > .roll-btn, .ability > .roll-value { font-size: 1.5rem; }
+.ability-score { font-size: 0.85rem; border: 1px solid var(--border); border-radius: 999px; padding: 0 0.6rem; color: var(--muted); }
+.ability-save { font-size: 0.8rem; color: var(--muted); }
+.roll-btn {
+  font: inherit; font-weight: 700; cursor: pointer; color: var(--k-npc); background: var(--accent-soft);
+  border: 1px solid transparent; border-radius: 8px; padding: 0.1rem 0.5rem; min-width: 2.4rem;
+}
+.roll-btn:hover { border-color: var(--accent); }
+.roll-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.roll-value { font-weight: 700; padding: 0.1rem 0.5rem; }
+.sheet-cols { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.skills ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.skills li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
+.skill-name small { color: var(--muted); }
+.prof { width: 0.7rem; height: 0.7rem; border-radius: 999px; border: 2px solid var(--field-border); }
+.prof-proficient { background: var(--k-npc); border-color: var(--k-npc); }
+.prof-expertise { background: var(--k-npc); border-color: var(--k-npc); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--k-npc); }
+.tablist { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: -0.25rem 0 0.75rem; }
+.tab { font: inherit; background: none; border: 0; border-bottom: 3px solid transparent; padding: 0.45rem 0.7rem; cursor: pointer; color: var(--muted); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tab:focus-visible { outline: 3px solid var(--focus); }
+.sheet-table { width: 100%; border-collapse: collapse; }
+.sheet-table th, .sheet-table td { text-align: left; padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.sheet-table th { font-weight: 600; overflow-wrap: break-word; }
+.sheet-table td:last-child { text-align: right; }
+.hit-die { margin-right: 0.6rem; }
+.slots { display: grid; gap: 0.3rem; margin-bottom: 0.75rem; }
+.slot-row { display: flex; align-items: center; gap: 0.4rem; }
+.slot-row span { min-width: 4.5rem; color: var(--muted); font-size: 0.9rem; }
+.slot-row input { width: 1.1rem; height: 1.1rem; }
+.plain-list { margin: 0.25rem 0 0.75rem; padding-left: 1.1rem; }
+.feature { border-bottom: 1px solid var(--border); padding: 0.4rem 0; }
+.feature summary { cursor: pointer; font-weight: 600; }
+.custom-dice { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.6rem; }
+.custom-die { border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem; display: grid; gap: 0.3rem; justify-items: start; }
+.custom-name { font-weight: 600; }
+.pre { white-space: pre-wrap; }
+.roll-result {
+  display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 1rem; align-items: center;
+  background: var(--surface); border: 2px solid var(--accent); border-radius: var(--radius); padding: 0.7rem 1rem; box-shadow: var(--shadow);
+}
+.roll-result-label { font-weight: 600; }
+.roll-result-total { grid-row: span 2; font-family: var(--serif); font-size: 2.2rem; font-weight: 700; color: var(--k-npc); }
+.roll-result-detail { color: var(--muted); font-size: 0.85rem; }
+.roll-result.nat20, .log-list li.nat20 { border-color: var(--k-location); }
+.roll-result.nat1, .log-list li.nat1 { border-color: var(--k-faction); }
+.game-log { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; }
+.game-log h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
+.free-roll { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+.free-roll label:first-child { flex: 1 1 140px; margin: 0; }
+.log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; max-height: 70vh; overflow-y: auto; }
+.log-list li { border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px; padding: 0.45rem 0.6rem; }
+.log-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+.log-label { font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
+.log-total { font-family: var(--serif); font-size: 1.35rem; font-weight: 700; }
+.log-detail { color: var(--muted); font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.log-tag { font-size: 0.72rem; border-radius: 999px; padding: 0.05rem 0.45rem; background: var(--k-other-bg); color: var(--k-other); font-weight: 600; }
+.log-tag.dm { background: var(--dm-bg); color: var(--dm); }
+.dice-page .game-log { max-width: 720px; }
+.sheet-editor { display: grid; gap: 1rem; }
+.sheet-editor fieldset { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 0.9rem 1rem; margin: 0; }
+.sheet-editor legend { font-family: var(--serif); font-weight: 700; padding: 0 0.3rem; }
+.grid-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0 0.9rem; align-items: end; }
+.grid-fields > legend { grid-column: 1 / -1; }
+.rows .row { display: flex; flex-wrap: wrap; gap: 0 0.75rem; align-items: end; border-bottom: 1px dashed var(--border); padding: 0.4rem 0; }
+.rows .row > label { flex: 1 1 140px; }
+.rows .row > .wide { flex-basis: 100%; }
+.rows .row .check { margin-bottom: 0.9rem; flex: 0 0 auto; }
+.sticky-actions { position: sticky; bottom: 0; background: var(--bg); padding: 0.6rem 0; justify-content: flex-end; display: flex; gap: 0.5rem; }
+
 /* --- layout for real campaigns (L1–L6) ---------------------------------------------------------------- */
 .board { max-width: 1400px; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0 0 0.75rem; }
@@ -369,7 +469,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .success { color: var(--party); font-weight: 500; }
 
 /* --- phone width ------------------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .sheet-layout { grid-template-columns: 1fr; }
+  .sheet-side { position: static; }
+  .sheet-cols { grid-template-columns: 1fr; }
+}
 @media (max-width: 760px) {
+  .sheet { padding: 1rem; }
+  .abilities { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .overview { padding: 1rem; }
   .overview-head h1 { font-size: 1.6rem; }
   .topbar { padding: 0.6rem 1rem; gap: 0.5rem; }

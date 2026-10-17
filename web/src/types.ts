@@ -96,3 +96,101 @@ export const BOARD_KINDS: Record<Board, string[]> = {
   character: ["backstory", "goal", "bond", "secret", "relationship", "other"],
   journal: ["note"],
 };
+
+// --- M10 character sheets and rolls (src/dungeonmind/hub/sheets.py, rolls.py) ---------------
+
+export type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
+export type SkillLevel = "none" | "proficient" | "expertise";
+
+export interface SheetData {
+  classes: { name: string; subclass: string; level: number; hit_die: number }[];
+  species: string;
+  background: string;
+  alignment: string;
+  xp: number;
+  abilities: Record<AbilityKey, number>;
+  saves: AbilityKey[];
+  save_misc: Partial<Record<AbilityKey, number>>;
+  skills: Record<string, SkillLevel>;
+  skill_misc: Record<string, number>;
+  jack_of_all_trades: boolean;
+  armor_class: number;
+  speed: number;
+  initiative_misc: number;
+  hp: { max: number; current: number; temp: number };
+  hit_dice_used: Record<string, number>;
+  death_saves: { successes: number; failures: number };
+  inspiration: boolean;
+  exhaustion: number;
+  conditions: string[];
+  attacks: {
+    name: string;
+    ability: AbilityKey | null;
+    proficient: boolean;
+    to_hit_misc: number;
+    damage: string;
+    add_ability_to_damage: boolean;
+    damage_type: string;
+    notes: string;
+  }[];
+  spellcasting: { ability: AbilityKey | null; slots: { max: number; used: number }[] };
+  spells: { name: string; level: number; prepared: boolean; notes: string }[];
+  inventory: { name: string; quantity: number; weight: number; equipped: boolean; notes: string }[];
+  currency: { cp: number; sp: number; ep: number; gp: number; pp: number };
+  features: { name: string; source: string; text: string }[];
+  proficiencies: string;
+  custom_dice: { name: string; expression: string; notes: string }[];
+  notes: string;
+}
+
+export interface Derived {
+  level: number;
+  proficiency_bonus: number;
+  modifiers: Record<AbilityKey, number>;
+  saves: Record<AbilityKey, number>;
+  skills: Record<string, number>;
+  passive_perception: number;
+  initiative: number;
+  attacks: { to_hit: number; damage: string }[];
+  spell_save_dc: number | null;
+  spell_attack: number | null;
+  hit_dice: Record<string, number>;
+  carried_weight: number;
+  carrying_capacity: number;
+  d20_penalty: number;
+  speed: number;
+}
+
+export interface SheetView {
+  sheet: SheetData;
+  derived: Derived;
+  version: number;
+  can_edit: boolean;
+}
+
+export type RollMode = "normal" | "advantage" | "disadvantage" | "critical";
+
+export interface RollRequest {
+  kind: string;
+  key?: string;
+  mode: RollMode;
+  to_dm: boolean;
+  character_id?: number;
+  expression?: string;
+}
+
+export interface Roll {
+  id: number;
+  label: string;
+  author: string;
+  character_id: number | null;
+  expression: string;
+  terms: { term: string; rolls: number[]; kept: number[]; subtotal: number }[];
+  bonus: number;
+  total: number;
+  natural: number | null;
+  outcome: string | null;
+  mode: RollMode;
+  to_dm: boolean;
+  created_at: string;
+}
