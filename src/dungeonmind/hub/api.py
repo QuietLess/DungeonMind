@@ -94,6 +94,16 @@ class EntryPatch(_In):
     session: StrictInt | None = None
 
 
+class PasswordChange(_In):
+    current_password: str
+    new_password: str
+
+
+class AccountDelete(_In):
+    password: str
+    confirm_username: str
+
+
 class ThreadIn(_In):
     title: str = "New chat"
 
@@ -219,6 +229,28 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     @private.get("/me")
     def me(user: Me):
         return asdict(user)
+
+    # --- account (M9b) ----------------------------------------------------------------------
+
+    @private.get("/account")
+    def account(user: Me):
+        return hub.account(user)
+
+    @private.post("/account/password", status_code=204)
+    def change_password(body: PasswordChange, request: Request, user: Me):
+        token = request.cookies.get(SESSION_COOKIE, "")
+        hub.change_password(
+            user, token, body.current_password, body.new_password, client=client_of(request)
+        )
+
+    @private.post("/account/sign-out-others")
+    def sign_out_others(request: Request, user: Me):
+        return {"signed_out": hub.sign_out_others(user, request.cookies.get(SESSION_COOKIE, ""))}
+
+    @private.post("/account/delete", status_code=204)
+    def delete_account(body: AccountDelete, request: Request, response: Response, user: Me):
+        hub.delete_account(user, body.password, body.confirm_username, client=client_of(request))
+        response.delete_cookie(SESSION_COOKIE, path="/")
 
     # --- campaigns ---------------------------------------------------------------------------
 

@@ -118,7 +118,12 @@ def test_a2_wrong_current_password_is_403_and_rate_limited(app):
         headers=H,
     )
     assert r.status_code == 429
-    _login(app, "mia_r")  # nothing changed
+    assert me.get("/api/account").status_code == 200  # nothing changed
+    # Counted like failed sign-ins (A2), so signing in with this name is locked out too.
+    login = TestClient(app).post(
+        "/api/auth/login", json={"username": "mia_r", "password": PASSWORD}, headers=H
+    )
+    assert login.status_code == 429
 
 
 def test_a2_new_password_follows_the_rules(app):
@@ -174,9 +179,9 @@ def test_a4_a_dm_must_delete_their_campaigns_first(app):
 
 def test_a4_delete_removes_private_text_and_keeps_shared_entries(app, hub):
     dm, player, cid = _campaign_with_player(app)
-    chid = player.post(
-        f"/api/campaigns/{cid}/characters", json={"name": "Brin"}, headers=H
-    ).json()["id"]
+    chid = player.post(f"/api/campaigns/{cid}/characters", json={"name": "Brin"}, headers=H).json()[
+        "id"
+    ]
 
     def entry(visibility, title):
         r = player.post(
@@ -208,9 +213,10 @@ def test_a4_delete_removes_private_text_and_keeps_shared_entries(app, hub):
         assert secret not in ids
         assert {shared, party} <= ids
         assert db.execute("SELECT count(*) FROM threads").fetchone()[0] == 0
-        assert db.execute("SELECT count(*) FROM chunks WHERE entry_id = ?", (secret,)).fetchone()[
-            0
-        ] == 0
+        assert (
+            db.execute("SELECT count(*) FROM chunks WHERE entry_id = ?", (secret,)).fetchone()[0]
+            == 0
+        )
         assert db.execute("SELECT count(*) FROM characters").fetchone()[0] == 1
     members = dm.get(f"/api/campaigns/{cid}/members").json()
     assert [m["username"] for m in members] == ["dm_dana"]

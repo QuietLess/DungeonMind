@@ -233,6 +233,104 @@ class Hub:
             db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed, row["id"]))
             db.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
 
+    # --- account management (M9b) ----------------------------------------------------------
+
+    def account(self, user: User) -> dict[str, Any]:
+        """A1: the user's own account summary."""
+        now = self.clock()
+        day = now.astimezone(UTC).date().isoformat()
+        with self.storage.app() as db:
+            row = db.execute("SELECT created_at FROM users WHERE id = ?", (user.id,)).fetchone()
+            if row is None:
+                raise NotFound("No such user.")
+            sessions = db.execute(
+                "SELECT count(*) FROM sessions WHERE user_id = ? AND expires_at > ?",
+                (user.id, _iso(now)),
+            ).fetchone()[0]
+            used = db.execute(
+                "SELECT count FROM usage WHERE user_id = ? AND day = ?", (user.id, day)
+            ).fetchone()
+        return {
+            "username": user.username,
+            "created_at": row["created_at"],
+            "sessions": sessions,
+            "questions_today": used["count"] if used else 0,
+            "daily_limit": self.daily_message_limit,
+        }
+
+    def _confirm_password(self, user: User, password: Any, client: str) -> None:
+        """A2/A4: a password check counted exactly like a failed sign-in for this username."""
+        now = self.clock()
+        keys = [
+            (f"{client}|{user.username}", auth.LOGIN_FAILURES_PER_USER),
+            (f"client:{client}", auth.LOGIN_FAILURES_PER_CLIENT),
+        ]
+        if not self._limiter.reserve(keys, now):
+            raise RateLimited("Too many wrong passwords. Try again in 15 minutes.")
+        with self.storage.app() as db:
+            row = db.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
+        ok = isinstance(password, str) and auth.verify_password(
+            password, row["password_hash"] if row else self._dummy_hash
+        )
+        if row is None or not ok:
+            raise Forbidden("Current password is wrong.")
+        self._limiter.release(keys, now)
+
+    def change_password(
+        self, user: User, token: str, current: Any, new: Any, client: str = "local"
+    ) -> None:
+        """A2: keeps the session `token`, ends every other session of the user."""
+        low, high = models.PASSWORD_CHARS
+        if not isinstance(new, str) or not low <= len(new) <= high:
+            raise Invalid(f"Passwords must be {low}–{high} characters.")
+        self._confirm_password(user, current, client)
+        hashed = auth.hash_password(new, self.scrypt_n)
+        with self.storage.app(immediate=True) as db:
+            db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed, user.id))
+            db.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
+                (user.id, auth.token_hash(token)),
+            )
+
+    def sign_out_others(self, user: User, token: str) -> int:
+        """A3: ends every session of the user except `token`; returns how many ended."""
+        with self.storage.app() as db:
+            return db.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
+                (user.id, auth.token_hash(token)),
+            ).rowcount
+
+    def delete_account(
+        self, user: User, password: Any, confirm_username: Any, client: str = "local"
+    ) -> None:
+        """A4: private text and chats go first (every campaign folder), then the account."""
+        if confirm_username != user.username:
+            raise Invalid("Type your username to confirm.")
+        self._confirm_password(user, password, client)
+        with self.storage.app() as db:
+            led = db.execute(
+                "SELECT count(*) FROM campaigns WHERE dm_id = ?", (user.id,)
+            ).fetchone()[0]
+        if led:
+            noun = "campaign" if led == 1 else "campaigns"
+            raise Conflict(f"You're the DM of {led} {noun}. Delete them first.")
+        for folder in sorted(self.storage.campaigns_root.iterdir()):
+            if folder.is_symlink() or not CAMPAIGN_ID.fullmatch(folder.name):
+                continue
+            if not (folder / "campaign.db").is_file():
+                continue
+            with self.storage.campaign(folder.name, immediate=True) as db:
+                db.execute(
+                    "DELETE FROM entries WHERE author_id = ? AND visibility = 'private'",
+                    (user.id,),
+                )
+                db.execute("DELETE FROM threads WHERE owner_id = ?", (user.id,))
+        with self.storage.app(immediate=True) as db:
+            db.execute("DELETE FROM usage WHERE user_id = ?", (user.id,))
+            db.execute(
+                "DELETE FROM users WHERE id = ?", (user.id,)
+            )  # sessions, memberships cascade
+
     # --- membership ------------------------------------------------------------------------
 
     def _member(self, user: User, cid: str) -> Campaign:
