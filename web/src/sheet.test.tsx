@@ -166,3 +166,27 @@ describe("game log", () => {
     expect(api.roll).toHaveBeenCalledWith("c1", { kind: "expression", expression: "2d6+3", mode: "normal", to_dm: false });
   });
 });
+
+describe("generated sheet entry", () => {
+  it("links to the sheet instead of offering edit or delete", async () => {
+    const { EntryPanel } = await import("./components/EntryPanel");
+    const entryApi = api as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    entryApi.entry = vi.fn().mockResolvedValue({
+      id: 9, board: "character", character_id: 7, author_id: "u1", kind: "sheet",
+      title: "Mira — character sheet", body: "AC 15", visibility: "party", session: null,
+      created_at: "", updated_at: "",
+    });
+    render(
+      <CampaignContext.Provider value={{ campaign, user }}>
+        <MemoryRouter>
+          <EntryPanel entryId={9} onClose={() => {}} />
+        </MemoryRouter>
+      </CampaignContext.Provider>,
+    );
+    expect(await screen.findByRole("link", { name: /open character sheet/i })).toHaveAttribute(
+      "href", "/c/c1/characters/7/sheet",
+    );
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+});
