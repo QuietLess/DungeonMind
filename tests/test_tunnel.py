@@ -268,3 +268,66 @@ def test_sh3_open_sign_up_while_sharing_warns_about_cost(serve_env, tmp_path, mo
     assert result.exit_code == 0, result.output
     assert "anyone" in result.output.lower()
     assert serve_env.hub_kw["signup"] == "open"
+
+
+# --- M9d review fixes ---------------------------------------------------------------------------
+
+
+def test_r1_only_the_owners_campaigns_can_invite_new_accounts(invite_hub):
+    hub, dm, camp = invite_hub  # dm_dana is the first account: the hub's owner
+    client = TestClient(create_app(hub))
+    assert _register(client, "player_one", hub.create_invite(dm, camp.id).code).status_code == 201
+    player = hub.login("player_one", PASSWORD)
+    player_user = hub.user_for_token(player)
+    own = hub.create_campaign(player_user, "Player side game")
+    code = hub.create_invite(player_user, own.id).code
+    r = _register(TestClient(create_app(hub)), "sock_puppet", code)
+    assert r.status_code == 403
+    # Existing accounts can still join the player's campaign with it.
+    other = TestClient(create_app(hub))
+    assert _register(other, "player_two", hub.create_invite(dm, camp.id).code).status_code == 201
+    assert other.post("/api/invites/accept", json={"code": code}, headers=H).status_code == 200
+
+
+def test_r4_config_tells_an_empty_hub_that_the_first_sign_up_needs_no_code(tmp_path):
+    hub = make_hub(tmp_path, signup="invite")
+    client = TestClient(create_app(hub))
+    assert client.get("/api/auth/config").json() == {"signup": "invite", "first": True}
+    assert _register(client, "dm_dana").status_code == 201  # the owner, no code
+    assert client.get("/api/auth/config").json() == {"signup": "invite", "first": False}
+
+
+def test_r5_hsts_through_the_tunnel_only(hub):
+    proxied = TestClient(create_app(hub, proxy="cloudflare"), client=LOOPBACK)
+    r = proxied.get("/api/health", headers={"X-Forwarded-Proto": "https"})
+    assert "max-age=" in r.headers.get("strict-transport-security", "")
+    assert "strict-transport-security" not in TestClient(create_app(hub)).get("/api/health").headers
+
+
+def test_r2_an_error_line_naming_the_api_host_is_not_the_address(serve_env, tmp_path, monkeypatch):
+    body = """
+import sys, time
+print('ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": EOF', file=sys.stderr, flush=True)
+sys.exit(1)
+"""
+    bindir = _fake_cloudflared(tmp_path, body)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    result = CliRunner().invoke(cli.app, ["share", "--tunnel-timeout", "5"], env=WIDE)
+    assert result.exit_code == 1
+    assert "api.trycloudflare.com" not in result.output
+    assert serve_env.run is None
+
+
+def test_r6_share_refuses_a_busy_port_before_opening_the_tunnel(serve_env, tmp_path, monkeypatch):
+    import socket
+
+    bindir = _fake_cloudflared(tmp_path, TUNNEL)
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        result = CliRunner().invoke(cli.app, ["share", "--port", str(port)], env=WIDE)
+    assert result.exit_code == 1
+    assert "in use" in result.output
+    assert not (bindir / "args.txt").exists()  # cloudflared never started

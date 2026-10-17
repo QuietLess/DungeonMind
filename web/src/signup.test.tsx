@@ -48,3 +48,15 @@ describe("sign-up with an invite", () => {
     expect(api.register).toHaveBeenCalledWith("mia_r", "a long password", undefined);
   });
 });
+
+describe("first account on an invite-only hub", () => {
+  it("doesn't require a code when the hub is empty", async () => {
+    api.authConfig.mockResolvedValue({ signup: "invite", first: true });
+    renderAuth();
+    await userEvent.click(screen.getByRole("button", { name: /create an account/i }));
+    await userEvent.type(screen.getByLabelText("Username"), "dm_dana");
+    await userEvent.type(screen.getByLabelText("Password"), "a long password");
+    await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+    expect(api.register).toHaveBeenCalledWith("dm_dana", "a long password", undefined);
+  });
+});
