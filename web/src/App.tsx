@@ -45,10 +45,10 @@ export function App() {
         <Route path="/account" element={user ? <AccountPage /> : <Navigate to="/login" replace />} />
         <Route path="/c/:cid" element={user ? <CampaignLayout /> : <Navigate to="/login" replace />}>
           <Route index element={<Navigate to="chat" replace />} />
-          <Route path="lore" element={<BoardPage board="lore" />} />
+          <Route path="lore" element={<BoardPage key="lore" board="lore" />} />
           <Route path="characters" element={<CharactersPage />} />
           <Route path="characters/:chid" element={<CharactersPage />} />
-          <Route path="journal" element={<BoardPage board="journal" />} />
+          <Route path="journal" element={<BoardPage key="journal" board="journal" />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="chat/:tid" element={<ChatPage />} />
           <Route path="members" element={<MembersPage />} />

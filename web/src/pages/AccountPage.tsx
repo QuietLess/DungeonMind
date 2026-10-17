@@ -26,7 +26,11 @@ function useAction() {
       setBusy(false);
     }
   };
-  return { error, setError, done, busy, run };
+  const fail = (text: string) => {
+    setDone(null); // R10: never an old success next to a new error
+    setError(text);
+  };
+  return { error, setError: fail, done, busy, run };
 }
 
 function Feedback({ error, done }: { error: string | null; done: string | null }) {
@@ -61,6 +65,9 @@ function ChangePassword({ onChanged }: { onChanged: () => void }) {
     }
     void action.run(async () => {
       await api.changePassword(current, next);
+      setCurrent("");
+      setNext("");
+      setRepeat("");
       onChanged();
       return "Password changed. Your other devices were signed out.";
     });

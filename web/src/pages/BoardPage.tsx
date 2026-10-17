@@ -57,17 +57,22 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
     }
   };
 
-  // UB1: kind and secret/revealed filters work on the loaded list.
+  // UB1: kind and secret/revealed filters work on the loaded list, on the lore board only
+  // (R1: the journal reuses this component, and must never inherit a hidden filter).
+  const lore = board === "lore";
+  const show = lore ? shown : "all";
   const visible = (entries ?? []).filter(
-    (e) => shown === "all" || (shown === "secret" ? e.visibility !== "party" : e.visibility === "party"),
+    (e) => show === "all" || (show === "secret" ? e.visibility !== "party" : e.visibility === "party"),
   );
+  // R2: the selected kind keeps its chip (count 0) so it can always be seen and cleared.
   const kindCounts = BOARD_KINDS.lore
     .map((kind) => ({ kind, count: visible.filter((e) => e.kind === kind).length }))
-    .filter((k) => k.count);
+    .filter((k) => k.count || k.kind === kindFilter);
+  const filtering = kindFilter !== null || shown !== "all";
   const groups =
     board === "lore"
       ? BOARD_KINDS.lore
-          .filter((kind) => kindFilter === null || kind === kindFilter)
+          .filter((kind) => !lore || kindFilter === null || kind === kindFilter)
           .map((kind) => ({ kind, items: visible.filter((e) => e.kind === kind) }))
           .filter((g) => g.items.length)
       : [{ kind: "", items: [...visible].sort(journalOrder) }];
@@ -94,7 +99,7 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
           onChange={(e) => setTyped(e.target.value)}
         />
       </label>
-      {board === "lore" && entries && entries.length > 0 && (
+      {lore && entries && (entries.length > 0 || filtering) && (
         <div className="filters">
           <div role="group" aria-label="Kind" className="chip-row">
             <button

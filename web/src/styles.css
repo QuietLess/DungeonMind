@@ -265,7 +265,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .thread-row .thread { flex: 1; min-width: 0; }
 .thread-actions { display: flex; opacity: 0.6; }
 .thread-row:hover .thread-actions, .thread-actions:focus-within { opacity: 1; }
-.thread-actions .icon-button { font-size: 0.95rem; padding: 0.25rem 0.35rem; }
+.thread-actions .icon-button { font-size: 0.95rem; padding: 0.3rem 0.45rem; min-width: 1.75rem; min-height: 1.75rem; justify-content: center; }
+.icon-button.danger { color: var(--danger); }
+.thread-picker-actions { display: none; gap: 0.25rem; padding: 0 1rem 0.25rem; }
 .entry-body h3, .entry-body h4, .entry-body h5 { margin: 1rem 0 0.4rem; font-family: var(--serif); }
 .entry-body blockquote { margin: 0.5rem 0; padding-left: 0.85rem; border-left: 3px solid var(--border); color: var(--muted); }
 .entry-body code { background: var(--surface-2); border-radius: 4px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
@@ -280,7 +282,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .account-stack form, .account-stack .panel { display: grid; gap: 0.5rem; }
 .account-stack .btn { justify-self: start; }
 .panel-danger { border-color: var(--danger); }
-.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: var(--bg); } /* AA in both themes */
 .btn-danger:hover { background: var(--danger); filter: brightness(1.08); }
 .success { color: var(--party); font-weight: 500; }
 
@@ -300,6 +302,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
   .chat { grid-template-columns: 1fr; height: 100%; }
   .thread-list { display: none; }
   .thread-picker { display: block; }
+  .thread-picker-actions { display: flex; }
   .messages { padding: 1rem; }
   .composer { padding: 0.75rem 1rem; }
 }

@@ -35,6 +35,7 @@ export function ChatPage() {
   const [source, setSource] = useState<Citation | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const end = useRef<HTMLDivElement>(null);
+  const newChat = useRef<HTMLButtonElement>(null);
   // A thread this page just created already has its messages on screen; reloading it would
   // race the pending answer and wipe the first question (found in the browser walk-through).
   const created = useRef<number | null>(null);
@@ -121,6 +122,8 @@ export function ChatPage() {
     }
   };
 
+  const openThread = threads?.find((t) => t.id === threadId) ?? null;
+
   // UB5: tidy up the thread list.
   const rename = async (t: Thread) => {
     const title = window.prompt("Rename chat", t.title)?.trim();
@@ -138,6 +141,7 @@ export function ChatPage() {
     try {
       await api.deleteThread(campaign.id, t.id);
       if (t.id === threadId) navigate(base, { replace: true });
+      newChat.current?.focus(); // R7: the focused row is gone
       reloadThreads();
     } catch (e) {
       setError(message(e));
@@ -153,6 +157,7 @@ export function ChatPage() {
     <section className="chat">
       <aside className="thread-list" aria-label="Your chats">
         <button
+          ref={newChat}
           type="button"
           className="btn btn-primary"
           onClick={() => navigate(base)}
@@ -212,6 +217,16 @@ export function ChatPage() {
             ))}
           </select>
         </label>
+        {openThread && (
+          <div className="thread-picker-actions">
+            <button type="button" className="btn btn-small btn-ghost" onClick={() => rename(openThread)}>
+              Rename this chat
+            </button>
+            <button type="button" className="btn btn-small btn-ghost danger" onClick={() => remove(openThread)}>
+              Delete this chat
+            </button>
+          </div>
+        )}
         <div className="messages" role="log" aria-label="Conversation">
           {messages.length === 0 && !busy && (
             <div className="chat-empty">

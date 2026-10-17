@@ -3,7 +3,9 @@
 // load anything, or inject markup. URLs and HTML in a note stay visible as plain text.
 import { Fragment, type ReactNode } from "react";
 
-const INLINE = /\*\*([^*\n]+)\*\*|`([^`\n]+)`|\*([^*\s][^*\n]*)\*|_([^_\s][^_\n]*)_/g;
+// Emphasis only at word edges (R11): file_name_here and 2*3*4 stay as written.
+const INLINE =
+  /\*\*([^*\n]+)\*\*|`([^`\n]+)`|(?<![\p{L}\p{N}*])\*([^*\s](?:[^*\n]*[^*\s])?)\*(?![\p{L}\p{N}*])|(?<![\p{L}\p{N}_])_([^_\s](?:[^_\n]*[^_\s])?)_(?![\p{L}\p{N}_])/gu;
 const HEADING = /^(#{1,3})\s+(.*)$/;
 const BULLET = /^\s*[-*•]\s+/;
 const NUMBERED = /^\s*\d+[.)]\s+/;
@@ -46,7 +48,17 @@ export function NoteText({ text }: { text: string }) {
     if (kind === "bullet" || kind === "numbered") {
       const strip = kind === "bullet" ? BULLET : NUMBERED;
       const items = lines.map((l, i) => <li key={i}>{inline(l.replace(strip, ""), `${key}-${i}`)}</li>);
-      blocks.push(kind === "bullet" ? <ul key={key}>{items}</ul> : <ol key={key}>{items}</ol>);
+      // R3: keep the first number ("3. oturumda…" is an ordinal in Turkish, not item 1).
+      const start = kind === "numbered" ? Number.parseInt(lines[0], 10) : 1;
+      blocks.push(
+        kind === "bullet" ? (
+          <ul key={key}>{items}</ul>
+        ) : (
+          <ol key={key} start={start !== 1 ? start : undefined}>
+            {items}
+          </ol>
+        ),
+      );
     } else {
       const strip = kind === "quote" ? QUOTE : /^/;
       const body = lines.map((l, i) => (
