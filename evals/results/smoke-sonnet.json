@@ -1,0 +1,86 @@
+{
+  "cases": [
+    {
+      "id": "rules-01",
+      "category": "rules",
+      "scores": {
+        "completed_ok": true,
+        "intent_ok": true,
+        "citations_ok": true,
+        "grounded": true,
+        "passed": true
+      },
+      "passed": true,
+      "intent": "rules_qa",
+      "stop_reason": "completed",
+      "answer": "Ready lets you set a trigger on your turn and act on it with your Reaction before your next turn starts. You take the Ready action on your turn [E1]. It is one of the standard actions, described as preparing to take an action in response to a trigger you define [E3].\n\nHow it works: First, decide what perceivable circumstance will trigger your Reaction. Then choose either the action you'll take in response or to move up to your Speed [E1]. Examples: \"If the cultist steps on the trapdoor, I'll pull the lever,\" or \"If the zombie steps next to me, I move away\" [E1]. When the trigger occurs, you ca",
+      "latency_ms": 5695.699460004107,
+      "cost": 0.012824,
+      "usage": {
+        "route": {
+          "cost": 0.00194,
+          "calls": 1,
+          "input_tokens": 705,
+          "output_tokens": 53,
+          "model": "claude-sonnet-5-5"
+        },
+        "rules_answer": {
+          "cost": 0.010884,
+          "calls": 1,
+          "input_tokens": 3117,
+          "output_tokens": 465,
+          "model": "claude-sonnet-5-5"
+        }
+      }
+    }
+  ],
+  "categories": {
+    "rules": {
+      "n": 1,
+      "passed": 1,
+      "pass_rate": 1.0
+    }
+  },
+  "overall": {
+    "n": 1,
+    "passed": 1,
+    "pass_rate": 1.0
+  },
+  "scores": {
+    "citations_ok": 1.0,
+    "completed_ok": 1.0,
+    "grounded": 1.0,
+    "intent_ok": 1.0
+  },
+  "latency_ms": {
+    "p50": 5695.699460004107,
+    "p95": 5695.699460004107
+  },
+  "cost": {
+    "total": 0.012824,
+    "by_step": {
+      "route": 0.00194,
+      "rules_answer": 0.010884
+    }
+  },
+  "stopped_early": false,
+  "not_run": [],
+  "meta": {
+    "kind": "live",
+    "models": {
+      "route": "claude-sonnet-5-5:low",
+      "contextualize": "claude-sonnet-5-5:low",
+      "rules_answer": "claude-sonnet-5-5:medium",
+      "agent": "claude-sonnet-5-5:medium",
+      "extract_encounter": "claude-sonnet-5-5:low",
+      "present_encounter": "claude-sonnet-5-5:medium",
+      "campaign": "claude-sonnet-5-5:medium"
+    },
+    "max_cost": 0.5,
+    "label": "smoke-sonnet",
+    "git_commit": "9c5162d1d82250a59c427e04f27fa82770bba7db",
+    "git_dirty": true,
+    "dataset": "suite_v1",
+    "created_at": "2026-10-17T11:19:16+00:00"
+  }
+}
