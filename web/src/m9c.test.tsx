@@ -205,3 +205,78 @@ describe("UB5 chat tidy-up", () => {
     expect(await screen.findByRole("heading", { name: /Ask about Ashvale/ })).toBeInTheDocument();
   });
 });
+
+describe("M9c review fixes", () => {
+  it("R1: lore filters don't carry over to the journal", async () => {
+    const loreEntries = [
+      entry({ title: "Baron Vex", visibility: "private" }),
+      entry({ title: "Elara", visibility: "party" }),
+    ];
+    const journal = [
+      entry({ board: "journal", kind: "note", title: "J-private", visibility: "private" }),
+      entry({ board: "journal", kind: "note", title: "J-party", visibility: "party" }),
+    ];
+    api.entries.mockImplementation((_cid: string, f: { board: string }) =>
+      Promise.resolve(f.board === "lore" ? loreEntries : journal),
+    );
+    const { rerender } = render(
+      <CampaignContext.Provider value={{ campaign: dmCampaign, user }}>
+        <MemoryRouter>
+          <BoardPage board="lore" />
+        </MemoryRouter>
+      </CampaignContext.Provider>,
+    );
+    await screen.findByText("Baron Vex");
+    await userEvent.click(screen.getByRole("button", { name: "Revealed" }));
+    rerender(
+      <CampaignContext.Provider value={{ campaign: dmCampaign, user }}>
+        <MemoryRouter>
+          <BoardPage board="journal" />
+        </MemoryRouter>
+      </CampaignContext.Provider>,
+    );
+    expect(await screen.findByText("J-private")).toBeInTheDocument();
+    expect(screen.getByText("J-party")).toBeInTheDocument();
+  });
+
+  it("R2: a selected kind stays visible (count 0) when other filters empty it", async () => {
+    api.entries.mockResolvedValue([
+      entry({ title: "Baron Vex", kind: "npc", visibility: "private" }),
+      entry({ title: "Ashvale", kind: "location", visibility: "party" }),
+    ]);
+    renderAt(<BoardPage board="lore" />, dmCampaign, "/c/c1/lore", "/c/:cid/lore");
+    await screen.findByText("Ashvale");
+    const kinds = screen.getByRole("group", { name: /kind/i });
+    await userEvent.click(within(kinds).getByRole("button", { name: /Location/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Secret" }));
+    const location = within(kinds).getByRole("button", { name: /Location\s*0/ });
+    expect(location).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("R3: a numbered list keeps its first number (Turkish ordinals)", () => {
+    const { container } = render(<NoteText text={"3. oturumda Baron öldü.\n4. oturumda kaçtık."} />);
+    expect(container.querySelector("ol")).toHaveAttribute("start", "3");
+  });
+
+  it("R11: no italics inside words", () => {
+    const { container } = render(<NoteText text={"file_name_here and 2*3*4 but *this* and _that_"} />);
+    expect([...container.querySelectorAll("em")].map((e) => e.textContent)).toEqual(["this", "that"]);
+  });
+
+  it("R5: the open chat can be renamed and deleted from the phone picker too", async () => {
+    api.threads.mockResolvedValue([{ id: 5, title: "Grappling", created_at: "" }]);
+    api.thread.mockResolvedValue({ thread: { id: 5, title: "Grappling", created_at: "" }, messages: [] });
+    renderAt(<ChatPage />, playerCampaign, "/c/c1/chat/5", "/c/:cid/chat");
+    expect(await screen.findByRole("button", { name: "Rename this chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete this chat" })).toBeInTheDocument();
+  });
+
+  it("R7: after deleting a chat, focus goes to New chat", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    api.threads.mockResolvedValue([{ id: 6, title: "Elara", created_at: "" }]);
+    api.deleteThread.mockResolvedValue(undefined);
+    renderAt(<ChatPage />, playerCampaign, "/c/c1/chat", "/c/:cid/chat");
+    await userEvent.click(await screen.findByRole("button", { name: "Delete Elara" }));
+    expect(screen.getByRole("button", { name: /New chat/ })).toHaveFocus();
+  });
+});
