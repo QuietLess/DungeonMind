@@ -1278,3 +1278,16 @@ run). Once the hub is on the internet, two things change: every request now arri
 
 Named tunnels on the owner's own domain (needs a Cloudflare account and a domain; documented,
 not automated), Cloudflare Access.
+
+## M9e contract — sign-in hardening and the hub owner
+
+- **H1 Per-account limit.** Besides the per-client limits, wrong passwords for an existing
+  account are capped hub-wide: 50 per 15 minutes per account, from any number of addresses
+  (sign-in, password change and account deletion all count). Over it: 429. Unknown usernames
+  get no account counter, so the counters are bounded by the number of accounts and can't be
+  flushed by inventing names. Trade-off (accepted): someone with ≥ 10 addresses can lock one
+  known username for 15 minutes.
+- **H2 Explicit owner.** The hub's owner is recorded in `app.db` (`settings.owner_id`) when
+  the first account registers; a hub from before M9e records its oldest account on first use.
+  Only the owner's campaigns can invite new accounts (M9d R1). The owner can't delete their
+  account (409 "The hub's owner can't delete their account."), so ownership never moves.
