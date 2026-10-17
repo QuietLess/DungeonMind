@@ -137,3 +137,52 @@ describe("L5 chat suggestions", () => {
     expect(s.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("layout review fixes", () => {
+  it("previews drop links, tables and rules but keep words with underscores", () => {
+    expect(plainExcerpt("See [the map](https://x.com/my_map) for fire_bolt.\n\n---\n| Ad | HP |\n|---|---|\n| Orc | 15 |"))
+      .toBe("See the map for fire_bolt. Ad HP Orc 15");
+  });
+
+  it("sorts Turkish titles with Turkish rules", async () => {
+    api.entries.mockResolvedValue([
+      entry({ title: "Çınar" }), entry({ title: "Cem" }), entry({ title: "Dora" }),
+    ]);
+    inCampaign(<BoardPage board="lore" />, dm, "/c/c1/lore");
+    await screen.findByText("Dora");
+    expect(screen.getAllByRole("article").map((c) => c.querySelector(".entry-title")?.textContent))
+      .toEqual(["Cem", "Çınar", "Dora"]);
+  });
+
+  it("the overview refreshes after an entry opened from it changes", async () => {
+    api.entries.mockResolvedValueOnce([entry({ title: "Erius" })]).mockResolvedValue([]);
+    api.entry.mockResolvedValue(entry({ title: "Erius", id: 99 }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    (api as Record<string, ReturnType<typeof vi.fn>>).deleteEntry = vi.fn().mockResolvedValue(undefined);
+    inCampaign(<OverviewPage />);
+    const recent = await screen.findByRole("list", { name: /recently changed/i });
+    await userEvent.click(within(recent).getByRole("button", { name: /Erius/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(await screen.findByText(/nothing written yet/i)).toBeInTheDocument();
+  });
+
+  it("the overview says so when loading fails", async () => {
+    const { ApiError } = await import("./api");
+    api.entries.mockRejectedValue(new ApiError(500, "Something went wrong on the server."));
+    inCampaign(<OverviewPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
+  });
+
+  it("quick actions open the new-entry form", async () => {
+    api.entries.mockResolvedValue([]);
+    inCampaign(<OverviewPage />);
+    expect(await screen.findByRole("link", { name: /new lore entry/i })).toHaveAttribute("href", "/c/c1/lore?new=1");
+    expect(screen.getByRole("link", { name: /new journal entry/i })).toHaveAttribute("href", "/c/c1/journal?new=1");
+  });
+
+  it("the board opens the form for ?new=1", async () => {
+    api.entries.mockResolvedValue([]);
+    inCampaign(<BoardPage board="journal" />, dm, "/c/c1/journal?new=1");
+    expect(await screen.findByRole("dialog", { name: /new journal entry/i })).toBeInTheDocument();
+  });
+});
