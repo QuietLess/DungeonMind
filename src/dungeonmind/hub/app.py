@@ -27,7 +27,9 @@ class FastEmbedder:
             return self.dense._query_vector(text)
 
 
-def build_hub(root: Path, daily_message_limit: int = 50, chunks: Path = DEFAULT_CHUNKS):
+def build_hub(
+    root: Path, daily_message_limit: int = 50, chunks: Path = DEFAULT_CHUNKS, models=None
+):
     from dungeonmind.graph.llm import ClaudeLLM
     from dungeonmind.hub.chats import make_engine
     from dungeonmind.hub.service import Hub
@@ -51,7 +53,7 @@ def build_hub(root: Path, daily_message_limit: int = 50, chunks: Path = DEFAULT_
             return retriever.retrieve(query, k=SRD_K, mode=Mode.DENSE)
 
     registry = ToolRegistry(Catalog.load(chunks=srd_chunks))
-    engine = make_engine(ClaudeLLM(), retrieve, registry)
+    engine = make_engine(ClaudeLLM(models=models), retrieve, registry)
     return Hub(
         root,
         embedder=FastEmbedder(dense, model_lock),

@@ -1,0 +1,9 @@
+{
+  "srd_recall@5": 0.85,
+  "notes_recall@5": 0.90,
+  "leak_rate": 0.0,
+  "contract_violations": 0,
+  "live_pass_rate": 0.85,
+  "live_no_leak": 1.0,
+  "live_citations_ok": 0.95
+}

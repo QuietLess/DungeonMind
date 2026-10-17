@@ -750,3 +750,164 @@ Each item has a regression test.
   - W2 compares `.map` case-insensitively; APFS would otherwise serve `a.js.MAP`.
 - **Known limitation:** the embedded SRD index can be open in one process at a time, so run
   either `serve` or `chat`/`ask`, not both. A Qdrant server (M9) removes this.
+
+## M8 contract — evaluation
+
+Goal: a versioned suite of 200+ cases that measures what DungeonMind is for: grounded rules
+answers, correct tools, campaign answers that never leak, honest abstention. Results are
+tracked per version and gated for regressions, and the per-step model choice (Opus vs Sonnet
+vs Haiku) is decided from measured quality, cost and latency. **Everything except the live
+run works offline.** The live run needs an API key and spends money, so it always shows a
+cost estimate and stops at a budget.
+
+### Suite (`src/dungeonmind/evals/datasets/suite_v1.jsonl`, fixture campaign `notes_v0.json`)
+
+One JSON object per case: `id`, `category`, `question`, optional `viewer` (`dm` | `player`,
+campaign cases only), optional `history` (earlier exchanges, for follow-ups), and `expect`:
+
+| Field | Meaning | Checked |
+| --- | --- | --- |
+| `intent` | the route the question should take | live |
+| `srd` | SRD heading titles that answer it (at least one should be retrieved/cited) | offline (retrieval) + live (citations) |
+| `notes` | fixture entry titles that answer it | offline (notes retrieval) + live |
+| `tool` | tool the agent should call | live |
+| `contains` | regexes (case-insensitive) the answer must match | live |
+| `numbers` | numbers the answer must state (odds, XP); computed by our tools | offline (the dataset agrees with the tools) + live |
+| `abstain` | the answer must set `insufficient_evidence` | live |
+| `decline` | out of scope: the decline answer | live |
+| `other_edition` | the 2014-rules note must appear | live |
+| `no_leak` | strings that must never appear in the answer or in the evidence the model got | offline (search) + live |
+| `forbid` | strings the answer must not contain, though they may be in the evidence (injection payloads such as "PWNED", prompt text) | live |
+
+Categories and minimum counts:
+- `rules` 60
+- `lookup` 25
+- `probability` 20
+- `encounter` 12
+- `campaign` 40 (DM and player viewers, including questions whose answer exists only in
+  hidden entries)
+- `prep` 8
+- `followup` 8
+- `out_of_scope` 12
+- `other_edition` 6
+- `unanswerable` 10
+- `injection` 8 (notes or questions that try to steer the model)
+
+Total ≥ 200.
+
+**V1 Validation** (`dungeonmind eval validate`, a test):
+- every id is unique and every category is known;
+- every `srd` title exists in the chunks and every `notes` title exists in the fixture;
+- `viewer` is set iff the case reads the campaign;
+- every `probability` case's `numbers` match what `tools/probability.py` computes for its
+  `args`;
+- category counts meet the minimums.
+
+### Offline evaluation (`dungeonmind eval offline`, no API calls)
+
+- **O1 SRD retrieval:** R@5 and MRR over cases with `srd`, per retrieval mode.
+- **O2 Notes retrieval:** R@5 and MRR over cases with `notes`, using the real hub search as the
+  case's viewer on the fixture campaign (the fake embedder in tests, the real one from the CLI).
+- **O3 Leak check:** for every `no_leak` case, none of the strings appear in any search hit the
+  viewer gets (k = 50). The metric is `leak_rate` = leaking cases / `no_leak` cases.
+- **O4 Contract check:** each case runs through the real graph with a scripted LLM that cites
+  everything it was given. Verify must leave valid citations only, and campaign cases must
+  receive only the viewer's entries (no `no_leak` text in any LLM input).
+
+### Live evaluation (`dungeonmind eval live`, needs a key)
+
+- **L1** Every case runs through the production engine: rules, lookup, probability and
+  encounter cases through `run_chat`; campaign, prep and follow-up cases through `Hub.ask` as
+  the case's viewer on a throwaway fixture hub.
+- **L2 Per-case scores:**
+  - `intent_ok`
+  - `citations_ok` (no violations)
+  - `grounded` (at least one expected source cited, when expected)
+  - `contains_ok`, `numbers_ok`
+  - `abstain_ok`, `decline_ok`, `edition_ok`
+  - `no_leak_ok`
+
+  A case passes when every score that applies is true. Each case records its latency, tokens
+  and cost per step.
+- **L3 Budget:**
+  - `--estimate` prints the expected cost from per-category token estimates and makes no call.
+  - `--max-cost` (default $2.00) stops before the next case once spending reaches it, and
+    reports the cases not run.
+  - `--limit` and `--category` select a subset.
+  - The run refuses to start without `--yes` once the estimate exceeds the budget.
+- **L4 Results:** `evals/results/<label>.json` holds:
+  - the git commit, a dirty flag, the dataset version, the model configuration and a timestamp;
+  - per-case scores;
+  - per-category and overall pass rates, p50/p95 latency, and total and per-step cost.
+
+### Model choice per step (M8)
+
+- **M1** `ModelConfig` maps each step (`route`, `contextualize`, `rules_answer`, `agent`,
+  `extract_encounter`, `present_encounter`, `campaign`) to a model and an effort. The default
+  is today's behaviour: Opus 5.5 everywhere; `route`, `contextualize` and `extract_encounter`
+  at low effort, the rest at medium.
+- **M2** It is set by `DUNGEONMIND_MODELS="route=claude-haiku-5-5,agent=claude-sonnet-5-5:low"`
+  or by `--models` on `chat`, `serve` and `eval live`. Unknown steps, models or efforts are an
+  error naming the valid ones.
+- **M3** `ClaudeLLM` records one usage entry per call: step, model, input, output, cache-read and
+  cache-write tokens, latency, and cost from `PRICING`. Prices per MTok (from the Claude API
+  reference, 2026-10-06):
+  - Opus 5.5: $4 input, $20 output, $0.20 cache read
+  - Sonnet 5.5: $2, $10, $0.20
+  - Haiku 5.5: $0.10, $0.50 (prompts ≤ 100K), cache read 10% of input
+
+  Cache writes are 1.25× input.
+- **M4** The refusal fallback (`server-side-fallback-2026-07-01`, `fallbacks: "default"`) is sent
+  only to models that support it: Opus 5.5 and Sonnet 5.5. Haiku 5.5 has no server-side
+  fallback, so its requests omit both.
+- **M5** `dungeonmind eval compare A B` prints per-category pass-rate deltas, cost and latency
+  side by side. The decision on which steps can use a cheaper model is recorded in the
+  ROADMAP from a live comparison run.
+
+### Regression gates
+
+- **G1** `evals/gates.json` holds thresholds. `dungeonmind eval gate` runs validation and the
+  offline evaluation and exits non-zero on any breach. Initial thresholds:
+  - SRD R@5 ≥ 0.85
+  - notes R@5 ≥ 0.90
+  - `leak_rate` = 0
+  - O4 violations = 0
+  - dataset valid
+- **G2** Given a live result (`--live evals/results/x.json`), it also checks the overall pass
+  rate ≥ 0.85, `no_leak_ok` = 100% and `citations_ok` ≥ 0.95.
+- **G3** CI runs `eval gate` (offline) with the tests in M9.
+
+### M8 review fixes (backend + security review)
+
+Each item has a regression test.
+
+- **R1** Every case gets `completed_ok` (`stop_reason` is completed or needs_input). An error or
+  out-of-budget answer never passes, even where abstaining is expected. `abstain_ok` also
+  requires that the answer isn't a decline.
+- **R2** Intent labels follow the router's rules:
+  - spell and monster details (rules-31, 32, 33, 34, 36, 39, 40) are `lookup`;
+  - the XP-budget question (rules-14) is `encounter`.
+
+  For questions routed to tools, a cited tool counts as grounding only when its output names
+  an expected source as a whole value (e.g. `"name": "Fireball"`). The XP-budget question is
+  grounded by a cited encounter tool; an unrelated tool proves nothing (re-review).
+- **R3** Grounding compares whole titles parsed from citation labels (the page and the journal's
+  "(author, session)" suffix are stripped). "Fireball" no longer matches
+  "Delayed Blast Fireball".
+- **R4** Expected numbers must appear as percentages (probability cases) or as XP amounts
+  (budgets). A stray "d20" or "AC 15" doesn't count.
+- **R5** `forbid` entries are regexes. Injection cases check for obeying the payload
+  (`PWNED\W*$`), not for mentioning it in a summary.
+- **R6** Budget:
+  - the runner is told the budget left, and stops a case's next model call once it is spent;
+  - a failed case still records the money it spent;
+  - evals cap the agent at 4 turns, so one case can overshoot by at most one call.
+- **R7** The live gate accepts only a complete run of this dataset version with a `no_leak_ok`
+  score: not stopped early, and covering every case.
+- **Other fixes:**
+  - O4 covers follow-up cases with their history.
+  - Usage is priced by the model that answered (a refusal fallback may switch it).
+  - Several loose expectations were tightened: encounter-10, lookup-22, lookup-23,
+    campaign-20 and campaign-22.
+- **L1 clarified:** cases with a viewer run through `Hub.ask`; the others, including follow-ups
+  without a viewer, run through `run_chat` with their history.
