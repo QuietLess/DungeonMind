@@ -30,13 +30,18 @@ export function GameLog({
   const [error, setError] = useState<string | null>(null);
   const [expression, setExpression] = useState("");
   const [toDm, setToDm] = useState(false);
-  const last = useRef(0);
+  // Only server polls move this cursor (review: the page's own rolls used to move it and
+  // made the next poll skip anything rolled in between by others).
+  const cursor = useRef(0);
+  const [announce, setAnnounce] = useState(false); // the history load isn't read out
 
   const add = (more: Roll[]) => {
-    const fresh = more.filter((r) => r.id > last.current);
-    if (!fresh.length) return;
-    last.current = Math.max(last.current, ...fresh.map((r) => r.id));
-    setRolls((old) => [...fresh.reverse(), ...old].slice(0, KEEP));
+    if (!more.length) return;
+    setRolls((old) => {
+      const byId = new Map(old.map((r) => [r.id, r]));
+      for (const r of more) byId.set(r.id, r);
+      return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, KEEP);
+    });
   };
 
   useEffect(() => {
@@ -44,8 +49,13 @@ export function GameLog({
     const poll = () => {
       if (typeof document !== "undefined" && document.hidden) return;
       api
-        .rolls(cid, last.current)
-        .then((more) => live && add(more))
+        .rolls(cid, cursor.current)
+        .then((more) => {
+          if (!live) return;
+          if (more.length) cursor.current = Math.max(cursor.current, ...more.map((r) => r.id));
+          add(more);
+          setAnnounce(true);
+        })
         .catch(() => undefined); // a missed poll is retried on the next tick
     };
     poll();
@@ -98,7 +108,7 @@ export function GameLog({
         </form>
       )}
       {rolls.length === 0 && <p className="muted">No rolls yet.</p>}
-      <ol className="log-list" aria-live="polite">
+      <ol className="log-list" role="log" aria-live={announce ? "polite" : "off"} aria-relevant="additions">
         {rolls.map((r) => (
           <li key={r.id} className={r.natural === 20 ? "nat20" : r.natural === 1 ? "nat1" : undefined}>
             <div className="log-head">

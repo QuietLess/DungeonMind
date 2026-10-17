@@ -1,5 +1,5 @@
 // M10c: the full sheet form (player and DM). The server validates and computes everything else.
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ABILITY_KEYS, ABILITY_NAMES, SKILL_ABILITY, skillName } from "../sheetRules";
 import type { AbilityKey, SheetData, SkillLevel } from "../types";
 
@@ -23,16 +23,32 @@ function Num({
   max?: number;
   step?: number;
 }) {
+  // Keeps what is typed ("", "-") until it's a number, so fields can be cleared and negative
+  // numbers typed (review: an empty field used to snap to 0, so "-2" became "02").
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    if (Number(text) !== value) setText(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
   return (
     <label className="num-field">
       {label}
       <input
         type="number"
-        value={Number.isFinite(value) ? value : ""}
+        value={text}
         min={min}
         max={max}
         step={step}
-        onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
+        onChange={(e) => {
+          setText(e.target.value);
+          const n = Number(e.target.value);
+          if (e.target.value !== "" && Number.isFinite(n)) onChange(n);
+        }}
+        onBlur={() => {
+          if (text === "" || !Number.isFinite(Number(text))) {
+            setText(String(value));
+          }
+        }}
       />
     </label>
   );
@@ -95,6 +111,10 @@ export function SheetEditor({
 }) {
   const [s, setS] = useState<SheetData>(() => structuredClone(sheet));
   const [busy, setBusy] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus(); // focus moves into the editor
+  }, []);
   const set = (patch: Partial<SheetData>) => setS((old) => ({ ...old, ...patch }));
 
   const submit = async (e: FormEvent) => {
@@ -117,7 +137,9 @@ export function SheetEditor({
   return (
     <form className="sheet-editor" onSubmit={submit}>
       <header className="sheet-head">
-        <h1>Edit sheet</h1>
+        <h1 ref={heading} tabIndex={-1}>
+          Edit sheet
+        </h1>
         <p className="muted">Bonuses, saves and skills are worked out for you from these numbers.</p>
       </header>
       {error && (
@@ -370,6 +392,11 @@ export function SheetEditor({
         </label>
       </fieldset>
       <div className="actions sticky-actions">
+        {error && (
+          <p className="error sticky-error" aria-hidden="true">
+            {error}
+          </p>
+        )}
         <button type="button" className="btn btn-ghost" onClick={onCancel}>
           Cancel
         </button>

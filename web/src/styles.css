@@ -345,6 +345,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .custom-name { font-weight: 600; }
 .pre { white-space: pre-wrap; }
 .roll-result {
+  position: sticky; top: 0.5rem; z-index: 5; /* stays in view on phones while scrolled */
   display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 1rem; align-items: center;
   background: var(--surface); border: 2px solid var(--accent); border-radius: var(--radius); padding: 0.7rem 1rem; box-shadow: var(--shadow);
 }
@@ -375,6 +376,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .rows .row > label { flex: 1 1 140px; }
 .rows .row > .wide { flex-basis: 100%; }
 .rows .row .check { margin-bottom: 0.9rem; flex: 0 0 auto; }
+.sticky-error { margin: 0 auto 0 0; align-self: center; }
 .sticky-actions { position: sticky; bottom: 0; background: var(--bg); padding: 0.6rem 0; justify-content: flex-end; display: flex; gap: 0.5rem; }
 
 /* --- layout for real campaigns (L1–L6) ---------------------------------------------------------------- */

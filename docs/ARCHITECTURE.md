@@ -1442,3 +1442,23 @@ the chatbot reads the sheets its asker may see.
   through the normal, visibility-bound notes search.
 - **C2** Nobody creates, edits or deletes a `sheet` entry directly (403 / 422); deleting the
   character removes it with the sheet.
+
+### M10 review fixes (backend/security: no CRITICAL/HIGH; frontend: three HIGH, fixed)
+
+- **F1** A sheet and its generated entry are written in one transaction, after validation,
+  summary and embedding; a failure saves neither (it used to save the sheet and report an
+  error, and two saves could leave the entry stale).
+- **F2 / UI 1–2** `GET …/rolls` without `after` returns the newest 100 (oldest first); the
+  game log's cursor moves only with polls, the page's own rolls merge in by id, and the log
+  stays mounted while the sheet is edited — no lost history, no skipped rolls.
+- **F3–F5** Dice constants ≤ 10 000 (and digit-length bounds), roll keys are ASCII digits,
+  `after` is bounded: 422s instead of 500s. **F6** Renaming a character renames its sheet
+  entry. **F8** 2024 rules: Jack of All Trades doesn't apply to initiative. **F9** A critical
+  doubles kept dice too (4d6kh3 → 8d6kh6). **F10/F11** Sheet bodies up to 512 KB, only on
+  `PUT …/characters/<id>/sheet`.
+- **UI 3–4** One save at a time (HP ± and slots wait); a conflict reloads the newest sheet and
+  says so. **UI 5** Number fields can be cleared and take negatives. **UI 7** Focus moves into
+  the editor and back to "Edit sheet". Roll results stay in view on phones; proficiency is
+  announced to screen readers; the log doesn't read out its history.
+- Tracked: arrow-key tab navigation, a toast for rolls; the sheet doesn't refresh live when
+  someone else edits it (a conflict reloads it).

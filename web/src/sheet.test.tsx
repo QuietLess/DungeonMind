@@ -46,7 +46,7 @@ const derived = {
 const rollResult = {
   id: 1, label: "Mira — Stealth", author: "mia", character_id: 7, expression: "1d20+10",
   terms: [{ term: "1d20", rolls: [14], kept: [14], subtotal: 14 }], bonus: 10, total: 24,
-  natural: 14, outcome: null, mode: "normal", to_dm: false, created_at: "2026-10-18T10:00:00Z",
+  natural: 14, outcome: null, mode: "normal" as const, to_dm: false, created_at: "2026-10-18T10:00:00Z",
 };
 
 function renderSheet(canEdit = true) {
@@ -138,7 +138,8 @@ describe("sheet editing", () => {
     await userEvent.type(ac, "17");
     await userEvent.click(screen.getByRole("button", { name: "Save sheet" }));
     expect(api.saveSheet).toHaveBeenCalledWith("c1", 7, expect.objectContaining({ armor_class: 17 }), 3);
-    expect(await screen.findByRole("alert")).toHaveTextContent("changed while you were editing");
+    // M10 review: a conflict now reloads the newest sheet and says so
+    expect(await screen.findByRole("alert")).toHaveTextContent(/changed this sheet/i);
   });
 });
 

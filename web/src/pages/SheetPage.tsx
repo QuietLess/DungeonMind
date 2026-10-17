@@ -1,8 +1,8 @@
 // M10c: a D&D Beyond–style character sheet. Every bonus is a roll button for the player and the
 // DM (the server computes the bonus from the stored sheet); other members see it read-only.
-import { createContext, useContext, useEffect, useId, useState } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { GameLog, rollDetail } from "../components/GameLog";
 import { SheetEditor } from "../components/SheetEditor";
 import { message, useCampaign, useLoad } from "../hooks";
@@ -59,6 +59,13 @@ export function SheetPage() {
   const [last, setLast] = useState<Roll | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (wasEditing.current && !editing) editButton.current?.focus(); // back where it began
+    wasEditing.current = editing;
+  }, [editing]);
   const [tab, setTab] = useState<Tab>("Actions");
   const modeName = useId();
 
@@ -90,34 +97,30 @@ export function SheetPage() {
     }
   };
 
+  /** One save at a time (quick ± clicks wait); a conflict reloads the newest sheet. */
   const save = async (next: SheetData) => {
+    if (saving) return false;
+    setSaving(true);
     setError(null);
     try {
       setView(await api.saveSheet(campaign.id, characterId, next, view.version));
       return true;
     } catch (e) {
-      setError(message(e));
+      if (e instanceof ApiError && e.status === 409) {
+        try {
+          setView(await api.sheet(campaign.id, characterId));
+          setError("Someone else changed this sheet, so the newest version was reloaded. Try again.");
+        } catch (reloadError) {
+          setError(message(reloadError));
+        }
+      } else {
+        setError(message(e));
+      }
       return false;
+    } finally {
+      setSaving(false);
     }
   };
-
-  if (editing) {
-    return (
-      <section className="sheet">
-        <SheetEditor
-          sheet={sheet}
-          error={error}
-          onCancel={() => {
-            setEditing(false);
-            setError(null);
-          }}
-          onSave={async (next) => {
-            if (await save(next)) setEditing(false);
-          }}
-        />
-      </section>
-    );
-  }
 
   const hp = sheet.hp;
   const changeHp = (delta: number) =>
@@ -138,7 +141,7 @@ export function SheetPage() {
             {" · "}Proficiency {signed(d.proficiency_bonus)}
           </p>
         </div>
-        {canEdit && (
+        {canEdit && !editing && (
           <div className="sheet-controls">
             <div role="radiogroup" aria-label="Roll mode" className="seg-toggle">
               {(["normal", "advantage", "disadvantage"] as const).map((m) => (
@@ -151,14 +154,14 @@ export function SheetPage() {
             <label className="check">
               <input type="checkbox" checked={toDm} onChange={(e) => setToDm(e.target.checked)} /> Roll to DM only
             </label>
-            <button type="button" className="btn" onClick={() => setEditing(true)}>
+            <button type="button" className="btn" ref={editButton} onClick={() => setEditing(true)} disabled={editing}>
               Edit sheet
             </button>
           </div>
         )}
       </header>
 
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && !editing && <p className="error" role="alert">{error}</p>}
       {last && (
         <div className={`roll-result${last.natural === 20 ? " nat20" : last.natural === 1 ? " nat1" : ""}`} role="status">
           <span className="roll-result-label">{last.label}</span>
@@ -169,6 +172,20 @@ export function SheetPage() {
 
       <div className="sheet-layout">
         <div className="sheet-main">
+          {editing ? (
+            <SheetEditor
+              sheet={sheet}
+              error={error}
+              onCancel={() => {
+                setEditing(false);
+                setError(null);
+              }}
+              onSave={async (next) => {
+                if (await save(next)) setEditing(false);
+              }}
+            />
+          ) : (
+          <>
           <div className="combat-strip">
             <div role="group" aria-label="Armor Class" className="combat-box">
               <span className="box-label">Armor Class</span>
@@ -191,10 +208,10 @@ export function SheetPage() {
               </span>
               {canEdit && (
                 <span className="hp-buttons">
-                  <button type="button" className="icon-button" aria-label="Lose 1 HP" onClick={() => changeHp(-1)}>
+                  <button type="button" className="icon-button" aria-label="Lose 1 HP" disabled={saving} onClick={() => changeHp(-1)}>
                     −
                   </button>
-                  <button type="button" className="icon-button" aria-label="Gain 1 HP" onClick={() => changeHp(1)}>
+                  <button type="button" className="icon-button" aria-label="Gain 1 HP" disabled={saving} onClick={() => changeHp(1)}>
                     +
                   </button>
                 </span>
@@ -222,7 +239,13 @@ export function SheetPage() {
                 <Bonus label={`${ABILITY_NAMES[a]} check`} value={d.modifiers[a]} kind="check" k={a} />
                 <span className="ability-score">{sheet.abilities[a]}</span>
                 <span className="ability-save">
-                  Save{sheet.saves.includes(a) ? " ●" : ""}{" "}
+                  Save
+                  {sheet.saves.includes(a) && (
+                    <>
+                      <span aria-hidden="true"> ●</span>
+                      <span className="sr-only"> (proficient)</span>
+                    </>
+                  )}{" "}
                   <Bonus label={`${ABILITY_NAMES[a]} save`} value={d.saves[a]} kind="save" k={a} />
                 </span>
               </div>
@@ -238,6 +261,7 @@ export function SheetPage() {
                   return (
                     <li key={s}>
                       <span className={`prof prof-${level}`} title={level} aria-hidden="true" />
+                      {level !== "none" && <span className="sr-only">{level}</span>}
                       <span className="skill-name">
                         {skillName(s)} <small>({SKILL_ABILITY[s].toUpperCase()})</small>
                       </span>
@@ -320,7 +344,7 @@ export function SheetPage() {
                                   type="checkbox"
                                   aria-label={`Level ${i + 1} slot ${j + 1} used`}
                                   checked={j < s.used}
-                                  disabled={!canEdit}
+                                  disabled={!canEdit || saving}
                                   onChange={() => {
                                     const slots = sheet.spellcasting.slots.map((x, k) => (k === i ? { ...x, used: j < s.used ? j : j + 1 } : x));
                                     void save({ ...sheet, spellcasting: { ...sheet.spellcasting, slots } });
@@ -411,6 +435,8 @@ export function SheetPage() {
               </div>
             </section>
           </div>
+          </>
+          )}
         </div>
         <aside className="sheet-side">
           <GameLog cid={campaign.id} incoming={last} />
