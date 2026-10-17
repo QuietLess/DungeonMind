@@ -123,6 +123,9 @@ export const api = {
     request<Thread>("POST", `${c(cid)}/chats`, { title }),
   thread: (cid: string, tid: number) =>
     request<{ thread: Thread; messages: Message[] }>("GET", `${c(cid)}/chats/${tid}`),
+  renameThread: (cid: string, tid: number, title: string) =>
+    request<Thread>("PATCH", `${c(cid)}/chats/${tid}`, { title }),
+  deleteThread: (cid: string, tid: number) => request<void>("DELETE", `${c(cid)}/chats/${tid}`),
   ask: (cid: string, tid: number, text: string) =>
     request<Message>("POST", `${c(cid)}/chats/${tid}/messages`, { text }),
 };

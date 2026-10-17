@@ -8,7 +8,7 @@ import { Drawer } from "../components/Drawer";
 import { EntryPanel } from "../components/EntryPanel";
 import { message, useCampaign, useLoad } from "../hooks";
 import { PlusIcon, SendIcon } from "../icons";
-import type { Citation, Message } from "../types";
+import type { Citation, Message, Thread } from "../types";
 
 const STARTERS = [
   "What do we know about the baron?",
@@ -121,6 +121,29 @@ export function ChatPage() {
     }
   };
 
+  // UB5: tidy up the thread list.
+  const rename = async (t: Thread) => {
+    const title = window.prompt("Rename chat", t.title)?.trim();
+    if (!title || title === t.title) return;
+    try {
+      await api.renameThread(campaign.id, t.id, title);
+      reloadThreads();
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
+  const remove = async (t: Thread) => {
+    if (!window.confirm(`Delete the chat “${t.title}”? This can't be undone.`)) return;
+    try {
+      await api.deleteThread(campaign.id, t.id);
+      if (t.id === threadId) navigate(base, { replace: true });
+      reloadThreads();
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+
   const onCitation = (c: Citation) => {
     if (c.kind === "note" && c.entry_id != null) setOpenEntry(c.entry_id);
     else setSource(c);
@@ -139,7 +162,7 @@ export function ChatPage() {
         <p className="muted small">Only you can see your chats.</p>
         <ul>
           {threads?.map((t) => (
-            <li key={t.id}>
+            <li key={t.id} className="thread-row">
               <button
                 type="button"
                 className={t.id === threadId ? "thread active" : "thread"}
@@ -148,6 +171,26 @@ export function ChatPage() {
               >
                 {t.title}
               </button>
+              <span className="thread-actions">
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Rename ${t.title}`}
+                  title="Rename"
+                  onClick={() => rename(t)}
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="icon-button danger"
+                  aria-label={`Delete ${t.title}`}
+                  title="Delete"
+                  onClick={() => remove(t)}
+                >
+                  ×
+                </button>
+              </span>
             </li>
           ))}
         </ul>
