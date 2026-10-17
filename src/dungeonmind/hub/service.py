@@ -67,6 +67,11 @@ REFUNDS_PER_DAY = 3
 LOGIN_FAILED = "Wrong username or password."
 SIGNUP_MODES = ("open", "invite")
 NEEDS_INVITE = "Ask your DM for an invite code."
+# M9e H2: records the oldest account as owner unless an owner is already recorded.
+OWNER_FROM_OLDEST = (
+    "INSERT OR IGNORE INTO settings (key, value) "
+    "SELECT 'owner_id', id FROM users ORDER BY rowid LIMIT 1"
+)
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
 
@@ -129,6 +134,8 @@ class Hub:
         self.scrypt_n = scrypt_n
         self.daily_message_limit = daily_message_limit
         self._limiter = auth.Limiter(auth.LOGIN_WINDOW)
+        # H1: keyed by account id, existing accounts only, so it stays bounded and unflushable.
+        self._accounts = auth.Limiter(auth.LOGIN_WINDOW)
         self._registrations = auth.Limiter(auth.REGISTER_WINDOW)
         self._searches: dict[str, deque[datetime]] = {}
         self._search_lock = threading.Lock()
@@ -181,6 +188,7 @@ class Hub:
                 "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
                 (user.id, username, hashed, _iso(now)),
             )
+            db.execute(OWNER_FROM_OLDEST)  # H2: the first account (or a pre-M9e hub's oldest)
             if invite_row is not None:  # S1: the new account joins that campaign
                 members = db.execute(
                     "SELECT COUNT(*) FROM memberships WHERE campaign_id = ?",
@@ -209,12 +217,19 @@ class Hub:
             "SELECT i.code_hash, i.campaign_id, i.expires_at FROM invites i "
             "JOIN campaigns c ON c.id = i.campaign_id "
             "WHERE i.code_hash = ? AND c.dm_id = ("
-            "SELECT id FROM users ORDER BY rowid LIMIT 1)",
+            "SELECT value FROM settings WHERE key = 'owner_id')",
             (auth.token_hash(_invite_code(code)),),
         ).fetchone()
         if row is None or datetime.fromisoformat(row["expires_at"]) <= self.clock():
             return None
         return row
+
+    def owner_id(self) -> str | None:
+        """H2: the hub's owner; a hub from before M9e records its oldest account now."""
+        with self.storage.app(immediate=True) as db:
+            db.execute(OWNER_FROM_OLDEST)
+            row = db.execute("SELECT value FROM settings WHERE key = 'owner_id'").fetchone()
+        return row["value"] if row else None
 
     def signup_config(self) -> dict[str, Any]:
         """S2: the sign-up mode, and whether the hub is still empty (the owner signs up first)."""
@@ -237,12 +252,16 @@ class Hub:
             row = db.execute(
                 "SELECT id, username, password_hash FROM users WHERE username = ?", (username,)
             ).fetchone()
+        account = [(row["id"], auth.LOGIN_FAILURES_PER_ACCOUNT)] if row else []
+        if account and not self._accounts.reserve(account, now):
+            raise RateLimited("Too many failed sign-in attempts. Try again in 15 minutes.")
         ok = isinstance(password, str) and auth.verify_password(
             password, row["password_hash"] if row else self._dummy_hash
         )
         if row is None or not ok:
             raise AuthFailed(LOGIN_FAILED)  # the reserved attempt stays counted
         self._limiter.release(keys, now)
+        self._accounts.release(account, now)
         user = User(id=row["id"], username=row["username"])
         return self.new_session(user, verified_hash=row["password_hash"])
 
@@ -339,6 +358,9 @@ class Hub:
         ]
         if not self._limiter.reserve(keys, now):
             raise RateLimited("Too many wrong passwords. Try again in 15 minutes.")
+        account = [(user.id, auth.LOGIN_FAILURES_PER_ACCOUNT)]
+        if not self._accounts.reserve(account, now):
+            raise RateLimited("Too many wrong passwords. Try again in 15 minutes.")
         with self.storage.app() as db:
             row = db.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
         ok = isinstance(password, str) and auth.verify_password(
@@ -347,6 +369,7 @@ class Hub:
         if row is None or not ok:
             raise Forbidden("Current password is wrong.")
         self._limiter.release(keys, now)
+        self._accounts.release(account, now)
 
     def change_password(
         self, user: User, token: str, current: Any, new: Any, client: str = "local"
@@ -379,6 +402,8 @@ class Hub:
         if confirm_username != user.username:
             raise Invalid("Type your username to confirm.")
         self._confirm_password(user, password, client)
+        if user.id == self.owner_id():  # H2: ownership never moves
+            raise Conflict("The hub's owner can't delete their account.")
         with self.storage.app() as db:
             self._refuse_if_dm(db, user)
         self._sweep_private(user, checkpoint=False)

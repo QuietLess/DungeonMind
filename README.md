@@ -215,6 +215,9 @@ hub is reachable only while `share` runs. Press Ctrl-C to stop both.
 - Behind the tunnel the hub uses Cloudflare's `CF-Connecting-IP` for its sign-in limits, so one
   player's typos don't lock out the table. It trusts that header only with `--proxy cloudflare`
   and only from this machine.
+- Wrong passwords are capped per client and per account (50 per 15 minutes per account, from
+  any number of addresses). The hub's first account is its owner: only the owner's campaigns'
+  codes create accounts, and the owner's account can't be deleted.
 - Run either `share` or `serve`, not both: they use the same SRD index.
 
 ## Backups

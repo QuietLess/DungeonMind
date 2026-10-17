@@ -169,6 +169,7 @@ def test_a4_delete_needs_the_password_and_the_username(app):
 
 
 def test_a4_a_dm_must_delete_their_campaigns_first(app):
+    _signup(app, "hub_owner")  # M9e H2: the first account owns the hub and can't be deleted
     dm, _, cid = _campaign_with_player(app)
     r = _delete(dm, confirm="dm_dana")
     assert r.status_code == 409

@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS usage (
     refunds INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, day)
 );
+-- M9e H2: hub-wide settings; owner_id = the account whose campaigns may invite new accounts.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 # AUTOINCREMENT: ids are never reused, so a saved citation's entry_id can't later point at a
