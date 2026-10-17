@@ -983,8 +983,8 @@ git-ignored `data/hub/`, and tests use a small invented Turkish fixture.
 ### Language
 
 - **T1 Unicode keyword search.** `tokenize` splits on Unicode word characters, then folds
-  case and diacritics: ç→c, ğ→g, ı/İ→i, ö→o, ş→s, ü→u, â/î/û→a/i/u. "Kızıl Şafak Köyü" gives
-  `kizil safak koyu`, and a question typed without Turkish letters still matches. English text
+  case and diacritics: ç→c, ğ→g, ı/İ→i, ö→o, ş→s, ü→u, â/î/û→a/i/u. "Gümüş Çınar Köyü" gives
+  `gumus cinar koyu`, and a question typed without Turkish letters still matches. English text
   tokenizes as before (ASCII is unchanged), apart from Turkish stopwords added to the list.
 - **T2 Multilingual note embeddings.** New campaigns embed entries with
   `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384-d, ~220 MB, 50+

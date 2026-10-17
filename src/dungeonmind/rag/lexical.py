@@ -27,7 +27,7 @@ _DOTLESS = str.maketrans({"ı": "i", "İ": "i"})
 
 
 def fold(text: str) -> str:
-    """Case- and diacritic-insensitive form (M8d T1): "Kızıl Şafak Köyü" -> "kizil safak koyu".
+    """Case- and diacritic-insensitive form (M8d T1): "Gümüş Çınar Köyü" -> "gumus cinar koyu".
 
     ASCII text only changes case, so English tokenizes as before."""
     decomposed = unicodedata.normalize("NFKD", text.translate(_DOTLESS))
