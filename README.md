@@ -21,7 +21,8 @@ assistant, not a chat-with-a-PDF demo.
 | M6 — Campaign hub backend: boards, visibility, per-campaign storage, API | ✅ |
 | M7 — Campaign hub web UI (React) | ✅ |
 | M8 — 209-case eval suite, offline gates, live runner, per-step models | ✅ (live run pending an API key) |
-| M9 — Production: CI, Docker, backups ✅ · accounts, UI, hosting, tracing ⬜ | 🔶 |
+| M9 — Production: CI, Docker, backups, accounts, UI, sharing ✅ · hosting, tracing ⬜ | 🔶 |
+| M10 — Character sheets, server dice and the game log | ✅ |
 
 ## Quickstart
 
@@ -189,6 +190,22 @@ event or item. `dm_note`/`secrets` text is kept in separate DM-only entries, and
 become private journal entries. Reveal what players know in the web app. Turkish and other
 non-English notes work: search folds diacritics, notes use a multilingual model, and answers
 come in the language you ask in.
+
+## Character sheets and dice
+
+Every character has a D&D Beyond–style sheet (Characters → a character → **Character sheet**):
+classes and level, ability scores, saves, skills (proficient / expertise, Jack of All Trades),
+AC, HP, initiative, speed, attacks, spellcasting with slots, inventory with carried weight,
+currency, features, conditions, exhaustion, notes and your own **custom dice** (e.g. "Sneak
+Attack 3d6"). Modifiers, proficiency bonus, saves, skills, spell DC and carrying capacity are
+worked out from the 2024 rules.
+
+- The player and the DM edit a sheet; everyone in the campaign can view it.
+- Every bonus is a roll button. Choose Normal / Advantage / Disadvantage, or tick "to DM
+  only". Rolls happen on the server (nobody can fake them), use the sheet's own numbers
+  (exhaustion included) and appear in the **game log** (the **Dice** page and beside the
+  sheet), which also rolls any formula like `2d6+3`.
+- The chatbot can answer from sheets ("What's Mira's AC?"), citing the sheet.
 
 ## Share with your players (Cloudflare Tunnel, free)
 

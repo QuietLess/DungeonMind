@@ -10,7 +10,8 @@
 | M6 Campaign hub backend | FastAPI: accounts, campaigns, invites, boards with visibility, per-campaign storage, campaign-aware chat | Visibility matrix + cross-campaign tests pass; the model never receives an unreadable note | ✅ |
 | M7 Campaign hub UI | React (Vite, TS): login, campaigns, notes, chat with linked citations; thread context | Main journeys work in the browser for DM and player; frontend + accessibility review | ✅ |
 | M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ✅ offline · live run pending key |
-| M9 Production | CI, Docker, backups; account management; UI for real campaigns; hosting + TLS, tracing | Deployable demo + monitored runs | 🔶 M9a–c done · hosting pending |
+| M9 Production | CI, Docker, backups; account management; UI for real campaigns; hosting + TLS, tracing | Deployable demo + monitored runs | 🔶 M9a–e done · hosting pending |
+| M10 Sheets and dice | Character sheets, server dice, game log, chatbot reads sheets | Rules-correct derived values; rolls can't be faked; visibility tests | ✅ |
 
 Direction change (2026-10-16): DungeonMind becomes a campaign hub — a web chat UI plus notes
 that are private, shared with the DM, or visible to the party. Old M6–M8 became M6–M9, and
@@ -130,6 +131,12 @@ items previously due "M8" are now due M9.
   (`--proxy cloudflare`: real client addresses from `CF-Connecting-IP`, trusted from loopback
   only; Secure cookie on forwarded HTTPS) with invite-only sign-up (`--signup invite`; the
   first account on an empty hub is the owner's). Checked end to end through a real tunnel.
+
+- **M10 sheets and dice:** full 2024 character sheets (validated model, derived values),
+  owner + DM edit and party view, server-side rolls for every check, save, skill, attack,
+  damage (critical), spell attack, hit die, death save and custom die, with advantage,
+  disadvantage and exhaustion, a shared game log with "to DM only", and a generated
+  party-visible sheet entry that lets the chatbot answer from sheets.
 
 ## Tracked follow-ups (from M4 security review, accepted as LOW for a local CLI)
 
