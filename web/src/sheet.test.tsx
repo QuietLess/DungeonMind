@@ -190,3 +190,73 @@ describe("generated sheet entry", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 });
+
+describe("M10 review fixes", () => {
+  it("the game log keeps its history across Edit and Cancel", async () => {
+    api.rolls.mockResolvedValueOnce([rollResult]).mockResolvedValue([]);
+    renderSheet();
+    const log = await screen.findByRole("region", { name: "Game log" });
+    expect(await within(log).findByText("Mira — Stealth")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /edit sheet/i }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(within(screen.getByRole("region", { name: "Game log" })).getByText("Mira — Stealth")).toBeInTheDocument();
+  });
+
+  it("the page's own roll never makes the log skip someone else's", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const theirs = { ...rollResult, id: 4, label: "Bo — 1d4" };
+    const mine = { ...rollResult, id: 5, label: "Mira — Insight" };
+    api.rolls.mockResolvedValueOnce([]).mockResolvedValueOnce([theirs, mine]).mockResolvedValue([]);
+    const { rerender } = render(<GameLog cid="c1" />);
+    await act(async () => {});
+    rerender(<GameLog cid="c1" incoming={mine} />);
+    await act(async () => {
+      vi.advanceTimersByTime(3100);
+    });
+    expect(api.rolls).toHaveBeenLastCalledWith("c1", 0);
+    expect(await screen.findByText("Bo — 1d4")).toBeInTheDocument();
+    expect(screen.getAllByText("Mira — Insight")).toHaveLength(1);
+  });
+
+  it("quick HP clicks wait for the save instead of conflicting", async () => {
+    let finish: (v: unknown) => void = () => {};
+    api.saveSheet.mockReturnValue(new Promise((r) => { finish = r; }));
+    renderSheet();
+    const lose = await screen.findByRole("button", { name: /lose 1 hp/i });
+    await userEvent.click(lose);
+    expect(lose).toBeDisabled();
+    await userEvent.click(lose);
+    expect(api.saveSheet).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ sheet: { ...sheet, hp: { ...sheet.hp, current: 29 } }, derived, version: 4, can_edit: true }));
+    expect(await screen.findByRole("button", { name: /lose 1 hp/i })).toBeEnabled();
+  });
+
+  it("a conflict reloads the newest sheet", async () => {
+    api.saveSheet.mockRejectedValueOnce(new ApiError(409, "This sheet changed while you were editing. Reload and try again."));
+    renderSheet();
+    await userEvent.click(await screen.findByRole("button", { name: /lose 1 hp/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/reloaded/i);
+    expect(api.sheet).toHaveBeenCalledTimes(2);
+  });
+
+  it("number fields take negative numbers and can be cleared", async () => {
+    api.saveSheet.mockResolvedValue({ sheet, derived, version: 4, can_edit: true });
+    renderSheet();
+    await userEvent.click(await screen.findByRole("button", { name: /edit sheet/i }));
+    const init = screen.getByLabelText("Initiative bonus (extra)");
+    await userEvent.clear(init);
+    expect(init).toHaveValue(null);
+    await userEvent.type(init, "-2");
+    expect(init).toHaveValue(-2);
+    await userEvent.click(screen.getByRole("button", { name: "Save sheet" }));
+    expect(api.saveSheet).toHaveBeenCalledWith("c1", 7, expect.objectContaining({ initiative_misc: -2 }), 3);
+  });
+
+  it("focus moves into the editor and back", async () => {
+    renderSheet();
+    await userEvent.click(await screen.findByRole("button", { name: /edit sheet/i }));
+    expect(screen.getByRole("heading", { name: "Edit sheet" })).toHaveFocus();
+    await userEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(screen.getByRole("button", { name: /edit sheet/i })).toHaveFocus();
+  });
+});
