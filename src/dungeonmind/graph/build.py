@@ -10,6 +10,7 @@ M6 contract (campaign node): docs/ARCHITECTURE.md › M6 contract.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -226,15 +227,46 @@ def _after_route(state: ChatState) -> str:
     return "decline"
 
 
+# Common Turkish words, folded (no diacritics): Turkish is often typed without ı, ş, ğ…
+_TURKISH_MARKERS = frozenset(
+    "ve mi mu midir nedir ne nasil neden niye nerede kim kimdir hangi kac bir bu su icin ile "
+    "var yok degil olur olabilir mi".split()
+)
+
+
+def _is_english(text: str) -> bool:
+    """T3 heuristic: no non-ASCII letters and no common Turkish words."""
+    if any(c.isalpha() and ord(c) > 127 for c in text):
+        return False
+    return not (set(re.findall(r"[a-z]+", text.lower())) & _TURKISH_MARKERS)
+
+
+def _srd_query(question: str, deps: Deps) -> tuple[str, str]:
+    """The query for SRD search: an English rendering of a non-English question (M8d T3).
+
+    Returns (query, trace note). Any failure keeps the original question."""
+    if _is_english(question):
+        return question, ""
+    try:
+        query = deps.llm.english_query(question, timeout=deps.timeout_s)
+    except Exception as e:
+        return question, f"; warning: no English query ({_describe(e)})"
+    query = query.strip() if isinstance(query, str) else ""
+    if not query or len(query) > STANDALONE_CHARS:
+        return question, "; warning: unusable English query"
+    return query, f"; English query: {query}"
+
+
 def _retrieve_node(state: ChatState, deps: Deps) -> ChatState:
     started = time.perf_counter()
+    query, note = _srd_query(state["question"], deps)
     try:
-        evidence = deps.retrieve(state["question"])
+        evidence = deps.retrieve(query)
     except Exception as e:
         return _node_error(state, "retrieve", e, started)
     return {
         "evidence": evidence,
-        "trace": _event(state, "retrieve", f"{len(evidence)} chunks", started),
+        "trace": _event(state, "retrieve", f"{len(evidence)} chunks{note}", started),
     }
 
 
@@ -528,7 +560,9 @@ def _campaign_node(state: ChatState, deps: Deps) -> ChatState:
         }
     detail = f"{mode}: {len(notes)} visible notes"
     try:
-        evidence = deps.retrieve(question)[:CAMPAIGN_SRD_K]
+        query, note = _srd_query(question, deps)
+        detail += note
+        evidence = deps.retrieve(query)[:CAMPAIGN_SRD_K]
     except Exception as e:  # the notes can still answer; rules claims just can't be cited
         evidence = []
         detail += f"; warning: SRD search failed ({_describe(e)})"

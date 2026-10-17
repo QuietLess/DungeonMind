@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS usage (
 # AUTOINCREMENT: ids are never reused, so a saved citation's entry_id can't later point at a
 # different entry.
 CAMPAIGN_SCHEMA = """
+-- Campaign settings, e.g. which model embedded its entries (M8d T2).
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS characters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id TEXT NOT NULL,

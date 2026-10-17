@@ -111,6 +111,9 @@ class CiteEverythingLLM:
     def standalone_question(self, question, history, *, timeout=None):
         return question
 
+    def english_query(self, question, *, timeout=None):
+        return question
+
     def answer(self, question, evidence, *, timeout=None):
         self.inputs.append(repr(evidence))
         ids = [f"E{i}" for i in range(1, len(evidence) + 1)]

@@ -378,6 +378,71 @@ def serve(
     uvicorn.run(create_app(hub), host=host, port=port, log_level="info", access_log=False)
 
 
+@hub_app.command("import-obsidian")
+def import_obsidian(
+    vault: Annotated[Path, typer.Argument(help="Your Obsidian vault folder (only read)")],
+    dm: Annotated[str, typer.Option(help="Your hub username (register in the web app first)")],
+    campaign_name: Annotated[str, typer.Option(help="Campaign to create and fill")],
+    sessions: Annotated[
+        Path | None, typer.Option(help="Folder of session notes (.md/.txt), only read")
+    ] = None,
+    preview: Annotated[
+        bool, typer.Option(help="Show what would be imported; write nothing")
+    ] = False,
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+) -> None:
+    """Import an Obsidian vault (and session notes) as DM-private entries. Never changes VAULT."""
+    import threading
+
+    from dungeonmind.hub.app import NoteEmbedder
+    from dungeonmind.hub.errors import HubError
+    from dungeonmind.hub.obsidian import apply_import, plan_import
+    from dungeonmind.hub.service import Hub
+
+    for folder in filter(None, (vault, sessions)):
+        if not folder.is_dir():
+            raise typer.BadParameter(f"{folder} is not a folder")
+    plan = plan_import(vault, sessions)
+    for e in plan.entries:
+        where = f"session {e.session}" if e.session else e.kind
+        _say(f"  {e.board:<7} {where:<10} {e.visibility:<8} {len(e.body):>6}  {e.title}")
+    for path, reason in plan.skipped:
+        _say(f"  skipped  {path}  ({reason})", fg="yellow")
+    lore = sum(e.board == "lore" for e in plan.entries)
+    _say(
+        f"{len(plan.entries)} entries ({lore} lore, {len(plan.entries) - lore} journal), "
+        f"{len(plan.skipped)} skipped. Everything is private until you reveal it."
+    )
+    if preview:
+        _say("Preview only: nothing was written.")
+        return
+    try:
+        hub = Hub(root, embedder=NoteEmbedder(threading.Lock()))
+        camp, count = apply_import(hub, plan, dm, campaign_name)
+    except (ValueError, HubError) as e:
+        raise typer.BadParameter(str(e)) from e
+    _say(f"Imported {count} entries into {camp.name!r}. Open the hub and reveal what players know.")
+
+
+@hub_app.command("reindex")
+def reindex(
+    campaign_id: str,
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+) -> None:
+    """Re-embed a campaign's entries with the current note model (after a model change)."""
+    import threading
+
+    from dungeonmind.hub.app import NoteEmbedder
+    from dungeonmind.hub.errors import HubError
+    from dungeonmind.hub.service import Hub
+
+    try:
+        n = Hub(root, embedder=NoteEmbedder(threading.Lock())).reindex(campaign_id)
+    except HubError as e:
+        raise typer.BadParameter(str(e)) from e
+    _say(f"Re-indexed {n} entries.")
+
+
 @hub_app.command("reset-password")
 def reset_password(
     username: str,
@@ -405,9 +470,9 @@ def eval_notes(
     import threading
 
     from dungeonmind.evals import notes
-    from dungeonmind.hub.app import FastEmbedder
+    from dungeonmind.hub.app import NoteEmbedder
 
-    report = notes.run(FastEmbedder(DenseIndex(DEFAULT_INDEX_PATH), threading.Lock()), k=k)
+    report = notes.run(NoteEmbedder(threading.Lock()), k=k)
     for mode, rows in report.items():
         line = "  ".join(
             f"{t}: R@{k} {v[f'recall@{k}']:.2f} MRR {v['mrr']:.2f}"
@@ -452,7 +517,7 @@ def _offline_report():
 
     from dungeonmind.evals.fixture import build_fixture
     from dungeonmind.evals.offline import run_offline
-    from dungeonmind.hub.app import FastEmbedder
+    from dungeonmind.hub.app import NoteEmbedder
     from dungeonmind.tools.catalog import Catalog
     from dungeonmind.tools.registry import ToolRegistry
 
@@ -460,7 +525,7 @@ def _offline_report():
     retriever = load_retriever(Mode.DENSE)
     registry = ToolRegistry(Catalog.load(chunks=list(retriever.by_id.values())))
     with tempfile.TemporaryDirectory() as root:
-        fixture = build_fixture(Path(root), FastEmbedder(retriever.dense, threading.Lock()))
+        fixture = build_fixture(Path(root), NoteEmbedder(threading.Lock()))
         report = run_offline(
             cases, fixture, retriever=retriever, modes=(Mode.DENSE,), registry=registry
         )
@@ -556,7 +621,7 @@ def eval_live(
     from dungeonmind.evals.fixture import build_fixture
     from dungeonmind.evals.live import estimate, make_runner, run_live
     from dungeonmind.evals.results import save
-    from dungeonmind.hub.app import FastEmbedder
+    from dungeonmind.hub.app import NoteEmbedder
     from dungeonmind.tools.catalog import Catalog
     from dungeonmind.tools.registry import ToolRegistry
 
@@ -579,7 +644,7 @@ def eval_live(
     registry = ToolRegistry(Catalog.load(chunks=list(retriever.by_id.values())))
     llm = providers.make_llm(backend, config)
     with tempfile.TemporaryDirectory() as root:
-        fixture = build_fixture(Path(root), FastEmbedder(retriever.dense, threading.Lock()))
+        fixture = build_fixture(Path(root), NoteEmbedder(threading.Lock()))
         runner = make_runner(
             fixture,
             llm,

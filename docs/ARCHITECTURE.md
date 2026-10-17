@@ -1028,6 +1028,8 @@ dungeonmind hub import-obsidian VAULT --dm USERNAME --campaign-name NAME
   - Embeds (`![[…]]`), images and HTML comments are dropped.
 - **I5 DM secrets kept apart.** `dm_note` and `secrets` fields become a separate private
   entry, "<title> — DM notes", so revealing the main entry never reveals them.
+  `dm_note: true` is a flag (the whole note is DM-only), not secret text: the entry gets a
+  "**DM only:** yes" line and no separate entry (found on the owner's vault).
 - **I6 Limits.**
   - A note over 10,000 characters is split at paragraph breaks into "<title> (1/n)".
   - Excalidraw drawings, `.base` files and empty notes are skipped, and listed in the preview.

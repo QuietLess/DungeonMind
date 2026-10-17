@@ -170,6 +170,10 @@ class LLM(Protocol):
         """
         ...
 
+    def english_query(self, question: str, *, timeout: float | None = None) -> str:
+        """An English SRD search query for a non-English question (M8d)."""
+        ...
+
     def standalone_question(
         self, question: str, history: list[dict[str, str]], *, timeout: float | None = None
     ) -> str:
