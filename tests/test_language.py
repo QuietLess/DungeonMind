@@ -170,3 +170,13 @@ def test_t3_adapter_english_query_returns_the_rewrite():
     out = ClaudeLLM(client=client).english_query("Tutunma nasıl çalışır?")
     assert out == "How does grappling work?"
     assert calls[0]["messages"][0]["content"].endswith("Tutunma nasıl çalışır?")
+
+
+def test_t2_reindex_moves_a_campaign_to_the_current_model(tmp_path):
+    hub = make_hub(tmp_path, embedder=NamedEmbedder("model-a"))
+    dm = hub.register("dm_dana", PASSWORD)
+    camp = hub.create_campaign(dm, "Eldoria")
+    hub.create_entry(dm, camp.id, board="journal", title="Kızıl Köy", body="dağların eteğinde")
+    other = make_hub(tmp_path, embedder=NamedEmbedder("model-b"))
+    assert other.reindex(camp.id) == 1
+    assert other.search(dm, camp.id, "kizil koy")[0].text == "dağların eteğinde"
