@@ -272,8 +272,22 @@ def test_i10_cli_passes_secret_headings(tmp_path):
     (v / "Madalyon.md").write_text(SECTIONED, encoding="utf-8")
     result = CliRunner().invoke(
         cli.app,
-        ["hub", "import-obsidian", str(v), "--dm", "x", "--campaign-name", "y", "--preview",
-         "--secret-heading", "DM", "--secret-heading", "Gerçek", "--root", str(tmp_path / "h")],
+        [
+            "hub",
+            "import-obsidian",
+            str(v),
+            "--dm",
+            "x",
+            "--campaign-name",
+            "y",
+            "--preview",
+            "--secret-heading",
+            "DM",
+            "--secret-heading",
+            "Gerçek",
+            "--root",
+            str(tmp_path / "h"),
+        ],
         env={"COLUMNS": "200"},
     )
     assert result.exit_code == 0, result.output

@@ -9,6 +9,15 @@ export function kindLabel(kind: string): string {
   return KIND_LABEL[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 }
 
+/** The Reveal confirmation; warns when a DM section is still inside the text (M9f). */
+export function revealPrompt(entry: Entry): string {
+  const dmSection = /^#{1,6}\s*(DM\b.*)$/im.exec(entry.body)?.[1];
+  const warning = dmSection
+    ? `\n\nCareful: this entry still contains “${dmSection.trim()}”. Players will see that section too.`
+    : "";
+  return `Reveal “${entry.title}” to the party? Everyone in the campaign will see it, and the chatbot can use it in their answers.${warning}`;
+}
+
 export function EntryCard({
   entry,
   role,
@@ -29,7 +38,7 @@ export function EntryCard({
     entry.author_id === userId;
 
   const reveal = () => {
-    if (window.confirm(`Reveal “${entry.title}” to the party? Everyone in the campaign will see it, and the chatbot can use it in their answers.`)) {
+    if (window.confirm(revealPrompt(entry))) {
       onReveal(entry);
     }
   };

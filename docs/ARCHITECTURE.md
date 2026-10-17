@@ -1307,3 +1307,16 @@ dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
 - **E3** No model calls and no SRD index: it can run while `serve` runs. It reads the hub
   without writing to it (the notes model loads from the local cache).
 - **E4** Exit 1 when a leak is found, so a leak can't pass unnoticed.
+
+### M9f findings from the owner's campaign (40 questions; R@5 0.85 → 0.88, MRR 0.67 → 0.70)
+
+- **I9 One Unicode form.** 13 of 94 imported titles were decomposed (NFD: macOS file names
+  from an unzipped archive). They looked identical but compared different, so the archive
+  duplicate check missed "Kan Yürek Loncası". The importer and every hub write now store NFC;
+  the eval compares NFC.
+- **I10 DM sections.** 8 vault notes keep their DM notes under a "## DM notu" heading inside
+  the text; revealing the entry would reveal them. Sections whose heading starts with "DM"
+  (or any `--secret-heading` prefix, e.g. "Gerçek") go to the "— DM notes" entry, subsections
+  included. Reveal also warns when a DM heading is still in the text.
+- Leak probe on a backup copy with a test player who sees one revealed entry: no private text
+  reached the player's search, including a prompt-injection query.

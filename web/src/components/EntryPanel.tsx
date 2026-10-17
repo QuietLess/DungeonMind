@@ -7,7 +7,7 @@ import { EyeIcon } from "../icons";
 import type { Entry } from "../types";
 import { VisibilityBadge } from "../visibility";
 import { Drawer } from "./Drawer";
-import { kindLabel } from "./EntryCard";
+import { kindLabel, revealPrompt } from "./EntryCard";
 import { EntryEditor } from "./EntryEditor";
 import { NoteText } from "../notes";
 
@@ -84,7 +84,7 @@ export function EntryPanel({
                   type="button"
                   className="btn btn-ghost"
                   onClick={() =>
-                    window.confirm(`Reveal “${entry.title}” to the party?`) &&
+                    window.confirm(revealPrompt(entry)) &&
                     act(() => api.updateEntry(campaign.id, entry.id, { visibility: "party" }))
                   }
                 >

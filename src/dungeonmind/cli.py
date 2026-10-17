@@ -543,6 +543,13 @@ def import_obsidian(
         str,
         typer.Option(help="field: only a `session:` field gives a number; name: file names too"),
     ] = "field",
+    secret_heading: Annotated[
+        list[str] | None,
+        typer.Option(
+            help="Sections whose heading starts with this go to the DM-notes entry "
+            "(repeatable; default: DM)"
+        ),
+    ] = None,
     preview: Annotated[
         bool, typer.Option(help="Show what would be imported; write nothing")
     ] = False,
@@ -561,7 +568,9 @@ def import_obsidian(
             raise typer.BadParameter(f"{folder} is not a folder")
     if session_numbers not in ("field", "name"):
         raise typer.BadParameter("--session-numbers is field or name")
-    plan = plan_import(vault, sessions, extra_lore or [], session_numbers)
+    plan = plan_import(
+        vault, sessions, extra_lore or [], session_numbers, tuple(secret_heading or ["DM"])
+    )
     for e in plan.entries:
         where = f"session {e.session}" if e.session else e.kind
         _say(f"  {e.board:<7} {where:<10} {e.visibility:<8} {len(e.body):>6}  {e.title}")

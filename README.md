@@ -220,6 +220,19 @@ hub is reachable only while `share` runs. Press Ctrl-C to stop both.
   codes create accounts, and the owner's account can't be deleted.
 - Run either `share` or `serve`, not both: they use the same SRD index.
 
+## Check search on your own campaign
+
+```bash
+uv run dungeonmind eval campaign data/evals/my_cases.jsonl --campaign <id>
+```
+
+One JSON object per line: `{"id": "t01", "question": "Madalyonu kim buldu?", "viewer":
+"<username>", "expect": ["Madalyon"]}`, optionally `"no_leak": ["secret phrase"]`. It
+reports R@5, MRR and every miss, and exits 1 if a `no_leak` phrase reaches that viewer's
+search. No model calls; `data/evals/` is git-ignored because the cases quote your campaign.
+The Obsidian importer moves "## DM notu"-style sections into the DM-notes entry; add
+`--secret-heading Gerçek` (repeatable) for other secret headings.
+
 ## Backups
 
 `dungeonmind hub backup --out DIR` writes `DIR/dungeonmind-backup-<UTC time>/` with `app.db`

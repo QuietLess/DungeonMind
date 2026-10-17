@@ -39,6 +39,9 @@ HEADER_FIELDS = (
     "importance",
 )
 SECRET_FIELDS = ("dm_note", "secrets")
+# I10: sections whose heading starts with one of these go to the "— DM notes" entry too.
+SECRET_HEADINGS = ("DM",)
+_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 _FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 _EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
@@ -186,8 +189,32 @@ def _add(
         )
 
 
+def _split_sections(body: str, prefixes: tuple[str, ...]) -> tuple[str, list[str]]:
+    """I10: (body without secret sections, the secret sections). A section runs from its
+    heading to the next heading of the same or a higher level, subsections included."""
+    wanted = tuple(p.casefold() for p in prefixes if p.strip())
+    kept: list[str] = []
+    secret: list[list[str]] = []
+    level = 0  # > 0 while inside a secret section of that heading level
+    for line in body.split("\n"):
+        heading = _HEADING.match(line)
+        if heading and level and len(heading.group(1)) <= level:
+            level = 0
+        if heading and not level and heading.group(2).strip().casefold().startswith(wanted):
+            level = len(heading.group(1))
+            secret.append([])
+        (secret[-1] if level else kept).append(line)
+    sections = ["\n".join(lines).strip() for lines in secret]
+    return "\n".join(kept).strip(), [x for x in sections if x]
+
+
 def _add_note(
-    plan: ImportPlan, path: Path, rel: Path, used: dict[str, str], suffix: str | None = None
+    plan: ImportPlan,
+    path: Path,
+    rel: Path,
+    used: dict[str, str],
+    suffix: str | None = None,
+    secret_headings: tuple[str, ...] = SECRET_HEADINGS,
 ) -> None:
     """One vault (or archive) note → a private lore entry, plus a DM-notes entry for secrets."""
     meta, text = _split_frontmatter(_read(path))
@@ -200,6 +227,8 @@ def _add_note(
         for k in SECRET_FIELDS
         if not isinstance(meta.get(k), bool) and _value(meta.get(k))
     ]
+    body, sections = _split_sections(body, secret_headings)
+    secrets += sections
     if not body and not secrets:
         plan.skipped.append((str(rel), "empty note"))
         return
@@ -216,7 +245,7 @@ def _add_note(
         return
     _add(plan, str(rel), "lore", kind, final, main)
     if secrets:  # I5: secrets never ride along when the main entry is revealed
-        _add(plan, str(rel), "lore", kind, f"{final} — DM notes", "\n".join(secrets))
+        _add(plan, str(rel), "lore", kind, f"{final} — DM notes", "\n\n".join(secrets))
 
 
 def _session_number(meta: dict[str, Any], stem: str, mode: str) -> int | None:
@@ -237,6 +266,7 @@ def plan_import(
     sessions: Path | None = None,
     extra_lore: list[Path] | tuple[Path, ...] = (),
     session_numbers: str = "field",
+    secret_headings: tuple[str, ...] | list[str] = SECRET_HEADINGS,
 ) -> ImportPlan:
     vault = Path(vault)
     plan = ImportPlan()
@@ -255,12 +285,19 @@ def plan_import(
         elif path.name.endswith(".excalidraw.md"):
             plan.skipped.append((str(rel), "Excalidraw drawing"))
         else:
-            _add_note(plan, path, rel, used)
+            _add_note(plan, path, rel, used, secret_headings=tuple(secret_headings))
     for folder in extra_lore:  # I8: archive summaries, top-level notes only
         folder = Path(folder)
         for path in sorted(folder.iterdir()):
             if path.is_file() and path.suffix.lower() == ".md" and not path.name.startswith("."):
-                _add_note(plan, path, Path(folder.name) / path.name, used, suffix="arşiv")
+                _add_note(
+                    plan,
+                    path,
+                    Path(folder.name) / path.name,
+                    used,
+                    suffix="arşiv",
+                    secret_headings=tuple(secret_headings),
+                )
     if sessions is not None:
         for path in sorted(Path(sessions).iterdir()):
             if not path.is_file() or path.name.startswith("."):
