@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 STEPS = (
@@ -15,6 +16,8 @@ STEPS = (
 )
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_LOCAL_MODEL = "qwen3:4b"  # Ollama; fits in 8 GB alongside the app (M8b contract P2)
+LOCAL_MODEL_NAME = re.compile(r"[A-Za-z0-9._:/-]{1,100}")
 LOW_EFFORT_STEPS = frozenset({"route", "contextualize", "extract_encounter"})
 
 
@@ -50,10 +53,9 @@ class StepModel:
     effort: str
 
 
-def _default_steps() -> dict[str, StepModel]:
+def _default_steps(model: str = DEFAULT_MODEL) -> dict[str, StepModel]:
     return {
-        step: StepModel(DEFAULT_MODEL, "low" if step in LOW_EFFORT_STEPS else "medium")
-        for step in STEPS
+        step: StepModel(model, "low" if step in LOW_EFFORT_STEPS else "medium") for step in STEPS
     }
 
 
@@ -62,13 +64,16 @@ class ModelConfig:
     steps: dict[str, StepModel] = field(default_factory=_default_steps)
 
     @classmethod
-    def default(cls) -> ModelConfig:
-        return cls()
+    def default(cls, provider: str = "claude") -> ModelConfig:
+        return cls(_default_steps(DEFAULT_LOCAL_MODEL if provider == "ollama" else DEFAULT_MODEL))
 
     @classmethod
-    def parse(cls, spec: str | None) -> ModelConfig:
-        """`step=model[:effort]` pairs separated by commas; `all=` sets every step."""
-        config = cls()
+    def parse(cls, spec: str | None, provider: str = "claude") -> ModelConfig:
+        """`step=model[:effort]` pairs separated by commas; `all=` sets every step.
+
+        Claude mode accepts only priced Claude models; Ollama mode any local model name (P2).
+        """
+        config = cls.default(provider)
         for item in (spec or "").split(","):
             item = item.strip()
             if not item:
@@ -77,8 +82,11 @@ class ModelConfig:
             step = step.strip()
             if not sep or not value.strip():
                 raise ValueError(f"{item!r}: expected step=model[:effort]")
-            model, _, effort = value.strip().partition(":")
-            if model not in PRICING:
+            model, effort = _split_model(value.strip(), provider)
+            if provider == "ollama":
+                if not LOCAL_MODEL_NAME.fullmatch(model):
+                    raise ValueError(f"invalid Ollama model name {model!r}")
+            elif model not in PRICING:
                 raise ValueError(f"unknown model {model!r}; known: {', '.join(PRICING)}")
             if effort and effort not in EFFORTS:
                 raise ValueError(f"unknown effort {effort!r}; known: {', '.join(EFFORTS)}")
@@ -95,6 +103,16 @@ class ModelConfig:
 
     def describe(self) -> dict[str, str]:
         return {step: f"{m.model}:{m.effort}" for step, m in self.steps.items()}
+
+
+def _split_model(value: str, provider: str) -> tuple[str, str]:
+    """`model[:effort]`. Ollama names contain ':' themselves (qwen3:4b), so there an effort is
+    only split off when the last part is a known effort level."""
+    head, sep, tail = value.rpartition(":")
+    if provider == "ollama":
+        return (head, tail) if sep and tail in EFFORTS else (value, "")
+    model, _, effort = value.partition(":")
+    return model, effort
 
 
 def cost(

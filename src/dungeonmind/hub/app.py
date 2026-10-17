@@ -28,9 +28,13 @@ class FastEmbedder:
 
 
 def build_hub(
-    root: Path, daily_message_limit: int = 50, chunks: Path = DEFAULT_CHUNKS, models=None
+    root: Path,
+    daily_message_limit: int = 50,
+    chunks: Path = DEFAULT_CHUNKS,
+    models=None,
+    provider: str = "claude",
 ):
-    from dungeonmind.graph.llm import ClaudeLLM
+    from dungeonmind.graph.providers import make_llm, provider_timeout
     from dungeonmind.hub.chats import make_engine
     from dungeonmind.hub.service import Hub
     from dungeonmind.rag.hybrid import HybridRetriever, Mode
@@ -53,7 +57,9 @@ def build_hub(
             return retriever.retrieve(query, k=SRD_K, mode=Mode.DENSE)
 
     registry = ToolRegistry(Catalog.load(chunks=srd_chunks))
-    engine = make_engine(ClaudeLLM(models=models), retrieve, registry)
+    engine = make_engine(
+        make_llm(provider, models), retrieve, registry, timeout_s=provider_timeout(provider)
+    )
     return Hub(
         root,
         embedder=FastEmbedder(dense, model_lock),

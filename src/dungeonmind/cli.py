@@ -33,14 +33,42 @@ MODELS_HELP = (
 )
 
 
-def model_config(spec: str | None):
-    """`--models`, else $DUNGEONMIND_MODELS, else the default (M8 contract M2)."""
+PROVIDER_HELP = "claude (paid API) or ollama (free local model); default: $DUNGEONMIND_PROVIDER"
+
+
+def resolve_provider(value: str | None) -> str:
+    """`--provider`, else $DUNGEONMIND_PROVIDER, else claude (M8b contract P1)."""
+    from dungeonmind.graph.providers import check_provider
+
+    try:
+        return check_provider(value or os.environ.get("DUNGEONMIND_PROVIDER") or "claude")
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
+def model_config(spec: str | None, provider: str = "claude"):
+    """`--models`, else $DUNGEONMIND_MODELS, else the provider's default (M8 contract M2)."""
     from dungeonmind.graph.models import ModelConfig
 
     try:
-        return ModelConfig.parse(spec if spec is not None else os.environ.get("DUNGEONMIND_MODELS"))
+        return ModelConfig.parse(
+            spec if spec is not None else os.environ.get("DUNGEONMIND_MODELS"), provider=provider
+        )
     except ValueError as e:
         raise typer.BadParameter(str(e)) from e
+
+
+def require_backend(provider: str, config) -> None:
+    """Stop before running when the chosen backend can't answer (P5)."""
+    if provider == "claude":
+        if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+            raise typer.BadParameter(NO_CREDENTIALS)
+        return
+    import dungeonmind.graph.ollama as ollama
+
+    problems = ollama.check_ollama(None, config)
+    if problems:
+        raise typer.BadParameter("\n".join(problems))
 
 
 def clean_for_terminal(text: str) -> str:
@@ -143,28 +171,30 @@ def chat(
         typer.Option(help="Conversation name; remembers the last encounter for follow-ups"),
     ] = None,
     models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
+    provider: Annotated[str | None, typer.Option(help=PROVIDER_HELP)] = None,
 ) -> None:
     """Ask anything: rules Q&A, lookups and odds, or building encounters, with citations."""
+    import dungeonmind.graph.providers as providers
     from dungeonmind.graph.build import Deps, run_chat
-    from dungeonmind.graph.llm import ClaudeLLM
     from dungeonmind.graph.store import JsonFileStore
     from dungeonmind.tools.catalog import Catalog
     from dungeonmind.tools.registry import ToolRegistry
 
     if conversation is not None and not 1 <= len(conversation.strip()) <= 100:
         raise typer.BadParameter("--conversation must be 1–100 characters")
-    config = model_config(models)
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        raise typer.BadParameter(NO_CREDENTIALS)
+    backend = resolve_provider(provider)
+    config = model_config(models, backend)
+    require_backend(backend, config)
     retriever = load_retriever(Mode.DENSE)
     chunks = list(retriever.by_id.values())
     # Without --conversation, Deps keeps its in-memory store and nothing persists.
     extra = {"store": JsonFileStore(CONVERSATIONS)} if conversation else {}
     deps = Deps(
-        llm=ClaudeLLM(models=config),
+        llm=providers.make_llm(backend, config),
         retrieve=lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE),
         registry=ToolRegistry(Catalog.load(chunks=chunks)),
         max_steps=max_steps,
+        timeout_s=providers.provider_timeout(backend),
         **extra,
     )
     state = run_chat(question, deps, conversation_id=conversation.strip() if conversation else None)
@@ -323,6 +353,7 @@ def serve(
         int, typer.Option(min=1, max=10_000, help="Bot messages per user per day")
     ] = 50,
     models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
+    provider: Annotated[str | None, typer.Option(help=PROVIDER_HELP)] = None,
 ) -> None:
     """Run the campaign hub API (accounts, campaigns, boards, chat)."""
     import uvicorn
@@ -336,11 +367,13 @@ def serve(
             "isn't encrypted (plain HTTP). Use it only on a network you trust.",
             fg="yellow",
         )
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        _say(
-            "Note: no Anthropic credentials set; the chatbot will answer with errors.", fg="yellow"
-        )
-    hub = build_hub(root, daily_message_limit=daily_limit, models=model_config(models))
+    backend = resolve_provider(provider)
+    config = model_config(models, backend)
+    try:
+        require_backend(backend, config)
+    except typer.BadParameter as e:  # the hub still works for notes; only the bot can't answer
+        _say(f"Note: the chatbot can't answer yet. {e.message}", fg="yellow")
+    hub = build_hub(root, daily_message_limit=daily_limit, models=config, provider=backend)
     # No access log: paths and query strings carry search text (F6).
     uvicorn.run(create_app(hub), host=host, port=port, log_level="info", access_log=False)
 
@@ -498,6 +531,7 @@ def eval_gate(
 def eval_live(
     label: Annotated[str, typer.Option(help="Name for the saved result")] = "live",
     models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
+    provider: Annotated[str | None, typer.Option(help=PROVIDER_HELP)] = None,
     max_cost: Annotated[
         float, typer.Option(min=0.01, max=100.0, help="Stop once spending reaches this (USD)")
     ] = 2.0,
@@ -514,15 +548,16 @@ def eval_live(
     import tempfile
     import threading
 
+    import dungeonmind.graph.providers as providers
     from dungeonmind.evals.fixture import build_fixture
     from dungeonmind.evals.live import estimate, make_runner, run_live
     from dungeonmind.evals.results import save
-    from dungeonmind.graph.llm import ClaudeLLM
     from dungeonmind.hub.app import FastEmbedder
     from dungeonmind.tools.catalog import Catalog
     from dungeonmind.tools.registry import ToolRegistry
 
-    config = model_config(models)
+    backend = resolve_provider(provider)
+    config = model_config(models, backend)
     cases, problems = _validated_suite(category, limit)
     if problems:
         raise typer.BadParameter("the suite is invalid; run `dungeonmind eval validate`")
@@ -530,8 +565,7 @@ def eval_live(
     _say(f"{len(cases)} cases, estimated cost ${expected:.2f} (budget ${max_cost:.2f}).")
     if estimate_only:
         return
-    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        raise typer.BadParameter(NO_CREDENTIALS)
+    require_backend(backend, config)
     if expected > max_cost and not yes:
         raise typer.BadParameter(
             f"the estimate ${expected:.2f} exceeds --max-cost ${max_cost:.2f}; raise it, "
@@ -539,14 +573,23 @@ def eval_live(
         )
     retriever = load_retriever(Mode.DENSE)
     registry = ToolRegistry(Catalog.load(chunks=list(retriever.by_id.values())))
-    llm = ClaudeLLM(models=config)
+    llm = providers.make_llm(backend, config)
     with tempfile.TemporaryDirectory() as root:
         fixture = build_fixture(Path(root), FastEmbedder(retriever.dense, threading.Lock()))
         runner = make_runner(
-            fixture, llm, lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE), registry
+            fixture,
+            llm,
+            lambda q: retriever.retrieve(q, k=6, mode=Mode.DENSE),
+            registry,
+            timeout_s=providers.provider_timeout(backend),
         )
         report = run_live(cases, runner, max_cost=max_cost)
-    report["meta"] = {"kind": "live", "models": config.describe(), "max_cost": max_cost}
+    report["meta"] = {
+        "kind": "live",
+        "provider": backend,
+        "models": config.describe(),
+        "max_cost": max_cost,
+    }
     path = save(report, label)
     o = report["overall"]
     _say(
