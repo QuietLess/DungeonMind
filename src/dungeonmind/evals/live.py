@@ -152,6 +152,29 @@ def _percentile(values: list[float], q: float) -> float:
     return statistics.quantiles(values, n=100, method="inclusive")[int(q) - 1]
 
 
+TRACE_LINES = 12
+TRACE_CHARS = 200
+
+
+def _short_trace(trace: list[str] | None) -> list[str]:
+    """The trace kept in results: enough to see why a case failed, never the whole prompt."""
+    return [line[:TRACE_CHARS] for line in (trace or [])[:TRACE_LINES]]
+
+
+def _failure_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Why cases failed: the error type for broken runs, else the first check that failed."""
+    counts: dict[str, int] = {}
+    for r in rows:
+        if r["passed"]:
+            continue
+        if r.get("error") or r.get("stop_reason") == "error":
+            key = f"error: {r.get('error_type') or 'unknown'}"
+        else:
+            key = next((k for k, v in r["scores"].items() if k != "passed" and not v), "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+
+
 def _error_row(case: Case, error: str, result: dict[str, Any] | None = None) -> dict[str, Any]:
     r = result or {}
     return {
@@ -163,6 +186,8 @@ def _error_row(case: Case, error: str, result: dict[str, Any] | None = None) -> 
         "latency_ms": r.get("latency_ms", 0.0),
         "cost": r.get("cost", 0.0),  # R6: money spent before a failure still counts
         "usage": r.get("usage", {}),
+        "error_type": r.get("error_type") or error.split(":", 1)[0],
+        "trace": _short_trace(r.get("trace")),
     }
 
 
@@ -203,6 +228,8 @@ def run_live(
                     "latency_ms": result.get("latency_ms", 0.0),
                     "cost": result.get("cost", 0.0),
                     "usage": result.get("usage", {}),
+                    "error_type": result.get("error_type"),
+                    "trace": _short_trace(result.get("trace")),
                 }
         spent += row["cost"]
         rows.append(row)
@@ -242,6 +269,7 @@ def _aggregate(rows: list[dict[str, Any]], not_run: list[str]) -> dict[str, Any]
             "total": round(sum(r["cost"] for r in rows), 6),
             "by_step": {k: round(v, 6) for k, v in by_step.items()},
         },
+        "failures": _failure_counts(rows),
         "stopped_early": bool(not_run),
         "not_run": not_run,
     }
@@ -371,6 +399,8 @@ def make_runner(
                 if not t.get("is_error")
             ],
             "llm_inputs": " ".join(recorder.inputs),
+            "error_type": state.get("error_type"),
+            "trace": [f"{e['node']}: {e['detail']}" for e in state.get("trace", [])],
             "latency_ms": (time.perf_counter() - started) * 1000,
             "cost": sum(u["cost"] for u in usage.values()),
             "usage": usage,

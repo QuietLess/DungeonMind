@@ -250,3 +250,16 @@ def test_p7_estimate_is_free_for_local_models():
 
     cases = [Case(id="r-1", category="rules", question="q", expect={})]
     assert estimate(cases, ModelConfig.default(provider="ollama")) == 0.0
+
+
+def test_p5_a_slow_local_model_raises_a_named_timeout():
+    from dungeonmind.graph.ollama import OllamaTimeout
+
+    def slow(request):
+        raise httpx.ReadTimeout("timed out")
+
+    llm = OllamaLLM(
+        http=httpx.Client(transport=httpx.MockTransport(slow), base_url="http://ollama.test")
+    )
+    with pytest.raises(OllamaTimeout, match="300"):
+        llm.route("q")

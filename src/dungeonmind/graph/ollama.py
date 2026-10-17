@@ -30,12 +30,17 @@ __all__ = [
     "NUM_CTX",
     "OllamaError",
     "OllamaLLM",
+    "OllamaTimeout",
     "check_ollama",
 ]
 
 
 class OllamaError(RuntimeError):
     pass
+
+
+class OllamaTimeout(OllamaError):
+    """The local model didn't answer in time (common on CPU-only machines)."""
 
 
 def ollama_url() -> str:
@@ -173,6 +178,8 @@ class OllamaLLM(ClaudeLLM):
             if r.status_code == 400 and "think" in r.text and body.get("think") is not None:
                 body = {k: v for k, v in body.items() if k != "think"}  # older servers/models
                 r = self.http.post("/api/chat", json=body, timeout=timeout)
+        except httpx.TimeoutException as e:
+            raise OllamaTimeout(f"the local model didn't answer within {timeout:.0f} s") from e
         except httpx.HTTPError as e:
             raise OllamaError(
                 f"Ollama isn't reachable ({type(e).__name__}); is `ollama serve` running?"
