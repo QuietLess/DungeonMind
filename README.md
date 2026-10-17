@@ -70,7 +70,11 @@ In the browser: create an account, start a campaign (you're its DM), write lore,
 invite code from **Members**. Players join with the code, keep a storyboard for their
 character, write in the journal, and chat. Answers cite the notes they used (click to open)
 and the SRD pages. Follow-up questions ("what about her brother?") use the thread's earlier
-turns. For UI development, run `uv run npm --prefix web run dev` (Vite on :5173, proxying `/api`
+turns. The lore board filters by kind and, for the DM, by secret or revealed; notes render
+their Markdown (headings, bold, lists, quotes) without links or images. Chats can be renamed
+or deleted. Your username in the top bar opens **Account**: questions used today, signed-in
+devices, password change, "sign out other devices", and account deletion (your private
+entries and chats are deleted; what you shared stays). For UI development, run `uv run npm --prefix web run dev` (Vite on :5173, proxying `/api`
 to the hub on :8000) and `uv run npm --prefix web test`.
 
 The API lives under `/api` (accounts, campaigns, invites, characters, entries, search, chats).
