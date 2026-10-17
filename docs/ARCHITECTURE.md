@@ -1093,6 +1093,20 @@ dungeonmind hub backup --out DIR [--root data/hub]
 - **K3** `HEALTHCHECK` calls `/api/health`. Compose publishes the port on `127.0.0.1` only by
   default; Ollama on the host is reached with `DUNGEONMIND_OLLAMA_URL`.
 
+### M9a review fixes (backend + security review: no CRITICAL/HIGH)
+
+- **R1** The source path is percent-encoded into the SQLite URI. Before, a `?` in the hub's
+  path dropped `mode=ro`, created an empty database and reported a successful, empty backup.
+- **R3** A backup is written to a hidden `.partial` folder and renamed only when complete; any
+  failure removes it and is a plain message (a corrupt campaign used to leave a half folder
+  and a traceback).
+- **R4** "Inside the root" is checked with `samefile` on every ancestor, so a symlink or a
+  different letter case on macOS can't place the backup inside the hub.
+- README: Docker backup/restore steps (ownership for uid 10001), restore into an empty folder.
+- CI: model files in the cache key; push runs only on `main` (pull requests cover branches).
+  Release: the package-write token exists only in the tag-publish job; semver tags only.
+- `.env.example` leaves the key empty.
+
 ### Out of scope for M9a
 
 Hosting, TLS and a domain (owner's decision, recurring cost); tracing and metrics (later M9).

@@ -122,3 +122,53 @@ def test_b3_backup_cli_reports_the_folder_and_campaigns(filled, tmp_path):
     assert result.exit_code == 0, result.output
     assert "dungeonmind-backup-" in result.output
     assert "2 campaigns" in result.output
+
+
+# --- M9a review fixes --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["what?", "hash#tag", "per%41cent"])
+def test_r1_special_characters_in_the_root_path(tmp_path, name):
+    root = tmp_path / name / "hub"
+    hub = make_hub(root)
+    camp, *_ = party(hub)
+    result = backup(root, tmp_path / "out", now=NOW)
+    assert _count(result.folder / "app.db", "users") == 5
+    assert (result.folder / "campaigns" / camp.id / "campaign.db").exists()
+    assert sorted(p.name for p in (tmp_path / name).iterdir()) == ["hub"]  # nothing created
+
+
+def test_r3_a_failed_backup_leaves_no_folder_and_no_traceback(filled, tmp_path):
+    root, cid, _ = filled
+    (root / "campaigns" / cid / "campaign.db").write_bytes(b"not a database" * 200)
+    for suffix in ("-wal", "-shm"):
+        (root / "campaigns" / cid / f"campaign.db{suffix}").unlink(missing_ok=True)
+    with pytest.raises(BackupError, match="campaign"):
+        backup(root, tmp_path / "backups", now=NOW)
+    assert list((tmp_path / "backups").iterdir()) == []
+    result = CliRunner().invoke(
+        cli.app, ["hub", "backup", "--root", str(root), "--out", str(tmp_path / "b2")], env=WIDE
+    )
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+
+
+def test_r4_out_inside_the_root_is_refused_whatever_the_spelling(filled, tmp_path):
+    root, *_ = filled
+    link = tmp_path / "link"
+    link.symlink_to(root)
+    with pytest.raises(BackupError, match="outside"):
+        backup(root, link / "bk", now=NOW)
+    upper = root.parent / root.name.upper()
+    if upper.exists():  # case-insensitive file system (macOS APFS)
+        with pytest.raises(BackupError, match="outside"):
+            backup(root, upper / "bk", now=NOW)
+
+
+def test_r_symlinked_or_odd_campaign_folders_are_skipped(filled, tmp_path):
+    root, cid, other = filled
+    (root / "campaigns" / "not-a-campaign").mkdir()
+    (root / "campaigns" / ("f" * 32)).symlink_to(root / "campaigns" / cid)
+    result = backup(root, tmp_path / "backups", now=NOW)
+    assert result.campaigns == 2
+    assert sorted(p.name for p in (result.folder / "campaigns").iterdir()) == sorted([cid, other])

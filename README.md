@@ -191,8 +191,14 @@ come in the language you ask in.
 `dungeonmind hub backup --out DIR` writes `DIR/dungeonmind-backup-<UTC time>/` with `app.db`
 (accounts) and every `campaigns/<id>/campaign.db`. It uses SQLite's backup API, so it's safe
 while `serve` runs. The folder is private to your user (0700/0600), and it holds real campaign
-text, so keep it out of the repo and out of shared folders. To restore: stop the server, then
-copy the folder's contents into `data/hub/`.
+text, so keep it out of the repo and out of shared folders. A failed run leaves nothing behind
+(it writes to a hidden `.partial` folder first).
+
+To restore: stop the server, move the old `data/hub/` aside, then copy the backup's contents
+into an empty `data/hub/`. Restoring into the old folder would mix in leftover `-wal`/`-shm`
+files and campaigns that aren't in the backup. Accounts and campaigns are copied one after
+another, so a campaign created or deleted during the backup may be missing or orphaned; back
+up when nobody is editing.
 
 ## Docker
 
@@ -204,8 +210,22 @@ docker compose up --build         # open http://127.0.0.1:8000; health: /api/hea
 The image holds the web app, the API and the SRD data (built at image build time). It runs as a
 non-root user and keeps hub data in the `hub-data` volume, never in the image. Compose
 publishes the port on `127.0.0.1` only. With Ollama, the container reaches the Ollama app on
-your Mac at `host.docker.internal:11434`. To move an existing hub into the volume, make a
-backup and copy it in: `docker compose cp <backup>/. dungeonmind:/data/hub`.
+your Mac at `host.docker.internal:11434`.
+
+Backups and restores with Docker (the container runs as uid 10001):
+
+```bash
+# back up: write inside the container, then copy out
+docker compose exec dungeonmind dungeonmind hub backup --root /data/hub --out /tmp/backups
+docker compose cp dungeonmind:/tmp/backups ./backups
+
+# restore (or move an existing data/hub into the volume): stop, copy, fix ownership, start
+docker compose stop
+docker compose run --rm --user root --entrypoint sh dungeonmind -c 'rm -rf /data/hub/*'
+docker compose cp ./backups/dungeonmind-backup-<time>/. dungeonmind:/data/hub
+docker compose run --rm --user root --entrypoint chown dungeonmind -R 10001 /data/hub
+docker compose start
+```
 
 ## CI
 
