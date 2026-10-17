@@ -29,3 +29,5 @@ web/dist/
 
 # Campaign hub data (real accounts and campaigns; never commit)
 data/hub/
+# Test cases built from real campaigns (they quote private campaign text; never commit)
+data/evals/

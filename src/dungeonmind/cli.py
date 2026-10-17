@@ -710,6 +710,40 @@ def _offline_report():
     return report
 
 
+@eval_app.command("campaign")
+def eval_campaign(
+    cases: Annotated[Path, typer.Argument(help="JSONL cases (keep them in data/evals/)")],
+    campaign: Annotated[str, typer.Option(help="Campaign id (the folder under campaigns/)")],
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+    k: Annotated[int, typer.Option("-k", min=1, max=50)] = 5,
+) -> None:
+    """Notes retrieval on a real campaign, as each case's viewer. Local, no model calls."""
+    from dungeonmind.evals.campaign import evaluate, load_cases, open_hub
+
+    try:
+        hub = open_hub(root)
+    except FileNotFoundError as e:
+        _say(str(e), fg="red")
+        raise typer.Exit(1) from e
+    loaded, errors = load_cases(cases, hub, campaign)
+    for message in errors:
+        _say(message, fg="red")
+    if errors:
+        raise typer.Exit(1)
+    report = evaluate(hub, campaign, loaded, k=k)
+    _say(
+        f"Notes retrieval: R@{k} {report[f'recall@{k}']:.2f}  MRR {report['mrr']:.2f}  "
+        f"(n={report['n']})"
+    )
+    for miss in report["misses"]:
+        _say(f"  missed {miss['id']}: wanted {', '.join(miss['missing'])}")
+        _say(f"      got {' | '.join(miss['top'])}", fg="bright_black")
+    if report["leaks"]:
+        _say(f"Leaks: {', '.join(report['leaks'])}", fg="red")
+        raise typer.Exit(1)
+    _say("No leaks.")
+
+
 @eval_app.command("validate")
 def eval_validate() -> None:
     """Check the suite: unique ids, real SRD sections and notes, numbers that match the tools."""
