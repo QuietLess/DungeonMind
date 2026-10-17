@@ -818,6 +818,23 @@ class Hub:
             ).fetchall()
         return [thread_from_row(r) for r in rows]
 
+    def rename_thread(self, user: User, cid: str, tid: int, title: str) -> Thread:
+        """CT1: the owner only; anyone else's thread doesn't exist for them."""
+        self._member(user, cid)
+        title = _text(title, "Title", models.THREAD_TITLE_CHARS)
+        with self.storage.campaign(cid, immediate=True) as db:
+            row = self._own_thread(db, user, tid)
+            db.execute("UPDATE threads SET title = ? WHERE id = ?", (title, row["id"]))
+            row = db.execute("SELECT * FROM threads WHERE id = ?", (row["id"],)).fetchone()
+        return thread_from_row(row)
+
+    def delete_thread(self, user: User, cid: str, tid: int) -> None:
+        """CT1: removes the thread; its messages and encounter state cascade."""
+        self._member(user, cid)
+        with self.storage.campaign(cid, immediate=True) as db:
+            row = self._own_thread(db, user, tid)
+            db.execute("DELETE FROM threads WHERE id = ?", (row["id"],))
+
     def _own_thread(self, db, user: User, tid: Any):
         row = db.execute(
             "SELECT * FROM threads WHERE id = ? AND owner_id = ?", (_id(tid, "Chat"), user.id)
@@ -902,7 +919,9 @@ class Hub:
     def _save_message(
         self, cid: str, thread_id: int, role: str, text: str, meta: dict[str, Any]
     ) -> Message:
-        with self.storage.campaign(cid) as db:
+        with self.storage.campaign(cid, immediate=True) as db:
+            if db.execute("SELECT 1 FROM threads WHERE id = ?", (thread_id,)).fetchone() is None:
+                raise NotFound("Chat not found.")  # CT2: deleted while it was being answered
             cur = db.execute(
                 "INSERT INTO messages (thread_id, role, text, meta, created_at) "
                 "VALUES (?, ?, ?, ?, ?)",

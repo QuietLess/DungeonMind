@@ -108,6 +108,10 @@ class ThreadIn(_In):
     title: str = "New chat"
 
 
+class ThreadPatch(_In):
+    title: str
+
+
 class MessageIn(_In):
     text: str
 
@@ -359,6 +363,14 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
             "thread": asdict(hub.thread(user, cid, tid)),
             "messages": [asdict(m) for m in hub.messages(user, cid, tid)],
         }
+
+    @private.patch("/campaigns/{cid}/chats/{tid}")
+    def rename_thread(cid: str, tid: int, body: ThreadPatch, user: Me):
+        return asdict(hub.rename_thread(user, cid, tid, body.title))
+
+    @private.delete("/campaigns/{cid}/chats/{tid}", status_code=204)
+    def delete_thread(cid: str, tid: int, user: Me):
+        hub.delete_thread(user, cid, tid)
 
     @private.post("/campaigns/{cid}/chats/{tid}/messages")
     def ask(cid: str, tid: int, body: MessageIn, user: Me):
