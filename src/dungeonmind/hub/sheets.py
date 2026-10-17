@@ -293,7 +293,8 @@ def derive(sheet: Sheet) -> dict[str, Any]:
         "saves": saves,
         "skills": skills,
         "passive_perception": 10 + skills["perception"],
-        "initiative": mods["dex"] + half + sheet.initiative_misc,
+        # 2024: Jack of All Trades applies to skill checks only; initiative is a plain DEX check.
+        "initiative": mods["dex"] + sheet.initiative_misc,
         "attacks": attacks,
         "spell_save_dc": 8 + pb + spell_mod if spell_mod is not None else None,
         "spell_attack": pb + spell_mod if spell_mod is not None else None,

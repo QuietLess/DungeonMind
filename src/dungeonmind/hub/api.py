@@ -8,11 +8,12 @@ Errors are always `{"detail": <plain message>}`; unexpected ones never show thei
 from __future__ import annotations
 
 import ipaddress
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, StrictInt
@@ -24,7 +25,8 @@ from dungeonmind.hub.service import Hub
 
 SESSION_COOKIE = "dm_session"
 CSRF_HEADER = "X-DungeonMind"
-SHEET_BODY_BYTES = 256 * 1024  # M10 S3: a full sheet
+SHEET_BODY_BYTES = 512 * 1024  # M10 S3: a full sheet (non-ASCII text included)
+SHEET_PATH = re.compile(r"/api/campaigns/[0-9a-f]{32}/characters/[0-9]{1,18}/sheet")
 MAX_BODY_BYTES = 64 * 1024
 UNSAFE = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 INTERNAL_ERROR = "Something went wrong. Please try again."
@@ -213,7 +215,8 @@ def create_app(
             length = request.headers.get("content-length")
             if length is None and request.headers.get("transfer-encoding"):
                 return JSONResponse({"detail": "Send a Content-Length header."}, 411)
-            limit = SHEET_BODY_BYTES if request.url.path.endswith("/sheet") else MAX_BODY_BYTES
+            big = request.method == "PUT" and SHEET_PATH.fullmatch(request.url.path)
+            limit = SHEET_BODY_BYTES if big else MAX_BODY_BYTES
             if length is not None and (not length.isdigit() or int(length) > limit):
                 kb = limit // 1024
                 return JSONResponse({"detail": f"Request body is too large ({kb} KB max)."}, 413)
@@ -425,7 +428,7 @@ def create_app(
         return hub.roll(user, cid, **body.model_dump())
 
     @private.get("/campaigns/{cid}/rolls")
-    def rolls(cid: str, user: Me, after: int = 0):
+    def rolls(cid: str, user: Me, after: Annotated[int, Query(ge=0, le=2**62)] = 0):
         return hub.rolls(user, cid, after)
 
     # --- chats -------------------------------------------------------------------------------

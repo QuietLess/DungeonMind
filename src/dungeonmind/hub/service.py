@@ -681,7 +681,10 @@ class Hub:
                 "UPDATE characters SET name = ?, summary = ? WHERE id = ?",
                 (new_name, new_summary, row["id"]),
             )
+            renamed = new_name != row["name"]
             row = db.execute("SELECT * FROM characters WHERE id = ?", (row["id"],)).fetchone()
+        if renamed:
+            self._resync_sheet_entry(cid, row["id"])  # F6
         return store.character_from_row(row)
 
     def delete_character(self, user: User, cid: str, chid: int) -> None:
@@ -735,6 +738,8 @@ class Hub:
     def save_sheet(
         self, user: User, cid: str, chid: int, data: Any, version: Any
     ) -> dict[str, Any]:
+        """S3 + C1: the sheet and its generated entry are written in one transaction, after the
+        slow work (validation, summary, embedding), so a failure saves neither (review F1)."""
         camp = self._member(user, cid)
         if isinstance(version, bool) or not isinstance(version, int) or version < 0:
             raise Invalid("version must be a whole number.")
@@ -745,10 +750,14 @@ class Hub:
             where = ".".join(str(p) for p in err.get("loc", ()))
             message = f"{where}: {err.get('msg', 'invalid value')}" if where else "Invalid sheet."
             raise Invalid(message) from None
-        with self.storage.campaign(cid, immediate=True) as db:
+        with self.storage.campaign(cid) as db:
             character = self._character_row(db, chid)
-            if character["owner_id"] != user.id and camp.role != "dm":
-                raise Forbidden("Only the character's player or the DM can edit this sheet.")
+        if character["owner_id"] != user.id and camp.role != "dm":
+            raise Forbidden("Only the character's player or the DM can edit this sheet.")
+        derived = derive(sheet)
+        entry = self._sheet_entry_parts(cid, character, sheet, derived)
+        with self.storage.campaign(cid, immediate=True) as db:
+            character = self._character_row(db, chid)  # still there (F7)
             _, current = self._load_sheet(db, character["id"])
             if current != version:
                 raise Conflict("This sheet changed while you were editing. Reload and try again.")
@@ -758,8 +767,7 @@ class Hub:
                 "version = excluded.version, updated_at = excluded.updated_at",
                 (character["id"], sheet.model_dump_json(), version + 1, _iso(self.clock())),
             )
-        derived = derive(sheet)
-        self._sync_sheet_entry(cid, character, sheet, derived)
+            self._write_sheet_entry(db, character, *entry)
         return {
             "sheet": sheet.model_dump(),
             "derived": derived,
@@ -767,9 +775,8 @@ class Hub:
             "can_edit": True,
         }
 
-    def _sync_sheet_entry(self, cid: str, character, sheet: Sheet, derived: dict[str, Any]) -> None:
-        """C1: one generated, party-visible entry per sheet, written as the character's player,
-        so the chatbot finds and cites sheets through the normal notes search."""
+    def _sheet_entry_parts(self, cid: str, character, sheet: Sheet, derived: dict[str, Any]):
+        """Title, text, embedded chunks and author name of a sheet's generated entry (slow)."""
         title = f"{character['name']} — character sheet"[: models.TITLE_CHARS]
         body = summary_text(character["name"], sheet, derived)
         chunks = self._embed(cid, title, body)
@@ -777,29 +784,48 @@ class Hub:
             owner = db.execute(
                 "SELECT username FROM users WHERE id = ?", (character["owner_id"],)
             ).fetchone()
-        author_name = owner["username"] if owner else "player"
+        return title, body, chunks, owner["username"] if owner else "player"
+
+    def _write_sheet_entry(self, db, character, title, body, chunks, author_name) -> None:
+        """C1: one generated, party-visible entry per sheet, written as the character's player,
+        so the chatbot finds and cites sheets through the normal notes search."""
         now = _iso(self.clock())
-        with self.storage.campaign(cid, immediate=True) as db:
+        row = db.execute(
+            "SELECT id FROM entries WHERE character_id = ? AND kind = 'sheet'", (character["id"],)
+        ).fetchone()
+        if row is None:
+            cur = db.execute(
+                "INSERT INTO entries (board, character_id, author_id, author_name, kind, "
+                "title, body, visibility, session, created_at, updated_at) "
+                "VALUES ('character', ?, ?, ?, 'sheet', ?, ?, 'party', NULL, ?, ?)",
+                (character["id"], character["owner_id"], author_name, title, body, now, now),
+            )
+            entry_id = cur.lastrowid
+        else:
+            entry_id = row["id"]
+            db.execute(
+                "UPDATE entries SET title = ?, body = ?, version = version + 1, updated_at = ? "
+                "WHERE id = ?",
+                (title, body, now, entry_id),
+            )
+        store.replace_chunks(db, entry_id, title, chunks)
+
+    def _resync_sheet_entry(self, cid: str, chid: int) -> None:
+        """F6: after a rename, the generated entry follows the character's new name."""
+        with self.storage.campaign(cid) as db:
+            character = self._character_row(db, chid)
             row = db.execute(
-                "SELECT id FROM entries WHERE character_id = ? AND kind = 'sheet'",
-                (character["id"],),
+                "SELECT version FROM sheets WHERE character_id = ?", (character["id"],)
             ).fetchone()
             if row is None:
-                cur = db.execute(
-                    "INSERT INTO entries (board, character_id, author_id, author_name, kind, "
-                    "title, body, visibility, session, created_at, updated_at) "
-                    "VALUES ('character', ?, ?, ?, 'sheet', ?, ?, 'party', NULL, ?, ?)",
-                    (character["id"], character["owner_id"], author_name, title, body, now, now),
-                )
-                entry_id = cur.lastrowid
-            else:
-                entry_id = row["id"]
-                db.execute(
-                    "UPDATE entries SET title = ?, body = ?, version = version + 1, "
-                    "updated_at = ? WHERE id = ?",
-                    (title, body, now, entry_id),
-                )
-            store.replace_chunks(db, entry_id, title, chunks)
+                return
+            sheet, version = self._load_sheet(db, character["id"])
+        entry = self._sheet_entry_parts(cid, character, sheet, derive(sheet))
+        with self.storage.campaign(cid, immediate=True) as db:
+            character = self._character_row(db, chid)
+            _, current = self._load_sheet(db, character["id"])
+            if current == version:  # a newer save already wrote a fresh entry otherwise
+                self._write_sheet_entry(db, character, *entry)
 
     # --- dice and the game log (M10b) ---------------------------------------------------------
 
@@ -878,12 +904,18 @@ class Hub:
         camp = self._member(user, cid)
         if isinstance(after, bool) or not isinstance(after, int) or after < 0:
             raise Invalid("after must be a whole number.")
+        visible = "(to_dm = 0 OR user_id = ? OR ?)"
+        args = (user.id, int(camp.role == "dm"))
         with self.storage.campaign(cid) as db:
-            rows = db.execute(
-                "SELECT * FROM rolls WHERE id > ? AND (to_dm = 0 OR user_id = ? OR ?) "
-                "ORDER BY id LIMIT 100",
-                (after, user.id, int(camp.role == "dm")),
-            ).fetchall()
+            if after == 0:  # the first page: the newest rolls (review F2), oldest first
+                rows = db.execute(
+                    f"SELECT * FROM rolls WHERE {visible} ORDER BY id DESC LIMIT 100", args
+                ).fetchall()[::-1]
+            else:
+                rows = db.execute(
+                    f"SELECT * FROM rolls WHERE id > ? AND {visible} ORDER BY id LIMIT 100",
+                    (after, *args),
+                ).fetchall()
         return [_roll_from_row(r) for r in rows]
 
     # --- entries ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ roll. Dice are rolled by the dice tool, so every die is recorded.
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,8 +49,12 @@ def _split(expression: str, critical: bool) -> tuple[DiceExpression, int]:
         expr = parse(expression)
     except DiceError as e:
         raise Invalid(f"Not a dice expression: {e}") from None
-    terms = tuple(
-        DiceTerm(t.count * (2 if critical else 1), t.sides, t.sign, t.keep) for t in expr.dice
+    factor = 2 if critical else 1
+    terms = tuple(  # a critical doubles the dice, and how many of them are kept
+        DiceTerm(
+            t.count * factor, t.sides, t.sign, (t.keep[0], t.keep[1] * factor) if t.keep else None
+        )
+        for t in expr.dice
     )
     if not terms:
         raise Invalid("A roll needs at least one die.")
@@ -59,7 +64,7 @@ def _split(expression: str, critical: bool) -> tuple[DiceExpression, int]:
 
 
 def _index(key: str | None, items: list[Any], what: str) -> int:
-    if key is None or not key.isdigit() or int(key) >= len(items):
+    if key is None or not re.fullmatch(r"[0-9]{1,3}", key) or int(key) >= len(items):
         raise Invalid(f"No such {what}.")
     return int(key)
 

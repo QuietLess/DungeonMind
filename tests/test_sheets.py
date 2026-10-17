@@ -74,7 +74,7 @@ def test_s2_multiclass_jack_of_all_trades_and_spellcasting():
     d = derive(sheet)
     assert d["level"] == 5 and d["proficiency_bonus"] == 3
     assert d["skills"]["arcana"] == 1 + 1  # INT +1, half PB rounded down
-    assert d["initiative"] == 4 + 1
+    assert d["initiative"] == 4  # 2024: no Jack of All Trades on initiative (M10 F8)
     assert d["spell_save_dc"] == 8 + 3 - 1 and d["spell_attack"] == 3 - 1
     assert d["hit_dice"] == {"8": 3, "10": 2}
 
