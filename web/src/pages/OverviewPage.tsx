@@ -45,9 +45,16 @@ export function OverviewPage() {
   const { campaign } = useCampaign();
   const base = `/c/${campaign.id}`;
   const isDm = campaign.role === "dm";
-  const { data: entries } = useLoad(() => api.entries(campaign.id), [campaign.id]);
-  const { data: characters } = useLoad(() => api.characters(campaign.id), [campaign.id]);
-  const { data: members } = useLoad(() => api.members(campaign.id), [campaign.id]);
+  const { data: entries, error, reload } = useLoad(() => api.entries(campaign.id), [campaign.id]);
+  const { data: characters, error: charactersError } = useLoad(
+    () => api.characters(campaign.id),
+    [campaign.id],
+  );
+  const { data: members, error: membersError } = useLoad(
+    () => api.members(campaign.id),
+    [campaign.id],
+  );
+  const loadError = error ?? charactersError ?? membersError;
   const [open, setOpen] = useState<number | null>(null);
 
   const lore = entries?.filter((e) => e.board === "lore") ?? [];
@@ -70,16 +77,24 @@ export function OverviewPage() {
             <ChatIcon /> Ask the chatbot
           </Link>
           {isDm && (
-            <Link to={`${base}/lore`} className="btn">
+            <Link to={`${base}/lore?new=1`} className="btn">
               <PlusIcon /> New lore entry
             </Link>
           )}
-          <Link to={`${base}/journal`} className="btn">
+          <Link to={`${base}/journal?new=1`} className="btn">
             <PlusIcon /> New journal entry
           </Link>
         </div>
       </header>
 
+      {loadError && (
+        <p className="error" role="alert">
+          {loadError}{" "}
+          <button type="button" className="link-button" onClick={reload}>
+            Try again
+          </button>
+        </p>
+      )}
       <div className="stats">
         <Stat
           label="Lore"
@@ -97,6 +112,7 @@ export function OverviewPage() {
         <section className="panel" aria-labelledby="ov-sessions">
           <h2 id="ov-sessions">Latest sessions</h2>
           {entries && sessions.length === 0 && <p className="muted">No session notes yet.</p>}
+          {sessions.length > 0 && (
           <ul className="overview-list" aria-label="Latest sessions">
             {sessions.map((e) => (
               <li key={e.id}>
@@ -107,10 +123,12 @@ export function OverviewPage() {
               </li>
             ))}
           </ul>
+          )}
         </section>
         <section className="panel" aria-labelledby="ov-recent">
           <h2 id="ov-recent">Recently changed</h2>
           {entries && recent.length === 0 && <p className="muted">Nothing written yet.</p>}
+          {recent.length > 0 && (
           <ul className="overview-list" aria-label="Recently changed">
             {recent.map((e) => (
               <li key={e.id}>
@@ -123,9 +141,12 @@ export function OverviewPage() {
               </li>
             ))}
           </ul>
+          )}
         </section>
       </div>
-      {open !== null && <EntryPanel entryId={open} onClose={() => setOpen(null)} />}
+      {open !== null && (
+        <EntryPanel entryId={open} onClose={() => setOpen(null)} onChanged={reload} />
+      )}
     </section>
   );
 }

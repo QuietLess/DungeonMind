@@ -1,5 +1,6 @@
 // The Lore and Journal boards: filterable entry lists, grouped by kind on the lore board.
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Drawer } from "../components/Drawer";
 import { EntryCard, kindLabel } from "../components/EntryCard";
@@ -34,7 +35,13 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
   const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [shown, setShown] = useState<"all" | "secret" | "revealed">("all");
   const [open, setOpen] = useState<number | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [params, setParams] = useSearchParams();
+  // Overview quick actions link here with ?new=1 (opens the form once, then cleans the URL).
+  const [creating, setCreating] = useState(params.get("new") === "1");
+  const radioName = useId();
+  useEffect(() => {
+    if (params.has("new")) setParams({}, { replace: true });
+  }, [params, setParams]);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const { data: entries, loading, error: loadError, reload } = useLoad(
@@ -104,12 +111,15 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
           />
         </label>
         {lore && campaign.role === "dm" && entries && (entries.length > 0 || filtering) && (
-          <div role="radiogroup" aria-label="Show" className="segmented">
+          <div role="radiogroup" aria-labelledby={`${radioName}-l`} className="seg-toggle">
+            <span id={`${radioName}-l`} className="seg-label">
+              Show
+            </span>
             {(["all", "secret", "revealed"] as const).map((value) => (
               <label key={value} className={shown === value ? "active" : undefined}>
                 <input
                   type="radio"
-                  name="shown"
+                  name={radioName}
                   value={value}
                   checked={shown === value}
                   onChange={() => setShown(value)}
@@ -134,7 +144,7 @@ export function BoardPage({ board }: { board: "lore" | "journal" }) {
             <button
               key={kind}
               type="button"
-              className={`chip chip-${kind}`}
+              className="chip"
               aria-pressed={kindFilter === kind}
               onClick={() => setKindFilter(kindFilter === kind ? null : kind)}
             >

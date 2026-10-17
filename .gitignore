@@ -31,3 +31,6 @@ web/dist/
 data/hub/
 # Test cases built from real campaigns (they quote private campaign text; never commit)
 data/evals/
+
+# TypeScript incremental build cache (rewritten by every type check)
+web/tsconfig.tsbuildinfo
