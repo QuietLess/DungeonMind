@@ -1140,3 +1140,38 @@ session; unsafe ones need the CSRF header, like every other route.
 ### Out of scope for M9b
 
 Email, password reset by email, ownership transfer, co-DMs, display names.
+
+## M9c contract — UI for real campaigns
+
+Goal: the boards stay usable with a real campaign (the owner's import has 94 entries), notes
+read like the Markdown they were written in, and chats can be tidied.
+
+### Chat threads (Python, tested)
+
+- **CT1** `PATCH /api/campaigns/{cid}/chats/{tid} {title}` renames a thread (1–120 characters)
+  and `DELETE …/chats/{tid}` deletes it with its messages. Only the owner; anyone else gets 404,
+  like reading it.
+- **CT2** A thread deleted while its question is being answered: the answer is dropped and the
+  request gets 404 "Chat not found." (not a 500); the question still counts toward the daily
+  limit, because the model was called.
+
+### UI (Vitest + Testing Library, tested)
+
+- **UB1 Lore filters.** Above the lore board: kind chips ("All" plus every kind present, each
+  with its count) and, for the DM, "All / Secret / Revealed" (private vs party). Filters work
+  on the loaded list and combine with the text filter. Each chip is a toggle button with
+  `aria-pressed`.
+- **UB2 Debounced filter.** The text filter asks the server 300 ms after typing stops, not on
+  every key.
+- **UB3 Notes as Markdown, safely.** Entry bodies render headings (`#`–`###`), `**bold**`,
+  `*italic*`, bullet and numbered lists, `> quotes` and `` `code` ``, through the same rules
+  as answers: React text and plain elements only, never HTML, links or images. A URL stays
+  plain text.
+- **UB4 Journal order.** Journal entries are listed by session number, newest first; entries
+  without a session come after, newest first.
+- **UB5 Chat tidy-up.** Each thread in the chat list has Rename and Delete (with a
+  confirmation). Deleting the open thread goes back to the chat start page.
+
+### Out of scope for M9c
+
+Live updates between users, rich-text editing, attachments.
