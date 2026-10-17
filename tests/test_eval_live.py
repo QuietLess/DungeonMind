@@ -394,11 +394,34 @@ def test_r1_a_question_back_to_the_user_counts_as_completed():
     assert result["passed"]
 
 
-def test_r2_tool_citations_ground_lookup_answers():
+def test_r2_tool_citations_ground_lookup_answers_only_when_they_name_the_source():
     case = _case(category="rules", intent="lookup", srd=["Fireball"])
     cited = [{"id": "T1", "kind": "tool", "label": "get_entity tool"}]
-    assert score(case, _result(intent="lookup", citations=cited))["grounded"]
-    assert not score(_case(intent="rules_qa", srd=["Fireball"]), _result(citations=cited))[
+    fireball = [{"name": "get_entity", "output": '{"result": {"name": "Fireball", "level": 3}}'}]
+    other = [{"name": "get_entity", "output": '{"result": {"name": "Delayed Blast Fireball"}}'}]
+    assert score(case, _result(intent="lookup", citations=cited, tool_outputs=fireball))["grounded"]
+    assert not score(case, _result(intent="lookup", citations=cited, tool_outputs=other))[
+        "grounded"
+    ]
+    wrong_tool = [{"id": "T1", "kind": "tool", "label": "probability tool"}]
+    assert not score(
+        case,
+        _result(
+            intent="lookup",
+            citations=wrong_tool,
+            tool_outputs=[{"name": "probability", "output": "{}"}],
+        ),
+    )["grounded"]
+    assert not score(
+        _case(intent="rules_qa", srd=["Fireball"]), _result(citations=cited, tool_outputs=fireball)
+    )["grounded"]
+
+
+def test_r2_encounter_tools_ground_the_budget_question():
+    case = _case(category="rules", intent="encounter", srd=["Step 2: Determine Your XP Budget"])
+    cited = [{"id": "T1", "kind": "tool", "label": "encounter_budget tool"}]
+    outputs = [{"name": "encounter_budget", "output": '{"result": {"budgets": {"low": 2000}}}'}]
+    assert score(case, _result(intent="encounter", citations=cited, tool_outputs=outputs))[
         "grounded"
     ]
 
