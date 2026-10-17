@@ -204,3 +204,15 @@ def test_i8_extra_lore_adds_top_level_notes_marked_as_archive(tmp_path, vault):
     assert "**certainty:** partial" in plan["Arden (arşiv)"].body
     assert plan["Dünya"].board == "lore" and plan["Dünya"].visibility == "private"
     assert not any("alt klasör" in e.body for e in plan.values())  # subfolders not included
+
+
+def test_i9_titles_are_nfc_so_archive_duplicates_are_recognised(tmp_path, vault):
+    import unicodedata
+
+    a = tmp_path / "archive"
+    a.mkdir()
+    nfd = unicodedata.normalize("NFD", "Kızıl Köy")  # how unzipped macOS names arrive
+    (a / f"{nfd}.md").write_text("Arşivdeki köy özeti.\n", encoding="utf-8")
+    titles = [e.title for e in plan_import(vault[0], extra_lore=[a]).entries]
+    assert "Kızıl Köy (arşiv)" in titles  # recognised as the vault note's namesake
+    assert all(t == unicodedata.normalize("NFC", t) for t in titles)

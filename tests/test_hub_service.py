@@ -679,3 +679,16 @@ def test_12_notes_benchmark_runs_every_mode_on_the_fixture():
         assert rows["all"]["n"] == 20
         assert 0.0 <= rows["all"]["recall@5"] <= 1.0
     assert report["hybrid"]["all"]["recall@5"] >= 0.8  # word-overlap embedder + BM25
+
+
+def test_m9f_text_is_stored_nfc(tmp_path):
+    import unicodedata
+
+    from hub_support import PASSWORD, make_hub
+
+    hub = make_hub(tmp_path)
+    dm = hub.register("dm_dana", PASSWORD)
+    camp = hub.create_campaign(dm, "Ashvale")
+    nfd = unicodedata.normalize("NFD", "Kan Yürek Loncası")
+    e = hub.create_entry(dm, camp.id, board="lore", title=nfd, body=nfd)
+    assert e.title == "Kan Yürek Loncası" and e.body == "Kan Yürek Loncası"

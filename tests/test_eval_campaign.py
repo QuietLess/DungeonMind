@@ -92,3 +92,16 @@ def test_e3_it_writes_nothing(tmp_path, monkeypatch):
                                "expect": ["Old Mill"]}])
     assert _run(root, cid, cases).exit_code == 0
     assert {p: p.stat().st_mtime_ns for p in root.rglob("*.db")} == before
+
+
+def test_e2_titles_match_whatever_their_unicode_form(tmp_path, monkeypatch):
+    import unicodedata
+
+    root, cid = _hub(tmp_path, monkeypatch)
+    with __import__("sqlite3").connect(root / "campaigns" / cid / "campaign.db") as db:
+        db.execute("UPDATE entries SET title = ? WHERE title = 'Old Mill'",
+                   (unicodedata.normalize("NFD", "Old Mïll"),))  # as a pre-fix import left it
+    cases = _cases(tmp_path, [{"id": "c1", "question": "ruined mill by the river",
+                               "viewer": "dm_dana", "expect": ["Old Mïll"]}])
+    result = _run(root, cid, cases)
+    assert "R@5 1.00" in result.output, result.output
