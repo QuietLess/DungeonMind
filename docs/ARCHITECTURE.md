@@ -888,7 +888,9 @@ Each item has a regression test.
   - spell and monster details (rules-31, 32, 33, 34, 36, 39, 40) are `lookup`;
   - the XP-budget question (rules-14) is `encounter`.
 
-  For questions routed to tools, a cited tool result counts as grounding.
+  For questions routed to tools, a cited tool counts as grounding only when its output names
+  an expected source as a whole value (e.g. `"name": "Fireball"`). The XP-budget question is
+  grounded by a cited encounter tool; an unrelated tool proves nothing (re-review).
 - **R3** Grounding compares whole titles parsed from citation labels (the page and the journal's
   "(author, session)" suffix are stripped). "Fireball" no longer matches
   "Delayed Blast Fireball".

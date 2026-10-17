@@ -6,6 +6,7 @@ the only part that spends money (through whatever LLM it is given).
 
 from __future__ import annotations
 
+import json
 import re
 import statistics
 import time
@@ -19,6 +20,7 @@ DEFAULT_MAX_COST = 2.00
 EVAL_MAX_STEPS = 4  # agent turns per case in evals: bounds what one case can cost
 EDITION_NOTE = "2024 rules (SRD 5.2.1) only"
 TOOL_INTENTS = frozenset({"lookup", "probability", "encounter"})
+ENCOUNTER_TOOLS = frozenset({"encounter_budget", "encounter_builder"})
 FINISHED = frozenset({"completed", "needs_input"})  # a question back to the user is an answer
 _PERCENT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*%")
 _XP = re.compile(r"(\d[\d,]*)\s*XP\b", re.IGNORECASE)
@@ -67,6 +69,22 @@ def _label_titles(label: str) -> set[str]:
     return {_AUTHOR.sub("", part).strip() for part in text.split(" › ")}
 
 
+def _tool_grounded(
+    expect: dict[str, Any],
+    citations: list[dict[str, Any]],
+    outputs: list[dict[str, str]],
+    sources: list[str],
+) -> bool:
+    """R2: a cited tool grounds a tool-routed question only if its output names an expected
+    source as a whole value (e.g. "name": "Fireball"); the XP-budget question is grounded by a
+    cited encounter tool."""
+    cited = {c["label"].removesuffix(" tool") for c in citations if c.get("kind") == "tool"}
+    used = [o for o in outputs if o.get("name") in cited]
+    if expect.get("intent") == "encounter" and any(o["name"] in ENCOUNTER_TOOLS for o in used):
+        return True
+    return any(f'"{title}"' in o.get("output", "") for o in used for title in sources)
+
+
 def score(case: Case, result: dict[str, Any]) -> dict[str, bool]:
     """L2: one boolean per check that applies to the case, plus `passed`."""
     e = case.expect
@@ -84,10 +102,9 @@ def score(case: Case, result: dict[str, Any]) -> dict[str, bool]:
         titles: set[str] = set()
         for c in citations:
             titles |= _label_titles(c.get("label", ""))
-        tool_cited = any(c.get("kind") == "tool" for c in citations)
-        # R2: a catalog or encounter tool result grounds a question routed to the tools.
         s["grounded"] = bool(titles & set(expected_sources)) or (
-            e.get("intent") in TOOL_INTENTS and tool_cited
+            e.get("intent") in TOOL_INTENTS
+            and _tool_grounded(e, citations, result.get("tool_outputs", []), expected_sources)
         )
     if "contains" in e:
         s["contains_ok"] = all(re.search(rx, answer, re.IGNORECASE) for rx in e["contains"])
@@ -336,6 +353,14 @@ def make_runner(fixture, llm, retrieve, registry) -> Callable[..., dict[str, Any
             "insufficient_evidence": state.get("insufficient_evidence"),
             "violations": state.get("violations", []),
             "tools": [t["name"] for t in state.get("tool_calls", [])],
+            "tool_outputs": [
+                {
+                    "name": t["name"],
+                    "output": json.dumps(t["output"], ensure_ascii=False, default=str),
+                }
+                for t in state.get("tool_calls", [])
+                if not t.get("is_error")
+            ],
             "llm_inputs": " ".join(recorder.inputs),
             "latency_ms": (time.perf_counter() - started) * 1000,
             "cost": sum(u["cost"] for u in usage.values()),
