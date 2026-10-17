@@ -3,9 +3,11 @@
 // load anything, or inject markup. URLs and HTML in a note stay visible as plain text.
 import { Fragment, type ReactNode } from "react";
 
-// Emphasis only at word edges (R11): file_name_here and 2*3*4 stay as written.
+// Emphasis only at word edges (R11): file_name_here and 2*3*4 stay as written. The character
+// before an opening * or _ is matched (and given back as text) instead of using a lookbehind,
+// which Safari before 16.4 can't parse.
 const INLINE =
-  /\*\*([^*\n]+)\*\*|`([^`\n]+)`|(?<![\p{L}\p{N}*])\*([^*\s](?:[^*\n]*[^*\s])?)\*(?![\p{L}\p{N}*])|(?<![\p{L}\p{N}_])_([^_\s](?:[^_\n]*[^_\s])?)_(?![\p{L}\p{N}_])/gu;
+  /\*\*([^*\n]+)\*\*|`([^`\n]+)`|(^|[^\p{L}\p{N}*])\*([^*\s](?:[^*\n]*[^*\s])?)\*(?![\p{L}\p{N}*])|(^|[^\p{L}\p{N}_])_([^_\s](?:[^_\n]*[^_\s])?)_(?![\p{L}\p{N}_])/gu;
 const HEADING = /^(#{1,3})\s+(.*)$/;
 const BULLET = /^\s*[-*•]\s+/;
 const NUMBERED = /^\s*\d+[.)]\s+/;
@@ -23,7 +25,11 @@ function inline(text: string, key: string): ReactNode[] {
     const k = `${key}-${n++}`;
     if (m[1] !== undefined) out.push(<strong key={k}>{m[1]}</strong>);
     else if (m[2] !== undefined) out.push(<code key={k}>{m[2]}</code>);
-    else out.push(<em key={k}>{m[3] ?? m[4]}</em>);
+    else {
+      const before = m[3] ?? m[5];
+      if (before) out.push(before);
+      out.push(<em key={k}>{m[4] ?? m[6]}</em>);
+    }
     last = start + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));

@@ -36,6 +36,7 @@ export function ChatPage() {
   const [announcement, setAnnouncement] = useState("");
   const end = useRef<HTMLDivElement>(null);
   const newChat = useRef<HTMLButtonElement>(null);
+  const picker = useRef<HTMLSelectElement>(null);
   // A thread this page just created already has its messages on screen; reloading it would
   // race the pending answer and wipe the first question (found in the browser walk-through).
   const created = useRef<number | null>(null);
@@ -141,7 +142,9 @@ export function ChatPage() {
     try {
       await api.deleteThread(campaign.id, t.id);
       if (t.id === threadId) navigate(base, { replace: true });
-      newChat.current?.focus(); // R7: the focused row is gone
+      // R7: the focused row is gone. On phones the side list is hidden, so use the picker.
+      const phone = window.matchMedia?.("(max-width: 760px)").matches;
+      (phone ? picker.current : newChat.current)?.focus();
       reloadThreads();
     } catch (e) {
       setError(message(e));
@@ -205,6 +208,7 @@ export function ChatPage() {
         <label className="thread-picker">
           <span className="sr-only">Switch chat</span>
           <select
+            ref={picker}
             aria-label="Switch chat"
             value={threadId ?? ""}
             onChange={(e) => navigate(e.target.value ? `${base}/${e.target.value}` : base)}
