@@ -1035,5 +1035,11 @@ dungeonmind hub import-obsidian VAULT --dm USERNAME --campaign-name NAME
   - Excalidraw drawings, `.base` files and empty notes are skipped, and listed in the preview.
   - Two notes with the same title: identical text is imported once; different text gets a
     folder suffix.
-- **I7 Sessions.** Each `.md`/`.txt` file in `--sessions` becomes a private journal entry. Its
-  session number is the first number in the file name.
+- **I7 Sessions.** Each `.md`/`.txt` file in `--sessions` becomes a private journal entry. It
+  keeps `type`, `status` and `certainty` as a header, so a plan is never mistaken for a played
+  session. Its session number comes only from a `session:` field. `--session-numbers name`
+  also reads the first number in the file name. That's off by default: the owner's archive
+  numbers files in reading order ("01 - …"), not by session.
+- **I8 Extra lore.** `--extra-lore DIR` (repeatable) imports the `.md` files directly inside
+  DIR, not its subfolders, as private lore marked `**source:** archive`. A title that clashes
+  with a vault note gets the suffix "(arşiv)".

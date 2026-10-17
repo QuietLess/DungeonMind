@@ -386,6 +386,14 @@ def import_obsidian(
     sessions: Annotated[
         Path | None, typer.Option(help="Folder of session notes (.md/.txt), only read")
     ] = None,
+    extra_lore: Annotated[
+        list[Path] | None,
+        typer.Option(help="Folder of extra notes (e.g. archive summaries), imported as lore"),
+    ] = None,
+    session_numbers: Annotated[
+        str,
+        typer.Option(help="field: only a `session:` field gives a number; name: file names too"),
+    ] = "field",
     preview: Annotated[
         bool, typer.Option(help="Show what would be imported; write nothing")
     ] = False,
@@ -399,10 +407,12 @@ def import_obsidian(
     from dungeonmind.hub.obsidian import apply_import, plan_import
     from dungeonmind.hub.service import Hub
 
-    for folder in filter(None, (vault, sessions)):
-        if not folder.is_dir():
+    for folder in [vault, sessions, *(extra_lore or [])]:
+        if folder is not None and not folder.is_dir():
             raise typer.BadParameter(f"{folder} is not a folder")
-    plan = plan_import(vault, sessions)
+    if session_numbers not in ("field", "name"):
+        raise typer.BadParameter("--session-numbers is field or name")
+    plan = plan_import(vault, sessions, extra_lore or [], session_numbers)
     for e in plan.entries:
         where = f"session {e.session}" if e.session else e.kind
         _say(f"  {e.board:<7} {where:<10} {e.visibility:<8} {len(e.body):>6}  {e.title}")
