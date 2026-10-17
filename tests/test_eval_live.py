@@ -550,3 +550,54 @@ def test_r7_live_gate_rejects_partial_or_foreign_results():
         {**full, "scores": {"citations_ok": 1.0}},
     ):
         assert gate(_offline(), GATES, broken, suite_size=209), broken
+
+
+# --- failure diagnostics (from the first local run) ---------------------------------------------
+
+
+def test_d1_rows_keep_error_type_and_a_short_trace():
+    def run(case, budget_left=None):
+        return _result(
+            stop_reason="error",
+            error_type="OllamaTimeout",
+            trace=["route: rules_qa", "agent: error: OllamaTimeout: timed out" + "x" * 500],
+        )
+
+    [row] = run_live([_case()], run, max_cost=1)["cases"]
+    assert row["error_type"] == "OllamaTimeout"
+    assert row["trace"][0] == "route: rules_qa"
+    assert len(row["trace"][1]) <= 200
+
+
+def test_d2_report_counts_why_cases_failed():
+    results = iter(
+        [
+            _result(stop_reason="error", error_type="OllamaTimeout"),
+            _result(stop_reason="error", error_type="OllamaTimeout"),
+            _result(answer="no", intent="lookup"),
+            _result(answer="yes"),
+        ]
+    )
+    cases = [_case(intent="rules_qa", contains=["yes"]) for _ in range(4)]
+    report = run_live(cases, lambda c, b=None: next(results), max_cost=1)
+    assert report["failures"] == {"error: OllamaTimeout": 2, "intent_ok": 1, "contains_ok": 1}
+
+
+def test_d3_runner_passes_error_type_and_trace_through(tmp_path):
+    import random
+    from pathlib import Path
+
+    from fake_embedder import HashEmbedder
+    from fake_llm import FakeLLM, FakeRetriever
+
+    from dungeonmind.evals.fixture import build_fixture
+    from dungeonmind.evals.live import make_runner
+    from dungeonmind.tools.catalog import Catalog
+    from dungeonmind.tools.registry import ToolRegistry
+
+    llm = FakeLLM(TimeoutError("read timed out"))
+    registry = ToolRegistry(Catalog.load(Path(__file__).parent / "fixtures"), rng=random.Random(0))
+    run = make_runner(build_fixture(tmp_path, HashEmbedder()), llm, FakeRetriever(), registry)
+    result = run(Case(id="rules-1", category="rules", question="q", expect={}))
+    assert result["error_type"] == "TimeoutError"
+    assert any(t.startswith("route:") for t in result["trace"])
