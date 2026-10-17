@@ -4,12 +4,14 @@ Fully offline: the retriever, catalog, LLM adapter, Deps and run_chat are monkey
 index, network or API key is needed.
 """
 
+import re
 from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
 
 import dungeonmind.cli as cli
+import dungeonmind.graph.ollama  # noqa: F401  (imported before tests replace ClaudeLLM)
 from dungeonmind.graph.state import Intent
 
 NO_CREDS = "No valid Anthropic credentials"
@@ -62,8 +64,12 @@ def _invoke(*args: str):
     return CliRunner().invoke(cli.app, ["chat", *args], env=WIDE)
 
 
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _flat(output: str) -> str:
-    return " ".join(output.split())
+    """Plain words: no colour codes or Rich box borders (CI terminals turn colour on)."""
+    return " ".join(ANSI.sub("", output).replace("│", " ").split())
 
 
 def test_happy_path_prints_answer(chat_env):
@@ -216,7 +222,7 @@ def test_m6b_show_evidence_output_has_no_control_characters(monkeypatch):
 def serve_env(monkeypatch):
     rec = SimpleNamespace(run=None)
     monkeypatch.setattr("dungeonmind.hub.app.build_hub", lambda *a, **k: object())
-    monkeypatch.setattr("dungeonmind.hub.api.create_app", lambda hub, **kw: "app")  # M9d: proxy kwarg
+    monkeypatch.setattr("dungeonmind.hub.api.create_app", lambda hub, **kw: "app")
     monkeypatch.setattr("uvicorn.run", lambda app, **kw: setattr(rec, "run", kw))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-placeholder")
     return rec
