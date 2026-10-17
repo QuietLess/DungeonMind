@@ -61,6 +61,7 @@ def build_hub(
     chunks: Path = DEFAULT_CHUNKS,
     models=None,
     provider: str = "claude",
+    signup: str = "open",
 ):
     from dungeonmind.graph.providers import make_llm, provider_timeout
     from dungeonmind.hub.chats import make_engine
@@ -93,4 +94,5 @@ def build_hub(
         embedder=NoteEmbedder(model_lock),
         engine=engine,
         daily_message_limit=daily_message_limit,
+        signup=signup,
     )

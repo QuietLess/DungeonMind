@@ -67,8 +67,9 @@ export interface SearchHit {
 
 export const api = {
   me: () => request<User>("GET", "/me"),
-  register: (username: string, password: string) =>
-    request<User>("POST", "/auth/register", { username, password }),
+  authConfig: () => request<{ signup: "open" | "invite"; first?: boolean }>("GET", "/auth/config"),
+  register: (username: string, password: string, invite?: string) =>
+    request<User>("POST", "/auth/register", invite ? { username, password, invite } : { username, password }),
   login: (username: string, password: string) =>
     request<User>("POST", "/auth/login", { username, password }),
   logout: () => request<void>("POST", "/auth/logout"),

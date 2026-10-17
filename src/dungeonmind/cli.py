@@ -6,6 +6,8 @@ import collections
 import json
 import os
 import re
+import time
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -342,6 +344,18 @@ hub_app = typer.Typer(no_args_is_help=True, help="Campaign hub administration.")
 app.add_typer(hub_app, name="hub")
 
 
+class Proxy(StrEnum):
+    cloudflare = "cloudflare"
+
+
+class Signup(StrEnum):
+    open = "open"
+    invite = "invite"
+
+
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
 @app.command()
 def serve(
     host: Annotated[str, typer.Option(help="Interface to bind; 0.0.0.0 shares on your network")] = (
@@ -354,28 +368,163 @@ def serve(
     ] = 50,
     models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
     provider: Annotated[str | None, typer.Option(help=PROVIDER_HELP)] = None,
+    proxy: Annotated[
+        Proxy | None, typer.Option(help="Running behind cloudflared on this machine (M9d)")
+    ] = None,
+    signup: Annotated[
+        Signup, typer.Option(help="open, or invite = sign up only with a campaign invite code")
+    ] = Signup.open,
 ) -> None:
     """Run the campaign hub API (accounts, campaigns, boards, chat)."""
-    import uvicorn
-
-    from dungeonmind.hub.api import create_app
-    from dungeonmind.hub.app import build_hub
-
-    if host not in ("127.0.0.1", "localhost", "::1"):
+    if proxy is not None and host not in LOOPBACK_HOSTS:
+        # P1: the proxy header is trusted from loopback only; on a public bind anyone on the
+        # network could talk to the hub directly.
+        raise typer.BadParameter("--proxy needs --host 127.0.0.1 (cloudflared runs here).")
+    if host not in LOOPBACK_HOSTS:
         _say(
             f"Warning: serving on {host}. Anyone on your network can reach the hub, and traffic "
             "isn't encrypted (plain HTTP). Use it only on a network you trust.",
             fg="yellow",
         )
+    _run_hub(host, port, root, daily_limit, models, provider, proxy, signup)
+
+
+def _run_hub(host, port, root, daily_limit, models, provider, proxy, signup) -> None:
+    import uvicorn
+
+    from dungeonmind.hub.api import create_app
+    from dungeonmind.hub.app import build_hub
+
     backend = resolve_provider(provider)
     config = model_config(models, backend)
     try:
         require_backend(backend, config)
     except typer.BadParameter as e:  # the hub still works for notes; only the bot can't answer
         _say(f"Note: the chatbot can't answer yet. {e.message}", fg="yellow")
-    hub = build_hub(root, daily_message_limit=daily_limit, models=config, provider=backend)
-    # No access log: paths and query strings carry search text (F6).
-    uvicorn.run(create_app(hub), host=host, port=port, log_level="info", access_log=False)
+    hub = build_hub(
+        root,
+        daily_message_limit=daily_limit,
+        models=config,
+        provider=backend,
+        signup=str(signup),
+    )
+    app_ = create_app(hub, proxy=str(proxy) if proxy else None)
+    # No access log: paths and query strings carry search text (F6). No proxy headers from
+    # uvicorn: client_of reads them, and only behind the configured proxy (P3).
+    uvicorn.run(app_, host=host, port=port, log_level="info", access_log=False, proxy_headers=False)
+
+
+# The tunnel's own address; never the API host cloudflared names in its errors (review R2).
+TUNNEL_URL = re.compile(r"https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com")
+INSTALL_CLOUDFLARED = (
+    "cloudflared isn't installed. On a Mac: download it from "
+    "https://github.com/cloudflare/cloudflared/releases/latest (cloudflared-darwin-amd64.tgz "
+    "for Intel, -arm64 for Apple silicon), unpack it, and put `cloudflared` on your PATH "
+    "(e.g. ~/.local/bin). Or `brew install cloudflared`."
+)
+
+
+def _wait_for_tunnel(process, timeout: float) -> str | None:
+    """Reads cloudflared's log until the quick-tunnel address appears (SH1)."""
+    import queue
+    import threading
+
+    lines: queue.Queue[str] = queue.Queue()
+    found = threading.Event()
+
+    def pump() -> None:
+        # Keeps draining cloudflared's log so it never blocks; after the address is found
+        # the lines are dropped instead of piling up (review R6).
+        for line in process.stderr:
+            if not found.is_set():
+                lines.put(line)
+
+    threading.Thread(target=pump, daemon=True).start()
+    deadline = time.monotonic() + timeout
+    while (left := deadline - time.monotonic()) > 0:
+        try:
+            line = lines.get(timeout=min(left, 0.5))
+        except queue.Empty:
+            if process.poll() is not None:
+                return None
+            continue
+        if match := TUNNEL_URL.search(line):
+            found.set()
+            return match.group(0) if process.poll() is None else None
+    return None
+
+
+def _port_free(port: int) -> bool:
+    import socket
+
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+@app.command()
+def share(
+    port: int = 8000,
+    root: Annotated[Path, typer.Option(help="Where the hub keeps its data")] = Path("data/hub"),
+    daily_limit: Annotated[
+        int, typer.Option(min=1, max=10_000, help="Bot messages per user per day")
+    ] = 50,
+    models: Annotated[str | None, typer.Option(help=MODELS_HELP)] = None,
+    provider: Annotated[str | None, typer.Option(help=PROVIDER_HELP)] = None,
+    signup: Annotated[
+        Signup, typer.Option(help="invite (default): players sign up with an invite code")
+    ] = Signup.invite,
+    tunnel_timeout: Annotated[
+        float, typer.Option(min=1, max=300, help="Seconds to wait for the tunnel address")
+    ] = 60,
+) -> None:
+    """Share the hub with your players over a free Cloudflare quick tunnel (HTTPS)."""
+    import shutil
+    import subprocess
+
+    exe = shutil.which("cloudflared")
+    if exe is None:
+        _say(INSTALL_CLOUDFLARED, fg="red")
+        raise typer.Exit(1)
+    if not _port_free(port):  # review R6: never point the tunnel at another server
+        _say(
+            f"Port {port} is in use (is `dungeonmind serve` running?). Stop it, or pick "
+            "another with --port.",
+            fg="red",
+        )
+        raise typer.Exit(1)
+    if signup == Signup.open:
+        _say(
+            "Warning: open sign-up on a public address. Anyone who finds it can create an "
+            "account and use the chatbot on your model budget.",
+            fg="yellow",
+        )
+    process = subprocess.Popen(
+        [exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        url = _wait_for_tunnel(process, tunnel_timeout)
+        if url is None:
+            _say("cloudflared didn't report a tunnel address in time; stopping.", fg="red")
+            raise typer.Exit(1)
+        _say(f"\nYour hub is at  {url}\n", fg="green", bold=True)
+        _say(
+            "Send players this address and an invite code from Members. The address changes "
+            "each time you run `share`. Press Ctrl-C to stop.\n"
+        )
+        _run_hub("127.0.0.1", port, root, daily_limit, models, provider, Proxy.cloudflare, signup)
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
 
 
 @hub_app.command("import-obsidian")

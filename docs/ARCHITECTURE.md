@@ -1214,3 +1214,67 @@ read like the Markdown they were written in, and chats can be tidied.
 ### Out of scope for M9c
 
 Live updates between users, rich-text editing, attachments.
+
+## M9d contract — sharing over a Cloudflare Tunnel
+
+Goal: the DM's players reach the hub from anywhere, over HTTPS, for free, while the data stays
+on the DM's computer. `cloudflared` opens an outbound tunnel; Cloudflare gives a random
+`https://….trycloudflare.com` address (a "quick tunnel": no account, the address changes each
+run). Once the hub is on the internet, two things change: every request now arrives from
+127.0.0.1, and anyone who finds the address could sign up and spend the owner's model budget.
+
+### Behind the proxy (Python, tested)
+
+- **P1 Real client address.** `serve --proxy cloudflare` takes the client address from
+  `CF-Connecting-IP`, and only when the connection itself comes from the loopback interface
+  (that is, from `cloudflared`) and the value is a valid IP. IPv6 addresses are grouped by
+  /64 (one home network = one client). Without the flag the header is ignored, so nobody can
+  pick their own address. `--proxy` is refused unless the server binds to loopback.
+- **P2 Secure cookie.** Behind the proxy, `X-Forwarded-Proto: https` from loopback marks the
+  session cookie `Secure`.
+- **P3** uvicorn's own forwarded-header handling is off; P1/P2 are the only place these
+  headers are read.
+
+### Invite-only sign-up (Python + UI, tested)
+
+- **S1** `serve --signup invite` (default for `share`): `POST /api/auth/register` needs an
+  `invite` code for a campaign. A valid code creates the account and joins that campaign; a
+  missing or wrong code is 403 "Ask your DM for an invite code." and creates nothing. The
+  code is checked before the password is hashed. The very first account on an empty hub (the
+  owner) needs no code. Failed codes count toward the per-client
+  registration limit.
+- **S2** `GET /api/auth/config` (public) → `{"signup": "open" | "invite"}`. The sign-up form
+  asks for the invite code when it's required.
+- **S3** `--signup open` keeps today's behaviour (the default for plain `serve`).
+
+### `dungeonmind share` (Python, tested with a fake cloudflared)
+
+- **SH1** Starts `cloudflared tunnel --no-autoupdate --url http://127.0.0.1:PORT`, waits for
+  the `trycloudflare.com` address in its output (60 s at most), prints it, then runs the hub
+  with `--proxy cloudflare --signup invite` on 127.0.0.1. Ctrl-C stops both; if the hub stops,
+  cloudflared is stopped too.
+- **SH2** Without `cloudflared` on PATH it exits 1 with install instructions (no traceback).
+  If no address appears in time, it stops cloudflared and exits 1.
+- **SH3** `--signup open` is allowed but prints a warning about cost.
+
+### M9d review fixes (security review: no CRITICAL/HIGH)
+
+- **R1** Sign-up invites must come from a campaign the hub's owner (its first account) runs.
+  Before, one invited player could create a campaign, mint invites and register unlimited
+  accounts, each with its own daily model budget. Other campaigns' invites still work for
+  existing accounts.
+- **R2** cloudflared's error lines name `api.trycloudflare.com`; that is never taken as the
+  address, and an exiting cloudflared isn't reported as a tunnel.
+- **R4** `/api/auth/config` also says `first` (empty hub), so the owner's first sign-up form
+  doesn't demand a code.
+- **R5** HSTS (`max-age=31536000`) on responses that came through the tunnel over HTTPS.
+- **R6** `share` refuses a busy port before starting cloudflared (it would have pointed the
+  tunnel at another server, e.g. a running `serve`), and stops buffering cloudflared's log
+  once the address is found.
+- Tracked: H2 (a global per-username sign-in limit; the per-client limiter can be flushed
+  from many addresses) before long-running public sharing.
+
+### Out of scope for M9d
+
+Named tunnels on the owner's own domain (needs a Cloudflare account and a domain; documented,
+not automated), Cloudflare Access.

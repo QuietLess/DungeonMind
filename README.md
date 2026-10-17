@@ -190,6 +190,33 @@ become private journal entries. Reveal what players know in the web app. Turkish
 non-English notes work: search folds diacritics, notes use a multilingual model, and answers
 come in the language you ask in.
 
+## Share with your players (Cloudflare Tunnel, free)
+
+```bash
+uv run dungeonmind share          # prints https://<random words>.trycloudflare.com
+```
+
+`share` starts a Cloudflare quick tunnel (no account needed) and the hub behind it. Players
+open the printed HTTPS address from anywhere; your data never leaves your computer, and the
+hub is reachable only while `share` runs. Press Ctrl-C to stop both.
+
+- **Sign-up needs an invite code** while sharing: in **Members**, make a code and send it with
+  the address. Signing up with it joins your campaign. Without a code nobody can create an
+  account, so strangers who find the address can't spend your model budget. Only your own
+  campaigns' codes create accounts (the hub's first account is its owner); a player's
+  campaign can invite people who already have an account. (Your own account
+  should exist first; on an empty hub the first sign-up needs no code.)
+- **The address changes every run.** For a fixed address you need a Cloudflare account and a
+  domain (about $10/year): see Cloudflare's "named tunnel" guide, then run
+  `dungeonmind serve --proxy cloudflare --signup invite` behind it.
+- Install `cloudflared` once: download `cloudflared-darwin-amd64.tgz` (Intel) or `-arm64`
+  (Apple silicon) from [its releases](https://github.com/cloudflare/cloudflared/releases),
+  unpack it and put `cloudflared` in `~/.local/bin`, or `brew install cloudflared`.
+- Behind the tunnel the hub uses Cloudflare's `CF-Connecting-IP` for its sign-in limits, so one
+  player's typos don't lock out the table. It trusts that header only with `--proxy cloudflare`
+  and only from this machine.
+- Run either `share` or `serve`, not both: they use the same SRD index.
+
 ## Backups
 
 `dungeonmind hub backup --out DIR` writes `DIR/dungeonmind-backup-<UTC time>/` with `app.db`

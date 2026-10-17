@@ -7,6 +7,7 @@ Errors are always `{"detail": <plain message>}`; unexpected ones never show thei
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
@@ -56,6 +57,10 @@ class _In(BaseModel):
 class Credentials(_In):
     username: str
     password: str
+
+
+class Registration(Credentials):
+    invite: str | None = None  # M9d S1: needed when sign-up is invite-only
 
 
 class InviteCode(_In):
@@ -135,9 +140,36 @@ def _servable(path: str) -> bool:
     return bool(parts) and not hidden and not path.lower().endswith(".map")  # APFS ignores case
 
 
+PROXIES = ("cloudflare",)
+
+
+def _from_loopback(request: Request) -> bool:
+    try:
+        return bool(request.client) and ipaddress.ip_address(request.client.host).is_loopback
+    except ValueError:
+        return False
+
+
+def _proxied(request: Request) -> bool:
+    """M9d P1: the request came through the configured proxy (cloudflared on this machine)."""
+    return getattr(request.app.state, "proxy", None) == "cloudflare" and _from_loopback(request)
+
+
 def client_of(request: Request) -> str:
-    """The client address, for per-client rate limits (F4, F5)."""
-    return request.client.host if request.client else "unknown"
+    """The client address, for per-client rate limits (F4, F5).
+
+    Behind Cloudflare (P1) it's `CF-Connecting-IP`, trusted only from loopback; IPv6 is
+    grouped by /64. Otherwise the connection's own address; the header is never read."""
+    peer = request.client.host if request.client else "unknown"
+    if not _proxied(request):
+        return peer
+    try:
+        ip = ipaddress.ip_address(request.headers.get("cf-connecting-ip", "").strip())
+    except ValueError:
+        return peer
+    if ip.version == 6:
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
 
 
 def current_user(request: Request) -> User:
@@ -152,9 +184,14 @@ def current_user(request: Request) -> User:
 Me = Annotated[User, Depends(current_user)]
 
 
-def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
+def create_app(
+    hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST, proxy: str | None = None
+) -> FastAPI:
+    if proxy is not None and proxy not in PROXIES:
+        raise ValueError(f"proxy must be one of {', '.join(PROXIES)}")
     app = FastAPI(title="DungeonMind", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.hub = hub
+    app.state.proxy = proxy
 
     def refuse(request: Request) -> JSONResponse | None:
         if request.url.path.startswith("/api") and request.method in UNSAFE:
@@ -171,6 +208,8 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
     async def guard(request: Request, call_next):
         response = refuse(request) or await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        if _proxied(request) and request.headers.get("x-forwarded-proto") == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"  # review R5
         if request.url.path.startswith("/api"):
             response.headers["Cache-Control"] = "no-store"  # W4: private notes aren't cached
         return response
@@ -197,7 +236,8 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
             path="/",
             httponly=True,
             samesite="lax",
-            secure=request.url.scheme == "https",
+            secure=request.url.scheme == "https"
+            or (_proxied(request) and request.headers.get("x-forwarded-proto") == "https"),
         )
 
     public = APIRouter(prefix="/api")
@@ -212,9 +252,15 @@ def create_app(hub: Hub, web_dist: Path | None = DEFAULT_WEB_DIST) -> FastAPI:
 
     # --- auth --------------------------------------------------------------------------------
 
+    @public.get("/auth/config")
+    def auth_config():
+        return hub.signup_config()  # S2
+
     @public.post("/auth/register", status_code=201)
-    def register(body: Credentials, request: Request, response: Response):
-        user = hub.register(body.username, body.password, client=client_of(request))
+    def register(body: Registration, request: Request, response: Response):
+        user = hub.register(
+            body.username, body.password, client=client_of(request), invite=body.invite
+        )
         set_session(request, response, hub.new_session(user))  # F5: no second scrypt
         return asdict(user)
 

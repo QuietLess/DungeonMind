@@ -65,6 +65,8 @@ SEARCHES_PER_MINUTE = 20
 SESSIONS_PER_USER = 20
 REFUNDS_PER_DAY = 3
 LOGIN_FAILED = "Wrong username or password."
+SIGNUP_MODES = ("open", "invite")
+NEEDS_INVITE = "Ask your DM for an invite code."
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
 
@@ -115,7 +117,11 @@ class Hub:
         clock: Callable[[], datetime] = utc_now,
         scrypt_n: int = 2**15,
         daily_message_limit: int = 50,
+        signup: str = "open",
     ) -> None:
+        if signup not in SIGNUP_MODES:
+            raise ValueError(f"signup must be one of {', '.join(SIGNUP_MODES)}")
+        self.signup = signup  # M9d S1: "invite" = sign-up only with a campaign invite code
         self.storage = Storage(root)
         self.embedder = embedder
         self.engine = engine
@@ -140,7 +146,9 @@ class Hub:
 
     # --- accounts --------------------------------------------------------------------------
 
-    def register(self, username: str, password: str, client: str = "local") -> User:
+    def register(
+        self, username: str, password: str, client: str = "local", invite: Any = None
+    ) -> User:
         if not isinstance(username, str) or not re.fullmatch(models.USERNAME, username):
             raise Invalid("Usernames are 3–32 characters: lowercase letters, digits and _.")
         low, high = models.PASSWORD_CHARS
@@ -150,16 +158,69 @@ class Hub:
             [(f"register:{client}", auth.REGISTRATIONS_PER_CLIENT)], self.clock()
         ):
             raise RateLimited("Too many new accounts from this device. Try again later.")
+        needs_invite = self.signup == "invite"
+        first = False
+        if needs_invite:  # S1: checked before the (slow) password hash
+            with self.storage.app() as db:
+                if db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None:
+                    needs_invite, first = False, True  # S1: the owner's first account
+                elif self._live_invite(db, invite) is None:
+                    raise Forbidden(NEEDS_INVITE)
         user = User(id=uuid.uuid4().hex, username=username)
         hashed = auth.hash_password(password, self.scrypt_n)
+        now = self.clock()
         with self.storage.app(immediate=True) as db:
+            invite_row = self._live_invite(db, invite) if needs_invite else None
+            if needs_invite and invite_row is None:  # used up while the password was hashed
+                raise Forbidden(NEEDS_INVITE)
+            if first and db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                raise Forbidden(NEEDS_INVITE)  # someone else became the first account meanwhile
             if db.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
                 raise Conflict("That username is taken.")
             db.execute(
                 "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-                (user.id, username, hashed, _iso(self.clock())),
+                (user.id, username, hashed, _iso(now)),
             )
+            if invite_row is not None:  # S1: the new account joins that campaign
+                members = db.execute(
+                    "SELECT COUNT(*) FROM memberships WHERE campaign_id = ?",
+                    (invite_row["campaign_id"],),
+                ).fetchone()[0]
+                if members >= models.MAX_MEMBERS:
+                    raise Invalid(f"A campaign can have at most {models.MAX_MEMBERS} members.")
+                db.execute(
+                    "INSERT INTO memberships (campaign_id, user_id, role, joined_at) "
+                    "VALUES (?, ?, 'player', ?)",
+                    (invite_row["campaign_id"], user.id, _iso(now)),
+                )
+                db.execute("DELETE FROM invites WHERE code_hash = ?", (invite_row["code_hash"],))
         return user
+
+    def _live_invite(self, db, code: Any):
+        """The unexpired invite row for `code` that may create an account, or None.
+
+        Review R1: only invites to campaigns the hub's owner (its first account) runs can
+        create accounts; otherwise one invited player could mint unlimited accounts, each with
+        its own daily model budget. Invites to other campaigns still work for existing accounts.
+        """
+        if not isinstance(code, str) or not code.strip():
+            return None
+        row = db.execute(
+            "SELECT i.code_hash, i.campaign_id, i.expires_at FROM invites i "
+            "JOIN campaigns c ON c.id = i.campaign_id "
+            "WHERE i.code_hash = ? AND c.dm_id = ("
+            "SELECT id FROM users ORDER BY rowid LIMIT 1)",
+            (auth.token_hash(_invite_code(code)),),
+        ).fetchone()
+        if row is None or datetime.fromisoformat(row["expires_at"]) <= self.clock():
+            return None
+        return row
+
+    def signup_config(self) -> dict[str, Any]:
+        """S2: the sign-up mode, and whether the hub is still empty (the owner signs up first)."""
+        with self.storage.app() as db:
+            empty = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
+        return {"signup": self.signup, "first": empty}
 
     def login(self, username: str, password: str, client: str = "local") -> str:
         now = self.clock()
