@@ -197,16 +197,30 @@ class Hub:
         return user
 
     def _live_invite(self, db, code: Any):
-        """The unexpired invite row for `code`, or None."""
+        """The unexpired invite row for `code` that may create an account, or None.
+
+        Review R1: only invites to campaigns the hub's owner (its first account) runs can
+        create accounts; otherwise one invited player could mint unlimited accounts, each with
+        its own daily model budget. Invites to other campaigns still work for existing accounts.
+        """
         if not isinstance(code, str) or not code.strip():
             return None
         row = db.execute(
-            "SELECT code_hash, campaign_id, expires_at FROM invites WHERE code_hash = ?",
+            "SELECT i.code_hash, i.campaign_id, i.expires_at FROM invites i "
+            "JOIN campaigns c ON c.id = i.campaign_id "
+            "WHERE i.code_hash = ? AND c.dm_id = ("
+            "SELECT id FROM users ORDER BY rowid LIMIT 1)",
             (auth.token_hash(_invite_code(code)),),
         ).fetchone()
         if row is None or datetime.fromisoformat(row["expires_at"]) <= self.clock():
             return None
         return row
+
+    def signup_config(self) -> dict[str, Any]:
+        """S2: the sign-up mode, and whether the hub is still empty (the owner signs up first)."""
+        with self.storage.app() as db:
+            empty = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
+        return {"signup": self.signup, "first": empty}
 
     def login(self, username: str, password: str, client: str = "local") -> str:
         now = self.clock()

@@ -17,7 +17,8 @@ export function AuthPage() {
     // M9d S2: an invite-only hub (shared over a tunnel) asks for the DM's invite code.
     api
       .authConfig()
-      .then((c) => setInviteOnly(c?.signup === "invite"))
+      // The owner's first account on an empty hub needs no code (review R4).
+      .then((c) => setInviteOnly(c?.signup === "invite" && !c.first))
       .catch(() => setInviteOnly(false));
   }, []);
 

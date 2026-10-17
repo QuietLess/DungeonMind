@@ -414,7 +414,8 @@ def _run_hub(host, port, root, daily_limit, models, provider, proxy, signup) -> 
     uvicorn.run(app_, host=host, port=port, log_level="info", access_log=False, proxy_headers=False)
 
 
-TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+# The tunnel's own address; never the API host cloudflared names in its errors (review R2).
+TUNNEL_URL = re.compile(r"https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com")
 INSTALL_CLOUDFLARED = (
     "cloudflared isn't installed. On a Mac: download it from "
     "https://github.com/cloudflare/cloudflared/releases/latest (cloudflared-darwin-amd64.tgz "
@@ -429,10 +430,14 @@ def _wait_for_tunnel(process, timeout: float) -> str | None:
     import threading
 
     lines: queue.Queue[str] = queue.Queue()
+    found = threading.Event()
 
     def pump() -> None:
+        # Keeps draining cloudflared's log so it never blocks; after the address is found
+        # the lines are dropped instead of piling up (review R6).
         for line in process.stderr:
-            lines.put(line)
+            if not found.is_set():
+                lines.put(line)
 
     threading.Thread(target=pump, daemon=True).start()
     deadline = time.monotonic() + timeout
@@ -444,8 +449,20 @@ def _wait_for_tunnel(process, timeout: float) -> str | None:
                 return None
             continue
         if match := TUNNEL_URL.search(line):
-            return match.group(0)
+            found.set()
+            return match.group(0) if process.poll() is None else None
     return None
+
+
+def _port_free(port: int) -> bool:
+    import socket
+
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
 
 
 @app.command()
@@ -471,6 +488,13 @@ def share(
     exe = shutil.which("cloudflared")
     if exe is None:
         _say(INSTALL_CLOUDFLARED, fg="red")
+        raise typer.Exit(1)
+    if not _port_free(port):  # review R6: never point the tunnel at another server
+        _say(
+            f"Port {port} is in use (is `dungeonmind serve` running?). Stop it, or pick "
+            "another with --port.",
+            fg="red",
+        )
         raise typer.Exit(1)
     if signup == Signup.open:
         _say(

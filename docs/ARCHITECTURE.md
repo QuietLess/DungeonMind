@@ -1257,6 +1257,23 @@ run). Once the hub is on the internet, two things change: every request now arri
   If no address appears in time, it stops cloudflared and exits 1.
 - **SH3** `--signup open` is allowed but prints a warning about cost.
 
+### M9d review fixes (security review: no CRITICAL/HIGH)
+
+- **R1** Sign-up invites must come from a campaign the hub's owner (its first account) runs.
+  Before, one invited player could create a campaign, mint invites and register unlimited
+  accounts, each with its own daily model budget. Other campaigns' invites still work for
+  existing accounts.
+- **R2** cloudflared's error lines name `api.trycloudflare.com`; that is never taken as the
+  address, and an exiting cloudflared isn't reported as a tunnel.
+- **R4** `/api/auth/config` also says `first` (empty hub), so the owner's first sign-up form
+  doesn't demand a code.
+- **R5** HSTS (`max-age=31536000`) on responses that came through the tunnel over HTTPS.
+- **R6** `share` refuses a busy port before starting cloudflared (it would have pointed the
+  tunnel at another server, e.g. a running `serve`), and stops buffering cloudflared's log
+  once the address is found.
+- Tracked: H2 (a global per-username sign-in limit; the per-client limiter can be flushed
+  from many addresses) before long-running public sharing.
+
 ### Out of scope for M9d
 
 Named tunnels on the owner's own domain (needs a Cloudflare account and a domain; documented,

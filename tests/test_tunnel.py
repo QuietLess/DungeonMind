@@ -149,9 +149,11 @@ def test_s1_failed_codes_count_toward_the_registration_limit(invite_hub):
 
 def test_s2_config_says_which_sign_up_applies(invite_hub, tmp_path):
     hub, *_ = invite_hub
-    assert TestClient(create_app(hub)).get("/api/auth/config").json() == {"signup": "invite"}
+    config = TestClient(create_app(hub)).get("/api/auth/config").json()
+    assert config == {"signup": "invite", "first": False}
     open_hub = make_hub(tmp_path / "open")
-    assert TestClient(create_app(open_hub)).get("/api/auth/config").json() == {"signup": "open"}
+    config = TestClient(create_app(open_hub)).get("/api/auth/config").json()
+    assert config["signup"] == "open"
 
 
 def test_s3_open_sign_up_still_ignores_invites(tmp_path):
@@ -205,6 +207,14 @@ def test_s3_serve_passes_the_sign_up_mode(serve_env):
 # --- SH1–SH3 share -------------------------------------------------------------------------------
 
 
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 def _fake_cloudflared(tmp_path, body: str):
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -255,7 +265,9 @@ def test_sh2_share_without_cloudflared_explains_how_to_install(serve_env, tmp_pa
 def test_sh2_share_gives_up_when_no_address_appears(serve_env, tmp_path, monkeypatch):
     bindir = _fake_cloudflared(tmp_path, "import time\ntime.sleep(30)")
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    result = CliRunner().invoke(cli.app, ["share", "--tunnel-timeout", "1"], env=WIDE)
+    result = CliRunner().invoke(
+        cli.app, ["share", "--port", str(_free_port()), "--tunnel-timeout", "1"], env=WIDE
+    )
     assert result.exit_code == 1
     assert "address" in result.output.lower()
     assert serve_env.run is None
@@ -264,7 +276,9 @@ def test_sh2_share_gives_up_when_no_address_appears(serve_env, tmp_path, monkeyp
 def test_sh3_open_sign_up_while_sharing_warns_about_cost(serve_env, tmp_path, monkeypatch):
     bindir = _fake_cloudflared(tmp_path, TUNNEL)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    result = CliRunner().invoke(cli.app, ["share", "--signup", "open"], env=WIDE)
+    result = CliRunner().invoke(
+        cli.app, ["share", "--port", str(_free_port()), "--signup", "open"], env=WIDE
+    )
     assert result.exit_code == 0, result.output
     assert "anyone" in result.output.lower()
     assert serve_env.hub_kw["signup"] == "open"
@@ -307,12 +321,15 @@ def test_r5_hsts_through_the_tunnel_only(hub):
 def test_r2_an_error_line_naming_the_api_host_is_not_the_address(serve_env, tmp_path, monkeypatch):
     body = """
 import sys, time
-print('ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": EOF', file=sys.stderr, flush=True)
+print('ERR failed to request quick Tunnel: '
+      'Post "https://api.trycloudflare.com/tunnel": EOF', file=sys.stderr, flush=True)
 sys.exit(1)
 """
     bindir = _fake_cloudflared(tmp_path, body)
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
-    result = CliRunner().invoke(cli.app, ["share", "--tunnel-timeout", "5"], env=WIDE)
+    result = CliRunner().invoke(
+        cli.app, ["share", "--port", str(_free_port()), "--tunnel-timeout", "5"], env=WIDE
+    )
     assert result.exit_code == 1
     assert "api.trycloudflare.com" not in result.output
     assert serve_env.run is None

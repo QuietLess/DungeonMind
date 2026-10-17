@@ -202,7 +202,9 @@ hub is reachable only while `share` runs. Press Ctrl-C to stop both.
 
 - **Sign-up needs an invite code** while sharing: in **Members**, make a code and send it with
   the address. Signing up with it joins your campaign. Without a code nobody can create an
-  account, so strangers who find the address can't spend your model budget. (Your own account
+  account, so strangers who find the address can't spend your model budget. Only your own
+  campaigns' codes create accounts (the hub's first account is its owner); a player's
+  campaign can invite people who already have an account. (Your own account
   should exist first; on an empty hub the first sign-up needs no code.)
 - **The address changes every run.** For a fixed address you need a Cloudflare account and a
   domain (about $10/year): see Cloudflare's "named tunnel" guide, then run

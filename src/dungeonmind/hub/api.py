@@ -208,6 +208,8 @@ def create_app(
     async def guard(request: Request, call_next):
         response = refuse(request) or await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        if _proxied(request) and request.headers.get("x-forwarded-proto") == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"  # review R5
         if request.url.path.startswith("/api"):
             response.headers["Cache-Control"] = "no-store"  # W4: private notes aren't cached
         return response
@@ -252,7 +254,7 @@ def create_app(
 
     @public.get("/auth/config")
     def auth_config():
-        return {"signup": hub.signup}  # S2
+        return hub.signup_config()  # S2
 
     @public.post("/auth/register", status_code=201)
     def register(body: Registration, request: Request, response: Response):
