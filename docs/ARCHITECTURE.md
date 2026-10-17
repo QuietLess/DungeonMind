@@ -1278,3 +1278,68 @@ run). Once the hub is on the internet, two things change: every request now arri
 
 Named tunnels on the owner's own domain (needs a Cloudflare account and a domain; documented,
 not automated), Cloudflare Access.
+
+## M9e contract — sign-in hardening and the hub owner
+
+- **H1 Per-account limit.** Besides the per-client limits, wrong passwords for an existing
+  account are capped hub-wide: 50 per 15 minutes per account, from any number of addresses
+  (sign-in, password change and account deletion all count). Over it, sign-in answers
+  exactly like a wrong password (same message, same scrypt cost), so the limit can't reveal
+  which usernames exist; the account page says 429 (its user is signed in). Unknown usernames
+  get no account counter, so the counters are bounded by the number of accounts and can't be
+  flushed by inventing names. Trade-off (accepted): someone with ≥ 10 addresses can lock one
+  known username for 15 minutes.
+- **H2 Explicit owner.** The hub's owner is recorded in `app.db` (`settings.owner_id`) when
+  the first account registers; a hub from before M9e records its oldest account on first use.
+  Only the owner's campaigns can invite new accounts (M9d R1). The owner can't delete their
+  account (409 "The hub's owner can't delete their account."), so ownership never moves.
+
+## M9f contract — evaluating a real campaign locally
+
+```
+dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
+```
+
+- **E1** CASES is JSONL: `{"id", "question", "viewer": <username>, "expect": [entry titles]}`
+  plus optional `"no_leak": [strings]`. It lives in git-ignored `data/evals/` because it
+  quotes real campaign text. Invalid lines are reported with their line number (exit 1).
+- **E2** For each case, notes search runs as that viewer (the same visibility-bound search the
+  chat uses) and the report gives R@k, MRR, every miss (expected titles and the top titles
+  found), and any `no_leak` string found in the viewer's top 50 hits.
+- **E3** No model calls and no SRD index: it can run while `serve` runs. It opens the hub
+  read-only (SQLite `mode=ro`; at most empty `-wal`/`-shm` sidecar files appear when no
+  server has them open). The notes model loads from the local cache, or downloads once.
+- **E4** Exit 1 when a leak is found, so a leak can't pass unnoticed.
+
+### M9f findings from the owner's campaign (40 questions; R@5 0.85 → 0.88, MRR 0.67 → 0.70)
+
+- **I9 One Unicode form.** 13 of 94 imported titles were decomposed (NFD: macOS file names
+  from an unzipped archive). They looked identical but compared different, so the archive
+  duplicate check missed "Kan Yürek Loncası". The importer and every hub write now store NFC;
+  the eval compares NFC.
+- **I10 DM sections.** 8 vault notes keep their DM notes under a "## DM notu" heading inside
+  the text; revealing the entry would reveal them. Sections whose heading starts with "DM"
+  (or any `--secret-heading` prefix, e.g. "Gerçek") go to the "— DM notes" entry, subsections
+  included. Reveal also warns when a DM heading is still in the text. Scope: ATX headings
+  (`## …`, up to 3 spaces of indent) outside code fences, prefixes as whole words ("DM notu"
+  yes, "DMler için" no). Setext, HTML and bold pseudo-headings are not recognised; an
+  unclosed fence hides later headings, as Obsidian renders it.
+- Leak probe on a backup copy with a test player who sees one revealed entry: no private text
+  reached the player's search, including a prompt-injection query.
+
+### M9e/M9f review fixes (security + backend review: one HIGH, fixed)
+
+- **R1 (HIGH)** An upgraded hub in invite mode refused every invite: the owner was only
+  recorded on paths a sign-up never reached. The hub now records it at start-up.
+- **R2** The eval's leak check compares NFC + casefold on both sides (old NFD text can't hide
+  a leak). **R3** `eval campaign` opens the hub read-only (`mode=ro`, no schema, no meta row):
+  SQLite itself refuses any write.
+- **R4/R5** The DM-section split ignores headings inside code fences, accepts headings
+  indented up to 3 spaces, matches prefixes as whole words ("Dmitri" isn't "DM"), and folds
+  the Turkish dotted İ ("GİZLİ" matches "Gizli").
+- **R6** No username oracle at the account limit (see H1). **R8** Lengths are checked after
+  NFC. **R9** Notes with the same public text but different secrets are both kept. **R10**
+  Long titles are shortened before their label, so "— DM notes" and part numbers survive.
+- Tracked: the reveal warning knows only "DM" headings, not `--secret-heading` prefixes, and
+  changing visibility in the editor doesn't warn; existing NFD titles in an imported campaign
+  stay until it's re-imported.

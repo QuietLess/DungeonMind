@@ -8,6 +8,7 @@ shows); `apply_import` writes the plan into the hub, never back to the vault.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,10 @@ HEADER_FIELDS = (
     "importance",
 )
 SECRET_FIELDS = ("dm_note", "secrets")
+# I10: sections whose heading starts with one of these go to the "— DM notes" entry too.
+SECRET_HEADINGS = ("DM",)
+_HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*)$")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 _EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
@@ -63,9 +68,15 @@ class ImportPlan:
     skipped: list[tuple[str, str]] = field(default_factory=list)  # (relative path, reason)
 
 
+def _nfc(text: str) -> str:
+    """I9: one Unicode form. File names unzipped on macOS arrive decomposed (NFD), and then
+    'Köy' and 'Köy' would be two different titles."""
+    return unicodedata.normalize("NFC", text)
+
+
 def _read(path: Path) -> str:
     with path.open("r", encoding="utf-8", errors="replace") as f:  # read-only (I1)
-        return f.read()
+        return _nfc(f.read())
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
@@ -170,21 +181,64 @@ def _add(
     title: str,
     body: str,
     session: int | None = None,
+    label: str = "",
 ) -> None:
     pieces = _parts(body)
     for i, piece in enumerate(pieces, 1):
-        name = title if len(pieces) == 1 else f"{title} ({i}/{len(pieces)})"
-        plan.entries.append(
-            PlannedEntry(source, board, kind, "private", name[: models.TITLE_CHARS], piece, session)
-        )
+        # Review R10: a long title is shortened, never its label or part number, so
+        # "… — DM notes" can't end up with the main entry's exact title.
+        tail = label + ("" if len(pieces) == 1 else f" ({i}/{len(pieces)})")
+        name = title[: models.TITLE_CHARS - len(tail)] + tail
+        plan.entries.append(PlannedEntry(source, board, kind, "private", name, piece, session))
+
+
+def _fold(text: str) -> str:
+    """Caseless compare that also works for Turkish İ ("GİZLİ" matches "Gizli")."""
+    return text.casefold().replace("\u0307", "")
+
+
+def _starts_with_word(text: str, prefixes: tuple[str, ...]) -> bool:
+    folded = _fold(text.strip())
+    return any(folded.startswith(p) and not folded[len(p) : len(p) + 1].isalnum() for p in prefixes)
+
+
+def _split_sections(body: str, prefixes: tuple[str, ...]) -> tuple[str, list[str]]:
+    """I10: (body without secret sections, the secret sections). A section runs from its
+    heading to the next heading of the same or a higher level, subsections included; lines
+    inside code fences are never headings (review R4)."""
+    wanted = tuple(_fold(p.strip()) for p in prefixes if p.strip())
+    kept: list[str] = []
+    secret: list[list[str]] = []
+    level = 0  # > 0 while inside a secret section of that heading level
+    fence = ""  # the opening marker while inside a code fence
+    for line in body.split("\n"):
+        heading = None if fence else _HEADING.match(line)
+        marker = _FENCE.match(line)
+        if marker and not fence:
+            fence = marker.group(1)
+        elif marker and marker.group(1)[0] == fence[0] and len(marker.group(1)) >= len(fence):
+            fence = ""  # closed by the same kind of marker, at least as long
+        if heading and level and len(heading.group(1)) <= level:
+            level = 0
+        if heading and not level and _starts_with_word(heading.group(2), wanted):
+            level = len(heading.group(1))
+            secret.append([])
+        (secret[-1] if level else kept).append(line)
+    sections = ["\n".join(lines).strip() for lines in secret]
+    return "\n".join(kept).strip(), [x for x in sections if x]
 
 
 def _add_note(
-    plan: ImportPlan, path: Path, rel: Path, used: dict[str, str], suffix: str | None = None
+    plan: ImportPlan,
+    path: Path,
+    rel: Path,
+    used: dict[str, str],
+    suffix: str | None = None,
+    secret_headings: tuple[str, ...] = SECRET_HEADINGS,
 ) -> None:
     """One vault (or archive) note → a private lore entry, plus a DM-notes entry for secrets."""
     meta, text = _split_frontmatter(_read(path))
-    title = path.stem
+    title = _nfc(path.stem)
     body = _strip_title_heading(_clean(text), title)
     # `dm_note: true` is a flag (the whole note is DM-only); text values are secrets.
     dm_only = meta.get("dm_note") is True
@@ -193,6 +247,8 @@ def _add_note(
         for k in SECRET_FIELDS
         if not isinstance(meta.get(k), bool) and _value(meta.get(k))
     ]
+    body, sections = _split_sections(body, secret_headings)
+    secrets += sections
     if not body and not secrets:
         plan.skipped.append((str(rel), "empty note"))
         return
@@ -203,13 +259,14 @@ def _add_note(
     header = "\n".join(x for x in (*marks, _header(meta)) if x)
     main = "\n\n".join(x for x in (header, body) if x) or "(no text)"
     folder = suffix or (rel.parts[-2] if len(rel.parts) > 1 else "")
-    final = _title_for(title, folder, used, main)
+    # Review R9: notes with the same public text but different secrets aren't duplicates.
+    final = _title_for(title, folder, used, "\n\n".join([main, *secrets]))
     if final is None:
         plan.skipped.append((str(rel), f"same text as an earlier note titled {title!r}"))
         return
     _add(plan, str(rel), "lore", kind, final, main)
     if secrets:  # I5: secrets never ride along when the main entry is revealed
-        _add(plan, str(rel), "lore", kind, f"{final} — DM notes", "\n".join(secrets))
+        _add(plan, str(rel), "lore", kind, final, "\n\n".join(secrets), label=" — DM notes")
 
 
 def _session_number(meta: dict[str, Any], stem: str, mode: str) -> int | None:
@@ -230,6 +287,7 @@ def plan_import(
     sessions: Path | None = None,
     extra_lore: list[Path] | tuple[Path, ...] = (),
     session_numbers: str = "field",
+    secret_headings: tuple[str, ...] | list[str] = SECRET_HEADINGS,
 ) -> ImportPlan:
     vault = Path(vault)
     plan = ImportPlan()
@@ -248,12 +306,19 @@ def plan_import(
         elif path.name.endswith(".excalidraw.md"):
             plan.skipped.append((str(rel), "Excalidraw drawing"))
         else:
-            _add_note(plan, path, rel, used)
+            _add_note(plan, path, rel, used, secret_headings=tuple(secret_headings))
     for folder in extra_lore:  # I8: archive summaries, top-level notes only
         folder = Path(folder)
         for path in sorted(folder.iterdir()):
             if path.is_file() and path.suffix.lower() == ".md" and not path.name.startswith("."):
-                _add_note(plan, path, Path(folder.name) / path.name, used, suffix="arşiv")
+                _add_note(
+                    plan,
+                    path,
+                    Path(folder.name) / path.name,
+                    used,
+                    suffix="arşiv",
+                    secret_headings=tuple(secret_headings),
+                )
     if sessions is not None:
         for path in sorted(Path(sessions).iterdir()):
             if not path.is_file() or path.name.startswith("."):
@@ -269,7 +334,7 @@ def plan_import(
             header = _header(meta)
             full = "\n\n".join(x for x in (header, body) if x)
             session = _session_number(meta, path.stem, session_numbers)
-            _add(plan, f"sessions/{path.name}", "journal", "note", path.stem, full, session)
+            _add(plan, f"sessions/{path.name}", "journal", "note", _nfc(path.stem), full, session)
     return plan
 
 

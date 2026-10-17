@@ -215,7 +215,23 @@ hub is reachable only while `share` runs. Press Ctrl-C to stop both.
 - Behind the tunnel the hub uses Cloudflare's `CF-Connecting-IP` for its sign-in limits, so one
   player's typos don't lock out the table. It trusts that header only with `--proxy cloudflare`
   and only from this machine.
+- Wrong passwords are capped per client and per account (50 per 15 minutes per account, from
+  any number of addresses). The hub's first account is its owner: only the owner's campaigns'
+  codes create accounts, and the owner's account can't be deleted.
 - Run either `share` or `serve`, not both: they use the same SRD index.
+
+## Check search on your own campaign
+
+```bash
+uv run dungeonmind eval campaign data/evals/my_cases.jsonl --campaign <id>
+```
+
+One JSON object per line: `{"id": "t01", "question": "Madalyonu kim buldu?", "viewer":
+"<username>", "expect": ["Madalyon"]}`, optionally `"no_leak": ["secret phrase"]`. It
+reports R@5, MRR and every miss, and exits 1 if a `no_leak` phrase reaches that viewer's
+search. No model calls; `data/evals/` is git-ignored because the cases quote your campaign.
+The Obsidian importer moves "## DM notu"-style sections into the DM-notes entry; add
+`--secret-heading Gerçek` (repeatable) for other secret headings.
 
 ## Backups
 

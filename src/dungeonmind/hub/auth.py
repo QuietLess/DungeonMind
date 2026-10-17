@@ -19,6 +19,7 @@ SESSION_DAYS = 14
 LOGIN_WINDOW = timedelta(minutes=15)
 LOGIN_FAILURES_PER_USER = 5  # per (client, username)
 LOGIN_FAILURES_PER_CLIENT = 30
+LOGIN_FAILURES_PER_ACCOUNT = 50  # M9e H1: per existing account, from any number of clients
 REGISTER_WINDOW = timedelta(hours=1)
 REGISTRATIONS_PER_CLIENT = 10
 MAX_TRACKED_KEYS = 10_000

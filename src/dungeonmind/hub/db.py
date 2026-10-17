@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS usage (
     refunds INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, day)
 );
+-- M9e H2: hub-wide settings; owner_id = the account whose campaigns may invite new accounts.
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 # AUTOINCREMENT: ids are never reused, so a saved citation's entry_id can't later point at a
@@ -136,8 +141,11 @@ def _casefold(value: str | None) -> str | None:
     return value.casefold() if isinstance(value, str) else value
 
 
-def _connect(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None)
+def _connect(path: Path, read_only: bool = False) -> sqlite3.Connection:
+    target = f"{path.resolve().as_uri()}?mode=ro" if read_only else path
+    conn = sqlite3.connect(
+        target, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None, uri=read_only
+    )
     conn.row_factory = sqlite3.Row
     # Unicode-aware case folding for list filters (SQLite's lower() is ASCII-only).
     conn.create_function("casefold", 1, _casefold, deterministic=True)
@@ -147,11 +155,14 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 
 @contextmanager
-def transaction(path: Path, immediate: bool = False) -> Iterator[sqlite3.Connection]:
-    """One connection, one transaction: committed on success, rolled back on error, closed."""
-    conn = _connect(path)
+def transaction(
+    path: Path, immediate: bool = False, read_only: bool = False
+) -> Iterator[sqlite3.Connection]:
+    """One connection, one transaction: committed on success, rolled back on error, closed.
+    Read-only connections (M9f E3) can't write at all; SQLite refuses with an error."""
+    conn = _connect(path, read_only)
     try:
-        conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+        conn.execute("BEGIN IMMEDIATE" if immediate and not read_only else "BEGIN")
         yield conn
         conn.execute("COMMIT")
     except BaseException:
@@ -174,16 +185,21 @@ def init_db(path: Path, schema: str) -> None:
 class Storage:
     """Paths and schema for one hub root."""
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(self, root: Path | str, read_only: bool = False) -> None:
         self.root = Path(root)
         self.campaigns_root = self.root / "campaigns"
+        self.app_db = self.root / "app.db"
+        self.read_only = read_only
+        if read_only:  # E3: no folders, no schema, nothing written
+            if not self.app_db.is_file():
+                raise StorageError("No hub here.")
+            return
         self.root.mkdir(parents=True, exist_ok=True)
         self.campaigns_root.mkdir(exist_ok=True)
-        self.app_db = self.root / "app.db"
         init_db(self.app_db, APP_SCHEMA)
 
     def app(self, immediate: bool = False):
-        return transaction(self.app_db, immediate)
+        return transaction(self.app_db, immediate, self.read_only)
 
     def campaign_folder(self, cid: str) -> Path:
         """The folder for a well-formed campaign id, refusing anything that escapes the root."""
@@ -217,4 +233,4 @@ class Storage:
         init_db(folder / "campaign.db", CAMPAIGN_SCHEMA)
 
     def campaign(self, cid: str, immediate: bool = False):
-        return transaction(self.campaign_db(cid), immediate)
+        return transaction(self.campaign_db(cid), immediate, self.read_only)

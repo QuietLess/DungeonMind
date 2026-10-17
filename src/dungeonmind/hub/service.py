@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import threading
+import unicodedata
 import uuid
 from collections import deque
 from collections.abc import Callable
@@ -67,6 +68,11 @@ REFUNDS_PER_DAY = 3
 LOGIN_FAILED = "Wrong username or password."
 SIGNUP_MODES = ("open", "invite")
 NEEDS_INVITE = "Ask your DM for an invite code."
+# M9e H2: records the oldest account as owner unless an owner is already recorded.
+OWNER_FROM_OLDEST = (
+    "INSERT OR IGNORE INTO settings (key, value) "
+    "SELECT 'owner_id', id FROM users ORDER BY rowid LIMIT 1"
+)
 ENTRY_FIELDS = frozenset({"title", "body", "kind", "visibility", "session"})
 
 
@@ -85,8 +91,8 @@ def _iso(dt: datetime) -> str:
 def _text(value: Any, field: str, max_chars: int, *, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise Invalid(f"{field} must be text.")
-    stripped = value.strip()
-    if (not stripped and not allow_empty) or len(value) > max_chars:
+    stripped = unicodedata.normalize("NFC", value.strip())  # one form for every stored text
+    if (not stripped and not allow_empty) or len(value) > max_chars or len(stripped) > max_chars:
         lower = 0 if allow_empty else 1
         raise Invalid(f"{field} must be {lower}–{max_chars} characters.")
     return stripped
@@ -118,17 +124,23 @@ class Hub:
         scrypt_n: int = 2**15,
         daily_message_limit: int = 50,
         signup: str = "open",
+        read_only: bool = False,
     ) -> None:
         if signup not in SIGNUP_MODES:
             raise ValueError(f"signup must be one of {', '.join(SIGNUP_MODES)}")
         self.signup = signup  # M9d S1: "invite" = sign-up only with a campaign invite code
-        self.storage = Storage(root)
+        self.storage = Storage(root, read_only=read_only)
+        if not read_only:  # review R1: a hub from before M9e records its owner at start-up
+            with self.storage.app(immediate=True) as db:
+                db.execute(OWNER_FROM_OLDEST)
         self.embedder = embedder
         self.engine = engine
         self.clock = clock
         self.scrypt_n = scrypt_n
         self.daily_message_limit = daily_message_limit
         self._limiter = auth.Limiter(auth.LOGIN_WINDOW)
+        # H1: keyed by account id, existing accounts only, so it stays bounded and unflushable.
+        self._accounts = auth.Limiter(auth.LOGIN_WINDOW)
         self._registrations = auth.Limiter(auth.REGISTER_WINDOW)
         self._searches: dict[str, deque[datetime]] = {}
         self._search_lock = threading.Lock()
@@ -181,6 +193,7 @@ class Hub:
                 "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
                 (user.id, username, hashed, _iso(now)),
             )
+            db.execute(OWNER_FROM_OLDEST)  # H2: the first account (or a pre-M9e hub's oldest)
             if invite_row is not None:  # S1: the new account joins that campaign
                 members = db.execute(
                     "SELECT COUNT(*) FROM memberships WHERE campaign_id = ?",
@@ -209,12 +222,19 @@ class Hub:
             "SELECT i.code_hash, i.campaign_id, i.expires_at FROM invites i "
             "JOIN campaigns c ON c.id = i.campaign_id "
             "WHERE i.code_hash = ? AND c.dm_id = ("
-            "SELECT id FROM users ORDER BY rowid LIMIT 1)",
+            "SELECT value FROM settings WHERE key = 'owner_id')",
             (auth.token_hash(_invite_code(code)),),
         ).fetchone()
         if row is None or datetime.fromisoformat(row["expires_at"]) <= self.clock():
             return None
         return row
+
+    def owner_id(self) -> str | None:
+        """H2: the hub's owner; a hub from before M9e records its oldest account now."""
+        with self.storage.app(immediate=True) as db:
+            db.execute(OWNER_FROM_OLDEST)
+            row = db.execute("SELECT value FROM settings WHERE key = 'owner_id'").fetchone()
+        return row["value"] if row else None
 
     def signup_config(self) -> dict[str, Any]:
         """S2: the sign-up mode, and whether the hub is still empty (the owner signs up first)."""
@@ -237,12 +257,17 @@ class Hub:
             row = db.execute(
                 "SELECT id, username, password_hash FROM users WHERE username = ?", (username,)
             ).fetchone()
+        account = [(row["id"], auth.LOGIN_FAILURES_PER_ACCOUNT)] if row else []
+        # Review R6: at the account limit the answer (and the scrypt cost) is the same as for a
+        # wrong password, so the limit can't be used to learn which usernames exist.
+        locked = bool(account) and not self._accounts.reserve(account, now)
         ok = isinstance(password, str) and auth.verify_password(
-            password, row["password_hash"] if row else self._dummy_hash
+            password, self._dummy_hash if locked or row is None else row["password_hash"]
         )
-        if row is None or not ok:
+        if row is None or locked or not ok:
             raise AuthFailed(LOGIN_FAILED)  # the reserved attempt stays counted
         self._limiter.release(keys, now)
+        self._accounts.release(account, now)
         user = User(id=row["id"], username=row["username"])
         return self.new_session(user, verified_hash=row["password_hash"])
 
@@ -339,6 +364,9 @@ class Hub:
         ]
         if not self._limiter.reserve(keys, now):
             raise RateLimited("Too many wrong passwords. Try again in 15 minutes.")
+        account = [(user.id, auth.LOGIN_FAILURES_PER_ACCOUNT)]
+        if not self._accounts.reserve(account, now):
+            raise RateLimited("Too many wrong passwords. Try again in 15 minutes.")
         with self.storage.app() as db:
             row = db.execute("SELECT password_hash FROM users WHERE id = ?", (user.id,)).fetchone()
         ok = isinstance(password, str) and auth.verify_password(
@@ -347,6 +375,7 @@ class Hub:
         if row is None or not ok:
             raise Forbidden("Current password is wrong.")
         self._limiter.release(keys, now)
+        self._accounts.release(account, now)
 
     def change_password(
         self, user: User, token: str, current: Any, new: Any, client: str = "local"
@@ -379,6 +408,8 @@ class Hub:
         if confirm_username != user.username:
             raise Invalid("Type your username to confirm.")
         self._confirm_password(user, password, client)
+        if user.id == self.owner_id():  # H2: ownership never moves
+            raise Conflict("The hub's owner can't delete their account.")
         with self.storage.app() as db:
             self._refuse_if_dm(db, user)
         self._sweep_private(user, checkpoint=False)
@@ -743,7 +774,10 @@ class Hub:
             row = db.execute("SELECT value FROM meta WHERE key = 'embed_model'").fetchone()
             current = embedder_name(self.embedder)
             if row is None:  # a campaign from before M8d: adopt the current model
-                db.execute("INSERT INTO meta (key, value) VALUES ('embed_model', ?)", (current,))
+                if not self.storage.read_only:  # E3: a read-only hub only compares
+                    db.execute(
+                        "INSERT INTO meta (key, value) VALUES ('embed_model', ?)", (current,)
+                    )
             elif row["value"] != current:
                 raise StorageError(
                     f"This campaign was indexed with {row['value']}, but the hub now uses "
