@@ -28,6 +28,10 @@ def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
+def _fold(text: str) -> str:
+    return _nfc(text).casefold()
+
+
 def make_embedder():
     from dungeonmind.hub.app import NoteEmbedder
 
@@ -39,7 +43,7 @@ def open_hub(root: Path):
 
     if not (Path(root) / "app.db").is_file():
         raise FileNotFoundError(f"No hub found: {Path(root) / 'app.db'} doesn't exist.")
-    return Hub(root, embedder=make_embedder())
+    return Hub(root, embedder=make_embedder(), read_only=True)  # E3
 
 
 def load_cases(path: Path, hub, cid: str) -> tuple[list[tuple[CampaignCase, User]], list[str]]:
@@ -95,8 +99,9 @@ def evaluate(hub, cid: str, cases: list[tuple[CampaignCase, User]], k: int = 5) 
                 misses.append(
                     {"id": case.id, "missing": sorted(expected - found), "top": ranked[:k]}
                 )
-        text = " ".join(f"{h.source} {h.text}" for h in hits[:LEAK_K]).lower()
-        if any(s.lower() in text for s in case.no_leak):
+        # R2: one Unicode form and case on both sides, so old NFD text can't hide a leak.
+        text = _fold(" ".join(f"{h.source} {h.text}" for h in hits[:LEAK_K]))
+        if any(_fold(s) in text for s in case.no_leak):
             leaks.append(case.id)
     n = len(recalls)
     return {

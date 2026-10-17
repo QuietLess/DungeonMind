@@ -1283,7 +1283,9 @@ not automated), Cloudflare Access.
 
 - **H1 Per-account limit.** Besides the per-client limits, wrong passwords for an existing
   account are capped hub-wide: 50 per 15 minutes per account, from any number of addresses
-  (sign-in, password change and account deletion all count). Over it: 429. Unknown usernames
+  (sign-in, password change and account deletion all count). Over it, sign-in answers
+  exactly like a wrong password (same message, same scrypt cost), so the limit can't reveal
+  which usernames exist; the account page says 429 (its user is signed in). Unknown usernames
   get no account counter, so the counters are bounded by the number of accounts and can't be
   flushed by inventing names. Trade-off (accepted): someone with ≥ 10 addresses can lock one
   known username for 15 minutes.
@@ -1320,3 +1322,20 @@ dungeonmind eval campaign CASES --campaign ID [--root data/hub] [-k 5]
   included. Reveal also warns when a DM heading is still in the text.
 - Leak probe on a backup copy with a test player who sees one revealed entry: no private text
   reached the player's search, including a prompt-injection query.
+
+### M9e/M9f review fixes (security + backend review: one HIGH, fixed)
+
+- **R1 (HIGH)** An upgraded hub in invite mode refused every invite: the owner was only
+  recorded on paths a sign-up never reached. The hub now records it at start-up.
+- **R2** The eval's leak check compares NFC + casefold on both sides (old NFD text can't hide
+  a leak). **R3** `eval campaign` opens the hub read-only (`mode=ro`, no schema, no meta row):
+  SQLite itself refuses any write.
+- **R4/R5** The DM-section split ignores headings inside code fences, accepts headings
+  indented up to 3 spaces, matches prefixes as whole words ("Dmitri" isn't "DM"), and folds
+  the Turkish dotted İ ("GİZLİ" matches "Gizli").
+- **R6** No username oracle at the account limit (see H1). **R8** Lengths are checked after
+  NFC. **R9** Notes with the same public text but different secrets are both kept. **R10**
+  Long titles are shortened before their label, so "— DM notes" and part numbers survive.
+- Tracked: the reveal warning knows only "DM" headings, not `--secret-heading` prefixes, and
+  changing visibility in the editor doesn't warn; existing NFD titles in an imported campaign
+  stay until it's re-imported.

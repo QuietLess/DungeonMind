@@ -41,7 +41,8 @@ HEADER_FIELDS = (
 SECRET_FIELDS = ("dm_note", "secrets")
 # I10: sections whose heading starts with one of these go to the "— DM notes" entry too.
 SECRET_HEADINGS = ("DM",)
-_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+_HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*)$")
+_FENCE = re.compile(r"^ {0,3}(```|~~~)")
 _FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 _EMBED = re.compile(r"!\[\[[^\]]*\]\]|!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
@@ -180,27 +181,43 @@ def _add(
     title: str,
     body: str,
     session: int | None = None,
+    label: str = "",
 ) -> None:
     pieces = _parts(body)
     for i, piece in enumerate(pieces, 1):
-        name = title if len(pieces) == 1 else f"{title} ({i}/{len(pieces)})"
-        plan.entries.append(
-            PlannedEntry(source, board, kind, "private", name[: models.TITLE_CHARS], piece, session)
-        )
+        # Review R10: a long title is shortened, never its label or part number, so
+        # "… — DM notes" can't end up with the main entry's exact title.
+        tail = label + ("" if len(pieces) == 1 else f" ({i}/{len(pieces)})")
+        name = title[: models.TITLE_CHARS - len(tail)] + tail
+        plan.entries.append(PlannedEntry(source, board, kind, "private", name, piece, session))
+
+
+def _fold(text: str) -> str:
+    """Caseless compare that also works for Turkish İ ("GİZLİ" matches "Gizli")."""
+    return text.casefold().replace("\u0307", "")
+
+
+def _starts_with_word(text: str, prefixes: tuple[str, ...]) -> bool:
+    folded = _fold(text.strip())
+    return any(folded.startswith(p) and not folded[len(p) : len(p) + 1].isalnum() for p in prefixes)
 
 
 def _split_sections(body: str, prefixes: tuple[str, ...]) -> tuple[str, list[str]]:
     """I10: (body without secret sections, the secret sections). A section runs from its
-    heading to the next heading of the same or a higher level, subsections included."""
-    wanted = tuple(p.casefold() for p in prefixes if p.strip())
+    heading to the next heading of the same or a higher level, subsections included; lines
+    inside code fences are never headings (review R4)."""
+    wanted = tuple(_fold(p.strip()) for p in prefixes if p.strip())
     kept: list[str] = []
     secret: list[list[str]] = []
     level = 0  # > 0 while inside a secret section of that heading level
+    fenced = False
     for line in body.split("\n"):
-        heading = _HEADING.match(line)
+        heading = None if fenced else _HEADING.match(line)
+        if _FENCE.match(line):
+            fenced = not fenced
         if heading and level and len(heading.group(1)) <= level:
             level = 0
-        if heading and not level and heading.group(2).strip().casefold().startswith(wanted):
+        if heading and not level and _starts_with_word(heading.group(2), wanted):
             level = len(heading.group(1))
             secret.append([])
         (secret[-1] if level else kept).append(line)
@@ -239,13 +256,14 @@ def _add_note(
     header = "\n".join(x for x in (*marks, _header(meta)) if x)
     main = "\n\n".join(x for x in (header, body) if x) or "(no text)"
     folder = suffix or (rel.parts[-2] if len(rel.parts) > 1 else "")
-    final = _title_for(title, folder, used, main)
+    # Review R9: notes with the same public text but different secrets aren't duplicates.
+    final = _title_for(title, folder, used, "\n\n".join([main, *secrets]))
     if final is None:
         plan.skipped.append((str(rel), f"same text as an earlier note titled {title!r}"))
         return
     _add(plan, str(rel), "lore", kind, final, main)
     if secrets:  # I5: secrets never ride along when the main entry is revealed
-        _add(plan, str(rel), "lore", kind, f"{final} — DM notes", "\n\n".join(secrets))
+        _add(plan, str(rel), "lore", kind, final, "\n\n".join(secrets), label=" — DM notes")
 
 
 def _session_number(meta: dict[str, Any], stem: str, mode: str) -> int | None:

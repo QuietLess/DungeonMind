@@ -172,17 +172,17 @@ def test_r2_the_leak_check_sees_through_unicode_forms(tmp_path, monkeypatch):
     import unicodedata
 
     root, cid = _hub(tmp_path, monkeypatch)
+    nfd = unicodedata.normalize("NFD", "Kan Yürek yemini: the baron swore the red oath.")
     with sqlite3.connect(root / "campaigns" / cid / "campaign.db") as db:
-        db.execute(
-            "UPDATE entries SET visibility = 'party', body = ? WHERE title = 'The Red Oath'",
-            (unicodedata.normalize("NFD", "Kan Yürek yemini: boğulmuş tanrı."),),
-        )
+        eid = db.execute("SELECT id FROM entries WHERE title = 'The Red Oath'").fetchone()[0]
+        db.execute("UPDATE entries SET visibility = 'party' WHERE id = ?", (eid,))
+        db.execute("UPDATE chunks SET text = ? WHERE entry_id = ?", (nfd, eid))  # pre-I9 text
     cases = _cases(
         tmp_path,
         [
             {
                 "id": "c1",
-                "question": "Kan Yürek yemini",
+                "question": "what did the baron swear, the red oath",
                 "viewer": "player_one",
                 "expect": [],
                 "no_leak": ["kan yürek yemini"],
@@ -203,10 +203,17 @@ def test_r3_it_writes_nothing_even_to_an_old_hub(tmp_path, monkeypatch):
     for path in root.rglob("*.db"):
         with sqlite3.connect(path) as db:
             db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    before = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in root.rglob("*.db*")}
+
+    def state():
+        # Databases: time and size. WAL files: size (a read-only reader may touch the empty
+        # file's time but appends nothing). -shm is SQLite's shared-memory index, not data.
+        out = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in root.rglob("*.db")}
+        out |= {p: p.stat().st_size for p in root.rglob("*.db-wal")}
+        return out
+
+    before = state()
     cases = _cases(
         tmp_path, [{"id": "c1", "question": "mill", "viewer": "dm_dana", "expect": ["Old Mill"]}]
     )
     assert _run(root, cid, cases).exit_code == 0
-    after = {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in root.rglob("*.db*")}
-    assert after == before
+    assert state() == before

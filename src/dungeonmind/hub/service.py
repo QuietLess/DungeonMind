@@ -92,7 +92,7 @@ def _text(value: Any, field: str, max_chars: int, *, allow_empty: bool = False) 
     if not isinstance(value, str):
         raise Invalid(f"{field} must be text.")
     stripped = unicodedata.normalize("NFC", value.strip())  # one form for every stored text
-    if (not stripped and not allow_empty) or len(value) > max_chars:
+    if (not stripped and not allow_empty) or len(value) > max_chars or len(stripped) > max_chars:
         lower = 0 if allow_empty else 1
         raise Invalid(f"{field} must be {lower}–{max_chars} characters.")
     return stripped
@@ -124,11 +124,15 @@ class Hub:
         scrypt_n: int = 2**15,
         daily_message_limit: int = 50,
         signup: str = "open",
+        read_only: bool = False,
     ) -> None:
         if signup not in SIGNUP_MODES:
             raise ValueError(f"signup must be one of {', '.join(SIGNUP_MODES)}")
         self.signup = signup  # M9d S1: "invite" = sign-up only with a campaign invite code
-        self.storage = Storage(root)
+        self.storage = Storage(root, read_only=read_only)
+        if not read_only:  # review R1: a hub from before M9e records its owner at start-up
+            with self.storage.app(immediate=True) as db:
+                db.execute(OWNER_FROM_OLDEST)
         self.embedder = embedder
         self.engine = engine
         self.clock = clock
@@ -254,12 +258,13 @@ class Hub:
                 "SELECT id, username, password_hash FROM users WHERE username = ?", (username,)
             ).fetchone()
         account = [(row["id"], auth.LOGIN_FAILURES_PER_ACCOUNT)] if row else []
-        if account and not self._accounts.reserve(account, now):
-            raise RateLimited("Too many failed sign-in attempts. Try again in 15 minutes.")
+        # Review R6: at the account limit the answer (and the scrypt cost) is the same as for a
+        # wrong password, so the limit can't be used to learn which usernames exist.
+        locked = bool(account) and not self._accounts.reserve(account, now)
         ok = isinstance(password, str) and auth.verify_password(
-            password, row["password_hash"] if row else self._dummy_hash
+            password, self._dummy_hash if locked or row is None else row["password_hash"]
         )
-        if row is None or not ok:
+        if row is None or locked or not ok:
             raise AuthFailed(LOGIN_FAILED)  # the reserved attempt stays counted
         self._limiter.release(keys, now)
         self._accounts.release(account, now)
@@ -769,7 +774,10 @@ class Hub:
             row = db.execute("SELECT value FROM meta WHERE key = 'embed_model'").fetchone()
             current = embedder_name(self.embedder)
             if row is None:  # a campaign from before M8d: adopt the current model
-                db.execute("INSERT INTO meta (key, value) VALUES ('embed_model', ?)", (current,))
+                if not self.storage.read_only:  # E3: a read-only hub only compares
+                    db.execute(
+                        "INSERT INTO meta (key, value) VALUES ('embed_model', ?)", (current,)
+                    )
             elif row["value"] != current:
                 raise StorageError(
                     f"This campaign was indexed with {row['value']}, but the hub now uses "
