@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // M9c UB1–UB5: lore filters, debounced text filter, Markdown notes, journal order, chat tidy-up.
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
