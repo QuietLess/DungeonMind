@@ -575,7 +575,7 @@ def test_d2_report_counts_why_cases_failed():
             _result(stop_reason="error", error_type="OllamaTimeout"),
             _result(stop_reason="error", error_type="OllamaTimeout"),
             _result(answer="no", intent="lookup"),
-            _result(answer="yes"),
+            _result(answer="maybe"),
         ]
     )
     cases = [_case(intent="rules_qa", contains=["yes"]) for _ in range(4)]

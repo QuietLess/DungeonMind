@@ -602,6 +602,10 @@ def eval_live(
     )
     for cat, row in sorted(report["categories"].items()):
         _say(f"  {cat:<14} {row['pass_rate'] * 100:5.1f}%  (n={row['n']})")
+    if report["failures"]:
+        _say("Why cases failed:")
+        for reason, n in report["failures"].items():
+            _say(f"  {n:>3}  {reason}")
     if report["stopped_early"]:
         _say(f"Budget reached: {len(report['not_run'])} cases not run.", fg="yellow")
     _say(f"Saved {path}")
