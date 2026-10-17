@@ -60,7 +60,7 @@ from dungeonmind.hub.models import (
     Thread,
     User,
 )
-from dungeonmind.hub.sheets import Sheet, derive
+from dungeonmind.hub.sheets import Sheet, derive, summary_text
 
 DEFAULT_ROOT = Path("data/hub")
 INVITE_DAYS = 7
@@ -689,12 +689,16 @@ class Hub:
         with self.storage.campaign(cid, immediate=True) as db:
             row = self._own_character(db, user, chid)
             count = db.execute(
-                "SELECT COUNT(*) FROM entries WHERE character_id = ?", (row["id"],)
+                "SELECT COUNT(*) FROM entries WHERE character_id = ? AND kind != 'sheet'",
+                (row["id"],),
             ).fetchone()[0]
             if count:
                 raise Conflict(
                     f"This character's board still has {count} entries; delete them first."
                 )
+            db.execute(  # C2: the generated sheet entry goes with the character
+                "DELETE FROM entries WHERE character_id = ? AND kind = 'sheet'", (row["id"],)
+            )
             db.execute("DELETE FROM characters WHERE id = ?", (row["id"],))
 
     # --- character sheets (M10a) -------------------------------------------------------------
@@ -754,12 +758,48 @@ class Hub:
                 "version = excluded.version, updated_at = excluded.updated_at",
                 (character["id"], sheet.model_dump_json(), version + 1, _iso(self.clock())),
             )
+        derived = derive(sheet)
+        self._sync_sheet_entry(cid, character, sheet, derived)
         return {
             "sheet": sheet.model_dump(),
-            "derived": derive(sheet),
+            "derived": derived,
             "version": version + 1,
             "can_edit": True,
         }
+
+    def _sync_sheet_entry(self, cid: str, character, sheet: Sheet, derived: dict[str, Any]) -> None:
+        """C1: one generated, party-visible entry per sheet, written as the character's player,
+        so the chatbot finds and cites sheets through the normal notes search."""
+        title = f"{character['name']} — character sheet"[: models.TITLE_CHARS]
+        body = summary_text(character["name"], sheet, derived)
+        chunks = self._embed(cid, title, body)
+        with self.storage.app() as db:
+            owner = db.execute(
+                "SELECT username FROM users WHERE id = ?", (character["owner_id"],)
+            ).fetchone()
+        author_name = owner["username"] if owner else "player"
+        now = _iso(self.clock())
+        with self.storage.campaign(cid, immediate=True) as db:
+            row = db.execute(
+                "SELECT id FROM entries WHERE character_id = ? AND kind = 'sheet'",
+                (character["id"],),
+            ).fetchone()
+            if row is None:
+                cur = db.execute(
+                    "INSERT INTO entries (board, character_id, author_id, author_name, kind, "
+                    "title, body, visibility, session, created_at, updated_at) "
+                    "VALUES ('character', ?, ?, ?, 'sheet', ?, ?, 'party', NULL, ?, ?)",
+                    (character["id"], character["owner_id"], author_name, title, body, now, now),
+                )
+                entry_id = cur.lastrowid
+            else:
+                entry_id = row["id"]
+                db.execute(
+                    "UPDATE entries SET title = ?, body = ?, version = version + 1, "
+                    "updated_at = ? WHERE id = ?",
+                    (title, body, now, entry_id),
+                )
+            store.replace_chunks(db, entry_id, title, chunks)
 
     # --- dice and the game log (M10b) ---------------------------------------------------------
 
@@ -1020,6 +1060,8 @@ class Hub:
             raise Invalid(f"These fields can't be changed: {', '.join(sorted(unknown))}.")
         with self.storage.campaign(cid) as db:
             row = self._readable(db, user, camp, eid)
+        if row["kind"] == "sheet":  # C2: generated from the character sheet
+            raise Forbidden("This entry is generated from the character sheet; edit the sheet.")
         if row["author_id"] != user.id:
             raise Forbidden("Only the author can change an entry.")
         board = row["board"]
@@ -1065,6 +1107,8 @@ class Hub:
         camp = self._member(user, cid)
         with self.storage.campaign(cid, immediate=True) as db:
             row = self._readable(db, user, camp, eid)
+            if row["kind"] == "sheet":  # C2
+                raise Forbidden("This entry is generated from the character sheet.")
             if row["author_id"] != user.id:
                 raise Forbidden("Only the author can delete an entry.")
             db.execute("DELETE FROM entries WHERE id = ?", (row["id"],))

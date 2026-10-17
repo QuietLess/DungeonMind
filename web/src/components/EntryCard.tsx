@@ -3,7 +3,7 @@ import { EyeIcon } from "../icons";
 import type { Entry, Role } from "../types";
 import { VisibilityBadge } from "../visibility";
 
-const KIND_LABEL: Record<string, string> = { npc: "NPC" };
+const KIND_LABEL: Record<string, string> = { npc: "NPC", sheet: "Character sheet" };
 
 /** L2: a card preview as plain text, without Markdown markers. */
 export function plainExcerpt(body: string, max = 220): string {

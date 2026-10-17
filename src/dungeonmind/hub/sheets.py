@@ -303,3 +303,99 @@ def derive(sheet: Sheet) -> dict[str, Any]:
         "d20_penalty": -2 * sheet.exhaustion,
         "speed": max(0, sheet.speed - 5 * sheet.exhaustion),
     }
+
+
+def _signed(n: int) -> str:
+    return f"{n:+d}"
+
+
+def summary_text(name: str, sheet: Sheet, d: dict[str, Any]) -> str:
+    """M10d C1: the sheet as plain text for search and the chatbot (derived numbers included)."""
+    classes = " / ".join(
+        f"{c.name}{f' ({c.subclass})' if c.subclass else ''} {c.level}" for c in sheet.classes
+    )
+    who = ", ".join(
+        x for x in (classes or f"level {d['level']}", sheet.species, sheet.background) if x
+    )
+    lines = [
+        f"{name}: {who}. Proficiency bonus {_signed(d['proficiency_bonus'])}.",
+        f"AC {sheet.armor_class}, HP {sheet.hp.current}/{sheet.hp.max}"
+        + (f" (+{sheet.hp.temp} temp)" if sheet.hp.temp else "")
+        + f", speed {d['speed']} ft, initiative {_signed(d['initiative'])}, "
+        f"passive Perception {d['passive_perception']}.",
+        "Abilities: "
+        + ", ".join(
+            f"{ABILITY_NAMES[a]} {getattr(sheet.abilities, a)} ({_signed(d['modifiers'][a])})"
+            for a in ABILITIES
+        )
+        + ".",
+        "Saving throws: "
+        + ", ".join(f"{ABILITY_NAMES[a]} {_signed(d['saves'][a])}" for a in ABILITIES)
+        + ".",
+        "Skills: "
+        + ", ".join(
+            f"{k.replace('_', ' ').title().replace(' Of ', ' of ')} {_signed(v)}"
+            for k, v in d["skills"].items()
+        )
+        + ".",
+    ]
+    if sheet.exhaustion or sheet.conditions or sheet.inspiration:
+        state = [f"exhaustion {sheet.exhaustion}"] if sheet.exhaustion else []
+        state += sheet.conditions + (["Heroic Inspiration"] if sheet.inspiration else [])
+        lines.append("Current state: " + ", ".join(state) + ".")
+    if sheet.attacks:
+        lines.append(
+            "Attacks: "
+            + "; ".join(
+                f"{a.name} {_signed(d['attacks'][i]['to_hit'])} to hit"
+                + (f", {d['attacks'][i]['damage']} {a.damage_type}".rstrip() if a.damage else "")
+                for i, a in enumerate(sheet.attacks)
+            )
+            + "."
+        )
+    if d["spell_save_dc"] is not None:
+        lines.append(
+            f"Spellcasting: save DC {d['spell_save_dc']}, spell attack "
+            f"{_signed(d['spell_attack'])}."
+        )
+    slots = [
+        f"level {i + 1}: {s.max - s.used}/{s.max}"
+        for i, s in enumerate(sheet.spellcasting.slots)
+        if s.max
+    ]
+    if slots:
+        lines.append("Spell slots left: " + ", ".join(slots) + ".")
+    if sheet.spells:
+        lines.append(
+            "Spells: "
+            + ", ".join(
+                f"{s.name} ({'cantrip' if s.level == 0 else f'level {s.level}'}"
+                f"{', prepared' if s.prepared else ''})"
+                for s in sheet.spells
+            )
+            + "."
+        )
+    if sheet.inventory:
+        lines.append(
+            "Inventory: "
+            + ", ".join(
+                f"{i.name}{f' ×{i.quantity}' if i.quantity != 1 else ''}"
+                f"{' (equipped)' if i.equipped else ''}"
+                for i in sheet.inventory
+            )
+            + f". Carrying {d['carried_weight']} of {d['carrying_capacity']} lb."
+        )
+    coins = {k: v for k, v in sheet.currency.model_dump().items() if v}
+    if coins:
+        lines.append("Money: " + ", ".join(f"{v} {k}" for k, v in coins.items()) + ".")
+    for f in sheet.features:
+        lines.append(
+            f"Feature — {f.name}{f' ({f.source})' if f.source else ''}: {f.text}".rstrip(": ")
+        )
+    if sheet.custom_dice:
+        lines.append(
+            "Custom dice: " + ", ".join(f"{c.name} {c.expression}" for c in sheet.custom_dice) + "."
+        )
+    if sheet.proficiencies:
+        lines.append(f"Proficiencies and languages: {sheet.proficiencies}")
+    return "\n\n".join(lines)[:10_000]

@@ -1,6 +1,7 @@
 // Shows one entry in a drawer. Always fetched through the API, so opening an entry from a chat
 // citation re-checks that the viewer may still read it (M7 UI4).
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { message, useCampaign, useLoad } from "../hooks";
 import { EyeIcon } from "../icons";
@@ -26,7 +27,8 @@ export function EntryPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const mine = entry?.author_id === user.id;
+  const generated = entry?.kind === "sheet"; // M10d: written from the character sheet
+  const mine = entry?.author_id === user.id && !generated;
 
   /** Run an action; true when it worked (F3: the caller only moves on after success). */
   const act = async (fn: () => Promise<Entry | void>): Promise<boolean> => {
@@ -77,6 +79,13 @@ export function EntryPanel({
           </div>
           <NoteText text={entry.body} />
           {actionError && <p className="error" role="alert">{actionError}</p>}
+          {generated && entry.character_id != null && (
+            <div className="actions">
+              <Link to={`/c/${campaign.id}/characters/${entry.character_id}/sheet`} className="btn btn-primary">
+                Open character sheet
+              </Link>
+            </div>
+          )}
           {mine && (
             <div className="actions">
               {entry.board === "lore" && entry.visibility === "private" && (
