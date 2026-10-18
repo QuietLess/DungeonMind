@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DiceTray } from "./components/DiceTray";
 import { CampaignContext } from "./hooks";
+import { CharactersPage } from "./pages/CharactersPage";
 import { CombatPage } from "./pages/CombatPage";
 import type { Campaign } from "./types";
 
@@ -12,6 +13,7 @@ const api = vi.hoisted(() => ({
   characters: vi.fn(), sheet: vi.fn(), roll: vi.fn(), rolls: vi.fn(),
   encounter: vi.fn(), startEncounter: vi.fn(), addCombatants: vi.fn(), rollInitiative: vi.fn(),
   turn: vi.fn(), combatHp: vi.fn(), combatConditions: vi.fn(), endEncounter: vi.fn(),
+  entries: vi.fn(), npcsFromMonster: vi.fn(), createCharacter: vi.fn(),
   updateCombatant: vi.fn(), removeCombatant: vi.fn(), monsters: vi.fn(),
 }));
 vi.mock("./api", async (orig) => ({ ...(await orig<typeof import("./api")>()), api }));
@@ -60,7 +62,7 @@ beforeEach(() => {
 describe("dice tray", () => {
   it("click dice to build a roll, right-click to take one away", async () => {
     inCampaign(<DiceTray />);
-    await userEvent.click(screen.getByRole("button", { name: /open dice/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Dice tray" }));
     const d6 = screen.getByRole("button", { name: /^d6/ });
     await userEvent.click(d6);
     await userEvent.click(d6);
@@ -75,7 +77,7 @@ describe("dice tray", () => {
 
   it("roll as a character and add a stat; advantage only for a lone d20", async () => {
     inCampaign(<DiceTray />);
-    await userEvent.click(screen.getByRole("button", { name: /open dice/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Dice tray" }));
     await userEvent.click(screen.getByRole("button", { name: /^d20/ }));
     await userEvent.selectOptions(screen.getByLabelText("Roll as"), "7");
     await userEvent.selectOptions(await screen.findByLabelText("Add"), "skill:stealth");
@@ -93,7 +95,7 @@ describe("dice tray", () => {
 
   it("rolling as an NPC defaults to the DM only", async () => {
     inCampaign(<DiceTray />);
-    await userEvent.click(screen.getByRole("button", { name: /open dice/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Dice tray" }));
     await userEvent.selectOptions(screen.getByLabelText("Roll as"), "9");
     expect(screen.getByLabelText(/to DM only/i)).toBeChecked();
   });
@@ -153,5 +155,100 @@ describe("combat page", () => {
     await userEvent.type(await screen.findByLabelText("Find a monster"), "gob");
     await userEvent.click(await screen.findByRole("button", { name: /add goblin warrior/i }));
     expect(api.addCombatants).toHaveBeenCalledWith("c1", 3, { monster: "Goblin Warrior", count: 1 });
+  });
+});
+
+
+describe("M11 review fixes", () => {
+  it("dice can be removed by keyboard, Escape closes the tray and focus comes back", async () => {
+    inCampaign(<DiceTray />);
+    const toggle = screen.getByRole("button", { name: "Dice tray" });
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /^d4/ })).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: /^d6/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^d6/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove one d6" }));
+    expect(screen.getByRole("button", { name: /^d6/ })).toHaveAccessibleName("d6, 1 selected");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Dice tray" })).toBeNull();
+    expect(toggle).toHaveFocus();
+  });
+
+  it("stats shown are always the chosen character's", async () => {
+    let finish: (v: unknown) => void = () => {};
+    inCampaign(<DiceTray />);
+    await userEvent.click(screen.getByRole("button", { name: "Dice tray" }));
+    await userEvent.selectOptions(screen.getByLabelText("Roll as"), "7");
+    await screen.findByRole("option", { name: "Stealth +10" });
+    api.sheet.mockReturnValue(new Promise((r) => { finish = r; }));
+    await userEvent.selectOptions(screen.getByLabelText("Roll as"), "9");
+    expect(screen.queryByRole("option", { name: "Stealth +10" })).toBeNull();
+    finish({ sheet: { attacks: [] }, derived: { ...derived, skills: { stealth: 6 } }, version: 1, can_edit: true });
+    expect(await screen.findByRole("option", { name: "Stealth +6" })).toBeInTheDocument();
+  });
+
+  it("ending an encounter can be cancelled, then asks about the monsters", async () => {
+    api.encounter.mockResolvedValue(encounter);
+    api.endEncounter.mockResolvedValue(null);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    inCampaign(<CombatPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "End encounter" }));
+    expect(api.endEncounter).not.toHaveBeenCalled();
+    confirm.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    await userEvent.click(screen.getByRole("button", { name: "End encounter" }));
+    expect(api.endEncounter).toHaveBeenCalledWith("c1", 3, false);
+  });
+
+  it("players set an HP amount for their own character", async () => {
+    api.encounter.mockResolvedValue({ ...encounter, combatants: [{ ...encounter.combatants[0], hidden: undefined, init_bonus: undefined }] });
+    api.combatHp.mockResolvedValue(encounter);
+    inCampaign(<CombatPage />, player);
+    const amount = await screen.findByLabelText("HP change");
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "14");
+    await userEvent.click(screen.getByRole("button", { name: "Damage Mira by 14" }));
+    expect(api.combatHp).toHaveBeenCalledWith("c1", 3, 11, -14);
+  });
+
+  it("a double click on Next turn sends one request", async () => {
+    let finish: (v: unknown) => void = () => {};
+    api.encounter.mockResolvedValue(encounter);
+    api.turn.mockReturnValue(new Promise((r) => { finish = r; }));
+    inCampaign(<CombatPage />);
+    const next = await screen.findByRole("button", { name: "Next turn" });
+    await userEvent.dblClick(next);
+    expect(api.turn).toHaveBeenCalledTimes(1);
+    finish(encounter);
+  });
+
+  it("single conditions can be removed and turns are announced", async () => {
+    api.encounter.mockResolvedValue(encounter);
+    api.combatConditions.mockResolvedValue(encounter);
+    inCampaign(<CombatPage />);
+    await userEvent.click(await screen.findByRole("button", { name: "Remove prone from Goblin Warrior 1" }));
+    expect(api.combatConditions).toHaveBeenCalledWith("c1", 3, 12, []);
+    expect(screen.getByText(/Round 2 — Goblin Warrior 1's turn/)).toBeInTheDocument();
+  });
+
+  it("Add NPC uses the typed monster name and shows errors", async () => {
+    const { ApiError } = await import("./api");
+    api.characters.mockResolvedValue([]);
+    api.entries.mockResolvedValue([]);
+    api.monsters.mockResolvedValue(["Dire Wolf", "Wolf"]);
+    api.npcsFromMonster.mockRejectedValue(new ApiError(404, "No such monster in the SRD."));
+    render(
+      <CampaignContext.Provider value={{ campaign: dm, user }}>
+        <MemoryRouter initialEntries={["/c/c1/characters"]}>
+          <Routes>
+            <Route path="/c/:cid/characters" element={<CharactersPage />} />
+          </Routes>
+        </MemoryRouter>
+      </CampaignContext.Provider>,
+    );
+    await userEvent.type(await screen.findByLabelText(/NPC from an SRD monster/i), "Wolf");
+    await userEvent.click(screen.getByRole("button", { name: "Add NPC" }));
+    expect(api.npcsFromMonster).toHaveBeenCalledWith("c1", "Wolf", 1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("No such monster");
   });
 });
