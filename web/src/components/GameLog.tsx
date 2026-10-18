@@ -70,6 +70,13 @@ export function GameLog({
     if (incoming) add([incoming]);
   }, [incoming]);
 
+  useEffect(() => {
+    // M11: rolls made in the dice tray show up at once
+    const onRoll = (e: Event) => add([(e as CustomEvent<Roll>).detail]);
+    window.addEventListener("dungeonmind:roll", onRoll);
+    return () => window.removeEventListener("dungeonmind:roll", onRoll);
+  }, []);
+
   const roll = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);

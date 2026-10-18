@@ -12,6 +12,7 @@
 | M8 Evaluation | 200+ question suite (rules + campaign notes) + regression gates; model choice per step | Metrics tracked per version | ✅ offline · live run pending key |
 | M9 Production | CI, Docker, backups; account management; UI for real campaigns; hosting + TLS, tracing | Deployable demo + monitored runs | 🔶 M9a–e done · hosting pending |
 | M10 Sheets and dice | Character sheets, server dice, game log, chatbot reads sheets | Rules-correct derived values; rolls can't be faked; visibility tests | ✅ |
+| M11 Combat | NPCs (from SRD monsters), D&D Beyond–style dice tray with roll-as + stat bonus, combat tracker | Players never see NPC secrets; HP on sheets | ✅ |
 
 Direction change (2026-10-16): DungeonMind becomes a campaign hub — a web chat UI plus notes
 that are private, shared with the DM, or visible to the party. Old M6–M8 became M6–M9, and

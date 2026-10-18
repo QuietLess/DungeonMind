@@ -5,6 +5,7 @@ import type {
   Campaign,
   Character,
   Citation,
+  Encounter,
   Entry,
   EntryInput,
   Invite,
@@ -96,8 +97,32 @@ export const api = {
     request<void>("DELETE", `${c(cid)}/members/${encodeURIComponent(uid)}`),
 
   characters: (cid: string) => request<Character[]>("GET", `${c(cid)}/characters`),
-  createCharacter: (cid: string, name: string, summary: string) =>
-    request<Character>("POST", `${c(cid)}/characters`, { name, summary }),
+  createCharacter: (cid: string, name: string, summary: string, npc = false) =>
+    request<Character>("POST", `${c(cid)}/characters`, npc ? { name, summary, npc } : { name, summary }),
+  monsters: (cid: string, q: string) =>
+    request<string[]>("GET", `${c(cid)}/monsters?q=${encodeURIComponent(q)}`),
+  npcsFromMonster: (cid: string, monster: string, count: number) =>
+    request<Character[]>("POST", `${c(cid)}/npcs/from-monster`, { monster, count }),
+
+  encounter: (cid: string) => request<Encounter | null>("GET", `${c(cid)}/encounter`),
+  startEncounter: (cid: string, name: string) =>
+    request<{ id: number; name: string }>("POST", `${c(cid)}/encounters`, { name }),
+  addCombatants: (cid: string, eid: number, body: { character_id?: number; monster?: string; count?: number }) =>
+    request<unknown>("POST", `${c(cid)}/encounters/${eid}/combatants`, body),
+  updateCombatant: (cid: string, eid: number, id: number, body: { initiative?: number; hidden?: boolean }) =>
+    request<void>("PATCH", `${c(cid)}/encounters/${eid}/combatants/${id}`, body),
+  removeCombatant: (cid: string, eid: number, id: number) =>
+    request<void>("DELETE", `${c(cid)}/encounters/${eid}/combatants/${id}`),
+  rollInitiative: (cid: string, eid: number, only_missing = true) =>
+    request<Encounter>("POST", `${c(cid)}/encounters/${eid}/initiative`, { only_missing }),
+  turn: (cid: string, eid: number, direction: "next" | "prev") =>
+    request<Encounter>("POST", `${c(cid)}/encounters/${eid}/turn`, { direction }),
+  combatHp: (cid: string, eid: number, id: number, delta: number) =>
+    request<Encounter>("POST", `${c(cid)}/encounters/${eid}/combatants/${id}/hp`, { delta }),
+  combatConditions: (cid: string, eid: number, id: number, conditions: string[]) =>
+    request<Encounter>("POST", `${c(cid)}/encounters/${eid}/combatants/${id}/conditions`, { conditions }),
+  endEncounter: (cid: string, eid: number, remove_monsters: boolean) =>
+    request<null>("POST", `${c(cid)}/encounters/${eid}/end`, { remove_monsters }),
   updateCharacter: (cid: string, chid: number, changes: { name?: string; summary?: string }) =>
     request<Character>("PATCH", `${c(cid)}/characters/${chid}`, changes),
   deleteCharacter: (cid: string, chid: number) =>
