@@ -1532,3 +1532,25 @@ and rolls "as" a campaign character or an NPC with the right + / − from their 
 - **C6 UI.** A Combat page (polled every 3 s): turn order with the current turn highlighted,
   initiative, HP bar and ± for those allowed, conditions, Next / Previous, Roll initiative,
   Add combatant (party, NPCs, SRD monster search with count), End encounter.
+
+### M11 review fixes (backend/security and frontend: no CRITICAL; two frontend HIGH, fixed)
+
+- **Turns by combatant (F1/F2):** the encounter stores who is acting, not a position, so late
+  initiative rolls, removals and hand-set values never shift or skip a turn; removing the one
+  acting passes the turn on; "roll initiative" for newcomers keeps the round.
+- **F3** Only a d20 initiative roll fills a slot (clamped −20…60); a pool with a stat keeps its
+  dice in the label ("Stealth (1d20)"). **F4** Column upgrades of older campaigns are
+  serialised and tolerate a concurrent upgrade. **F6/F7** Players get no position in the
+  full order, and hidden combatants are 404 for them. **F8** Public NPC rolls never carry the
+  NPC's id for players. **F11** Duplicate die keys are refused. **F12** Monster numbering
+  continues across additions. **F14** Healing from 0 HP clears death saves; a hand-set
+  initiative keeps the sheet's tie-break bonus.
+- **UI:** "Add NPC" uses the typed name (it used to take the first search hit: "Wolf" made a
+  Dire Wolf) and shows errors; page content leaves room for the dice button (it covered Send
+  on phones); dice can be removed by keyboard ("−"), Escape closes the tray and focus
+  returns; ending an encounter can be cancelled and asks separately about the monsters;
+  players set an HP amount for their own character; one combat action at a time; turn
+  changes are announced; single conditions can be removed; die pictures in the game log.
+- Tracked: extra damage dice on some attacks (e.g. dragons' Rend) stay in the feature text;
+  legendary/bonus/reaction actions are labelled "Action"; read-only eval on a campaign never
+  opened by M11 code; two DM tabs pressing Next together advance twice.

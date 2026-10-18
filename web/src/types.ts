@@ -220,7 +220,7 @@ export interface Encounter {
   id: number;
   name: string;
   round: number;
-  turn: number;
+  turn?: number; // DM only
   current_id: number | null;
   combatants: Combatant[];
 }

@@ -162,9 +162,13 @@ def _pool_dice(dice: dict[str, Any] | None) -> list[DiceTerm]:
     if not isinstance(dice, dict) or not dice:
         raise Invalid("Pick at least one die.")
     terms = []
+    seen: set[int] = set()
     for key, count in dice.items():
         if not re.fullmatch(r"[0-9]{1,3}", str(key)) or int(key) not in POOL_DICE:
             raise Invalid("Dice are d4, d6, d8, d10, d12, d20 and d100.")
+        if int(key) in seen:  # "20" and "020" are the same die (review F11)
+            raise Invalid("Each die once, with its count.")
+        seen.add(int(key))
         if (
             isinstance(count, bool)
             or not isinstance(count, int)
@@ -223,5 +227,5 @@ def spec_for_pool(
             raise Invalid("Pick who is rolling to add a stat.")
         stat_label, value, _ = stat_bonus(stat, sheet, derived)
         bonus += value + (derived["d20_penalty"] if lone_d20 else 0)
-        label = stat_label
+        label = f"{stat_label} ({label})"  # the dice stay visible in the log (review F3)
     return Spec(label, expr, bonus, lone_d20)

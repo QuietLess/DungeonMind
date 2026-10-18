@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -151,6 +152,7 @@ CREATE TABLE IF NOT EXISTS encounters (
     name TEXT NOT NULL,
     round INTEGER NOT NULL DEFAULT 1,
     turn INTEGER NOT NULL DEFAULT 0,
+    current_combatant INTEGER,  -- who is acting; positions shift when the order changes
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
@@ -212,17 +214,30 @@ def transaction(
         conn.close()
 
 
+_UPGRADE_LOCK = threading.Lock()
+_ADDED_COLUMNS = (
+    ("characters", "is_npc", "INTEGER NOT NULL DEFAULT 0"),
+    ("characters", "from_encounter", "INTEGER"),
+    ("encounters", "current_combatant", "INTEGER"),
+)
+
+
 def _upgrade_characters(path: Path) -> None:
-    """Adds the M11 columns to a characters table made before them."""
-    conn = _connect(path)
-    try:
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(characters)")}
-        if cols and "is_npc" not in cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN is_npc INTEGER NOT NULL DEFAULT 0")
-        if cols and "from_encounter" not in cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN from_encounter INTEGER")
-    finally:
-        conn.close()
+    """Adds columns newer than a campaign's tables (M11). One upgrade at a time per process,
+    and a column another process added meanwhile is fine (review F4)."""
+    with _UPGRADE_LOCK:
+        conn = _connect(path)
+        try:
+            for table, column, kind in _ADDED_COLUMNS:
+                cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if cols and column not in cols:
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" not in str(e):
+                            raise
+        finally:
+            conn.close()
 
 
 def init_db(path: Path, schema: str) -> None:

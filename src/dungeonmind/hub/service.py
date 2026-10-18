@@ -958,8 +958,11 @@ class Hub:
             mode,
             to_dm,
         )
-        if character is not None and (kind == "initiative" or stat == "initiative"):
-            self._fill_initiative(cid, character["id"], detail["total"])  # C2
+        lone_d20 = kind == "pool" and isinstance(dice, dict) and dice == {"20": 1}
+        if character is not None and (
+            kind == "initiative" or (stat == "initiative" and lone_d20)
+        ):  # C2: only a d20 initiative roll fills a slot (review F3)
+            self._fill_initiative(cid, character["id"], detail["total"])
         return row
 
     def _log_roll(self, cid, user, character_id, label, detail, mode, to_dm) -> dict[str, Any]:
@@ -1005,9 +1008,17 @@ class Hub:
         if record is None:
             raise NotFound("No such monster in the SRD.")
         sheet = sheet_from_monster(record)
+        base = record["name"]
+        with self.storage.campaign(cid) as db:  # F12: numbering continues across additions
+            taken = [
+                r["name"][len(base) + 1 :]
+                for r in db.execute("SELECT name FROM characters WHERE name LIKE ?", (f"{base} %",))
+            ]
+        start = max([int(t) for t in taken if t.isdigit()] or [0]) + 1
+        numbered = count > 1 or from_encounter or taken
         made = []
-        for n in range(1, count + 1):
-            name = f"{record['name']} {n}" if count > 1 or from_encounter else record["name"]
+        for n in range(start, start + count):
+            name = f"{base} {n}" if numbered else base
             npc = self.create_character(
                 user,
                 cid,
@@ -1098,8 +1109,10 @@ class Hub:
                     raise Invalid("Initiative must be a whole number.")
                 if not -20 <= initiative <= 60:
                     raise Invalid("Initiative must be between -20 and 60.")
-                db.execute(
-                    "UPDATE combatants SET initiative = ? WHERE id = ?", (initiative, row["id"])
+                sheet, _ = self._load_sheet(db, row["character_id"])
+                db.execute(  # the sheet's bonus still breaks ties (review F14)
+                    "UPDATE combatants SET initiative = ?, init_bonus = ? WHERE id = ?",
+                    (initiative, derive(sheet)["initiative"], row["id"]),
                 )
             if hidden is not None:
                 db.execute(
@@ -1110,8 +1123,27 @@ class Hub:
         self._dm(user, cid)
         with self.storage.campaign(cid, immediate=True) as db:
             self._encounter(db, eid)
+            enc = self._encounter(db, eid)
             row = self._combatant(db, eid, combatant)
+            if enc["current_combatant"] == row["id"]:  # the turn passes to the next one
+                order = self._order(self._rows(db, eid))
+                i = [r["id"] for r in order].index(row["id"])
+                rnd = enc["round"]
+                if len(order) == 1:
+                    nxt = None
+                elif i + 1 < len(order):
+                    nxt = order[i + 1]["id"]
+                else:
+                    nxt, rnd = order[0]["id"], rnd + 1
+                db.execute(
+                    "UPDATE encounters SET current_combatant = ?, round = ? WHERE id = ?",
+                    (nxt, rnd, eid),
+                )
             db.execute("DELETE FROM combatants WHERE id = ?", (row["id"],))
+
+    @staticmethod
+    def _rows(db, eid: int):
+        return db.execute("SELECT * FROM combatants WHERE encounter_id = ?", (eid,)).fetchall()
 
     @staticmethod
     def _combatant(db, eid: int, combatant: Any):
@@ -1167,12 +1199,19 @@ class Hub:
             results[r["id"]] = (detail["total"], derived["initiative"])
         with self.storage.campaign(cid, immediate=True) as db:
             self._encounter(db, eid)
+            enc = self._encounter(db, eid)
             for combatant, (total, bonus) in results.items():
                 db.execute(
                     "UPDATE combatants SET initiative = ?, init_bonus = ? WHERE id = ?",
                     (total, bonus, combatant),
                 )
-            db.execute("UPDATE encounters SET turn = 0, round = 1 WHERE id = ?", (eid,))
+            if enc["current_combatant"] is None:  # the fight starts at the top of the order
+                order = self._order(self._rows(db, eid))
+                if order:
+                    db.execute(
+                        "UPDATE encounters SET current_combatant = ? WHERE id = ?",
+                        (order[0]["id"], eid),
+                    )
 
     def _fill_initiative(self, cid: str, character_id: int, total: int) -> None:
         """C2: a character's own Initiative roll fills its empty slot in the active encounter."""
@@ -1184,31 +1223,40 @@ class Hub:
             db.execute(
                 "UPDATE combatants SET initiative = ?, init_bonus = ? "
                 "WHERE encounter_id = ? AND character_id = ? AND initiative IS NULL",
-                (total, derive(sheet)["initiative"], enc["id"], character_id),
+                (max(-20, min(60, total)), derive(sheet)["initiative"], enc["id"], character_id),
             )
 
     def next_turn(self, user: User, cid: str, eid: int, direction: str = "next") -> None:
-        """C3: the round goes up when the order wraps (and back down going back)."""
+        """C3: moves to the next / previous combatant in the current order; the round goes up
+        when the order wraps (and back down going back). Tracked by combatant (review F1)."""
         self._dm(user, cid)
         if direction not in ("next", "prev"):
             raise Invalid("direction must be next or prev.")
         with self.storage.campaign(cid, immediate=True) as db:
             enc = self._encounter(db, eid)
-            n = db.execute(
-                "SELECT COUNT(*) FROM combatants WHERE encounter_id = ?", (eid,)
-            ).fetchone()[0]
-            if not n:
+            ids = [r["id"] for r in self._order(self._rows(db, eid))]
+            if not ids:
                 return
-            turn, rnd = enc["turn"], enc["round"]
-            if direction == "next":
-                turn += 1
-                if turn >= n:
-                    turn, rnd = 0, rnd + 1
-            elif turn > 0:
-                turn -= 1
-            elif rnd > 1:
-                turn, rnd = n - 1, rnd - 1
-            db.execute("UPDATE encounters SET turn = ?, round = ? WHERE id = ?", (turn, rnd, eid))
+            rnd = enc["round"]
+            if enc["current_combatant"] not in ids:
+                current = ids[0]
+            else:
+                i = ids.index(enc["current_combatant"])
+                if direction == "next":
+                    if i + 1 < len(ids):
+                        current = ids[i + 1]
+                    else:
+                        current, rnd = ids[0], rnd + 1
+                elif i > 0:
+                    current = ids[i - 1]
+                elif rnd > 1:
+                    current, rnd = ids[-1], rnd - 1
+                else:
+                    current = ids[0]
+            db.execute(
+                "UPDATE encounters SET current_combatant = ?, round = ? WHERE id = ?",
+                (current, rnd, eid),
+            )
 
     def _mutate_sheet(self, cid: str, character_id: int, change) -> None:
         """Applies `change(sheet)` to a stored sheet (version + 1), re-indexing only if its
@@ -1241,6 +1289,8 @@ class Hub:
             self._encounter(db, eid)
             row = self._combatant(db, eid, combatant)
             character = self._character_row(db, row["character_id"])
+        if camp.role != "dm" and row["hidden"]:
+            raise NotFound("Combatant not found.")  # F7: hidden ones don't exist for players
         if camp.role != "dm" and (character["owner_id"] != user.id or character["is_npc"]):
             raise Forbidden("Only the DM or the character's player can change this.")
         return row
@@ -1259,6 +1309,8 @@ class Hub:
                 hp.temp -= absorbed
                 hp.current = max(0, hp.current - (damage - absorbed))
             else:
+                if hp.current == 0 and delta > 0:  # 2024: regaining HP ends death saves
+                    sheet.death_saves.successes = sheet.death_saves.failures = 0
                 hp.current = min(hp.max, hp.current + delta)
             return sheet
 
@@ -1311,7 +1363,8 @@ class Hub:
             ).fetchall()
             sheets = {r["character_id"]: self._load_sheet(db, r["character_id"])[0] for r in rows}
         ordered = self._order(rows)
-        current = ordered[enc["turn"]]["id"] if ordered and enc["turn"] < len(ordered) else None
+        ids = [r["id"] for r in ordered]
+        current = enc["current_combatant"] if enc["current_combatant"] in ids else None
         out = []
         for r in ordered:
             if r["hidden"] and not dm:
@@ -1336,14 +1389,16 @@ class Hub:
             if dm:
                 item |= {"hidden": bool(r["hidden"]), "init_bonus": r["init_bonus"]}
             out.append(item)
-        return {
+        view = {
             "id": enc["id"],
             "name": enc["name"],
             "round": enc["round"],
-            "turn": enc["turn"],
             "current_id": current if (dm or current in {c["id"] for c in out}) else None,
             "combatants": out,
         }
+        if dm:  # players get no position in the full order (review F6: hidden combatants)
+            view["turn"] = ids.index(current) if current in ids else 0
+        return view
 
     def rolls(self, user: User, cid: str, after: int = 0) -> list[dict[str, Any]]:
         """R3: newer rolls this viewer may see (public, their own, and all for the DM)."""
@@ -1353,6 +1408,11 @@ class Hub:
         visible = "(to_dm = 0 OR user_id = ? OR ?)"
         args = (user.id, int(camp.role == "dm"))
         with self.storage.campaign(cid) as db:
+            npcs = (
+                set()
+                if camp.role == "dm"
+                else {r["id"] for r in db.execute("SELECT id FROM characters WHERE is_npc = 1")}
+            )
             if after == 0:  # the first page: the newest rolls (review F2), oldest first
                 rows = db.execute(
                     f"SELECT * FROM rolls WHERE {visible} ORDER BY id DESC LIMIT 100", args
@@ -1362,7 +1422,11 @@ class Hub:
                     f"SELECT * FROM rolls WHERE id > ? AND {visible} ORDER BY id LIMIT 100",
                     (after, *args),
                 ).fetchall()
-        return [_roll_from_row(r) for r in rows]
+        out = [_roll_from_row(r) for r in rows]
+        for r in out:  # F8: a public NPC roll shows its words, never which character it is
+            if r["character_id"] in npcs:
+                r["character_id"] = None
+        return out
 
     # --- entries ---------------------------------------------------------------------------
 

@@ -96,7 +96,7 @@ def test_d2_a_stat_adds_the_characters_bonus(table):
     ).json()
     assert roll["bonus"] == 11
     assert roll["total"] == roll["terms"][0]["subtotal"] + 11
-    assert roll["label"] == "Mira — Stealth"
+    assert roll["label"] == "Mira — Stealth (1d20)"  # dice kept in the label (review F3)
     dmg = _pool(mia, cid, dice={"8": 1}, character_id=chid, stat="check:dex").json()
     assert dmg["bonus"] == 4
     assert (
