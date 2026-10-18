@@ -277,11 +277,14 @@ describe("M10.1 polish", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     renderSheet();
     await screen.findByRole("heading", { name: "Mira" });
-    api.sheet.mockResolvedValue({ sheet: { ...sheet, hp: { ...sheet.hp, current: 12 } }, derived, version: 9, can_edit: true });
+    api.sheet.mockResolvedValue({ sheet: { ...sheet, hp: { ...sheet.hp, current: 7 } }, derived, version: 9, can_edit: true });
+    expect(screen.getByRole("group", { name: "Hit points" })).toHaveTextContent(/Hit points30/);
     await act(async () => {
       vi.advanceTimersByTime(5100);
     });
-    expect(await screen.findByText("12")).toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("group", { name: "Hit points" })).toHaveTextContent(/Hit points7\b/),
+    );
   });
 
   it("P4: naturals are labelled in words", async () => {
