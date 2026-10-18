@@ -61,6 +61,7 @@ export function DiceTray() {
   const panelId = useId();
   const toggleRef = useRef<HTMLButtonElement>(null);
   const firstDie = useRef<HTMLButtonElement>(null);
+  const dieButtons = useRef<Record<number, HTMLButtonElement | null>>({});
   const close = () => {
     setOpen(false);
     toggleRef.current?.focus(); // focus goes back where it came from
@@ -139,7 +140,10 @@ export function DiceTray() {
             {TRAY_DICE.map((d, i) => (
               <span key={d} className="tray-slot">
                 <button
-                  ref={i === 0 ? firstDie : undefined}
+                  ref={(el) => {
+                    dieButtons.current[d] = el;
+                    if (i === 0) firstDie.current = el;
+                  }}
                   type="button"
                   className={`tray-die${dice[d] ? " picked" : ""}`}
                   aria-label={dice[d] ? `d${d}, ${dice[d]} selected` : `d${d}`}
@@ -153,7 +157,15 @@ export function DiceTray() {
                   {dice[d] ? <span className="tray-count" aria-hidden="true">{dice[d]}</span> : null}
                 </button>
                 {dice[d] ? (
-                  <button type="button" className="tray-remove" aria-label={`Remove one d${d}`} onClick={() => add(d, -1)}>
+                  <button
+                    type="button"
+                    className="tray-remove"
+                    aria-label={`Remove one d${d}`}
+                    onClick={() => {
+                      if (dice[d] === 1) dieButtons.current[d]?.focus(); // this button goes away
+                      add(d, -1);
+                    }}
+                  >
                     −
                   </button>
                 ) : null}

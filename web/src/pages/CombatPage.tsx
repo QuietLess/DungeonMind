@@ -244,6 +244,7 @@ export function CombatPage() {
                 <select
                   aria-label={`Add condition to ${c.name}`}
                   value=""
+                  disabled={pending}
                   onChange={(e) => e.target.value && act(() => api.combatConditions(campaign.id, enc.id, c.id, [...c.conditions, e.target.value]))}
                 >
                   <option value="">+ condition</option>
@@ -254,7 +255,7 @@ export function CombatPage() {
 
                 {dm && (
                   <>
-                    <button type="button" className="btn btn-small btn-ghost" onClick={() => act(() => api.updateCombatant(campaign.id, enc.id, c.id, { hidden: !c.hidden }))}>
+                    <button type="button" className="btn btn-small btn-ghost" disabled={pending} onClick={() => act(() => api.updateCombatant(campaign.id, enc.id, c.id, { hidden: !c.hidden }))}>
                       {c.hidden ? "Reveal" : "Hide"}
                     </button>
                     <button
@@ -272,7 +273,7 @@ export function CombatPage() {
                     >
                       Set initiative
                     </button>
-                    <button type="button" className="btn btn-small btn-ghost danger" aria-label={`Remove ${c.name}`} onClick={() => act(() => api.removeCombatant(campaign.id, enc.id, c.id))}>
+                    <button type="button" className="btn btn-small btn-ghost danger" aria-label={`Remove ${c.name}`} disabled={pending} onClick={() => act(() => api.removeCombatant(campaign.id, enc.id, c.id))}>
                       ×
                     </button>
                   </>
