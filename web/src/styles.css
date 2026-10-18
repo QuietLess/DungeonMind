@@ -345,7 +345,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .custom-name { font-weight: 600; }
 .pre { white-space: pre-wrap; }
 .roll-result {
-  position: sticky; top: 0.5rem; z-index: 5; /* stays in view on phones while scrolled */
   display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 1rem; align-items: center;
   background: var(--surface); border: 2px solid var(--accent); border-radius: var(--radius); padding: 0.7rem 1rem; box-shadow: var(--shadow);
 }
@@ -472,6 +471,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 
 /* --- phone width ------------------------------------------------------------------------------------- */
 @media (max-width: 1100px) {
+  /* The top bar isn't sticky here, so the latest roll can stay in view while scrolling. */
+  .roll-result { position: sticky; top: 0.5rem; z-index: 5; }
   .sheet-layout { grid-template-columns: 1fr; }
   .sheet-side { position: static; }
   .sheet-cols { grid-template-columns: 1fr; }

@@ -54,7 +54,7 @@ export function GameLog({
           if (!live) return;
           if (more.length) cursor.current = Math.max(cursor.current, ...more.map((r) => r.id));
           add(more);
-          setAnnounce(true);
+          setTimeout(() => live && setAnnounce(true), 0); // after the history is in place
         })
         .catch(() => undefined); // a missed poll is retried on the next tick
     };

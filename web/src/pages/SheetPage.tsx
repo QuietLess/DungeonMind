@@ -60,6 +60,11 @@ export function SheetPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The newest sheet and whether a save is in flight, for queued HP clicks (review: disabling
+  // the ± buttons dropped keyboard focus, and clicks during a slow save were lost).
+  const latest = useRef<SheetView | null>(null);
+  const inFlight = useRef(false);
+  const hpQueue = useRef(0);
   const editButton = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
   useEffect(() => {
@@ -72,6 +77,9 @@ export function SheetPage() {
   useEffect(() => {
     if (loaded) setView(loaded);
   }, [loaded]);
+  useEffect(() => {
+    latest.current = view;
+  }, [view]);
 
   const character = characters?.find((c) => c.id === characterId);
   const name = character?.name ?? "Character";
@@ -97,19 +105,31 @@ export function SheetPage() {
     }
   };
 
-  /** One save at a time (quick ± clicks wait); a conflict reloads the newest sheet. */
-  const save = async (next: SheetData) => {
-    if (saving) return false;
+  const showView = (next: SheetView) => {
+    latest.current = next;
+    setView(next);
+  };
+
+  /** Saves `build(newest sheet)` against the newest version; one save at a time. A conflict
+   * reloads the newest sheet and says so. */
+  const save = async (build: (current: SheetData) => SheetData): Promise<boolean> => {
+    const base = latest.current;
+    if (!base || inFlight.current) return false;
+    inFlight.current = true;
     setSaving(true);
     setError(null);
     try {
-      setView(await api.saveSheet(campaign.id, characterId, next, view.version));
+      showView(await api.saveSheet(campaign.id, characterId, build(base.sheet), base.version));
       return true;
     } catch (e) {
+      hpQueue.current = 0;
       if (e instanceof ApiError && e.status === 409) {
         try {
-          setView(await api.sheet(campaign.id, characterId));
-          setError("Someone else changed this sheet, so the newest version was reloaded. Try again.");
+          showView(await api.sheet(campaign.id, characterId));
+          setError(
+            "Someone else changed this sheet, so the newest version was reloaded. " +
+              "Saving your edits again will replace their changes.",
+          );
         } catch (reloadError) {
           setError(message(reloadError));
         }
@@ -118,13 +138,28 @@ export function SheetPage() {
       }
       return false;
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   };
 
+  /** HP clicks add up while a save runs and are saved together right after it. */
+  const flushHp = async () => {
+    while (hpQueue.current !== 0 && !inFlight.current) {
+      const delta = hpQueue.current;
+      hpQueue.current = 0;
+      const ok = await save((s) => ({
+        ...s,
+        hp: { ...s.hp, current: Math.min(s.hp.max, Math.max(0, s.hp.current + delta)) },
+      }));
+      if (!ok) break;
+    }
+  };
+  const changeHp = (delta: number) => {
+    hpQueue.current += delta;
+    void flushHp();
+  };
   const hp = sheet.hp;
-  const changeHp = (delta: number) =>
-    save({ ...sheet, hp: { ...hp, current: Math.min(hp.max, Math.max(0, hp.current + delta)) } });
   const classes = sheet.classes.map((c) => `${c.name}${c.subclass ? ` (${c.subclass})` : ""} ${c.level}`).join(" / ");
 
   return (
@@ -154,7 +189,7 @@ export function SheetPage() {
             <label className="check">
               <input type="checkbox" checked={toDm} onChange={(e) => setToDm(e.target.checked)} /> Roll to DM only
             </label>
-            <button type="button" className="btn" ref={editButton} onClick={() => setEditing(true)} disabled={editing}>
+            <button type="button" className="btn" ref={editButton} onClick={() => setEditing(true)}>
               Edit sheet
             </button>
           </div>
@@ -181,7 +216,7 @@ export function SheetPage() {
                 setError(null);
               }}
               onSave={async (next) => {
-                if (await save(next)) setEditing(false);
+                if (await save(() => next)) setEditing(false);
               }}
             />
           ) : (
@@ -208,10 +243,10 @@ export function SheetPage() {
               </span>
               {canEdit && (
                 <span className="hp-buttons">
-                  <button type="button" className="icon-button" aria-label="Lose 1 HP" disabled={saving} onClick={() => changeHp(-1)}>
+                  <button type="button" className="icon-button" aria-label="Lose 1 HP" onClick={() => changeHp(-1)}>
                     −
                   </button>
-                  <button type="button" className="icon-button" aria-label="Gain 1 HP" disabled={saving} onClick={() => changeHp(1)}>
+                  <button type="button" className="icon-button" aria-label="Gain 1 HP" onClick={() => changeHp(1)}>
                     +
                   </button>
                 </span>
@@ -344,10 +379,17 @@ export function SheetPage() {
                                   type="checkbox"
                                   aria-label={`Level ${i + 1} slot ${j + 1} used`}
                                   checked={j < s.used}
-                                  disabled={!canEdit || saving}
+                                  disabled={!canEdit}
+                                  aria-disabled={saving || undefined}
                                   onChange={() => {
-                                    const slots = sheet.spellcasting.slots.map((x, k) => (k === i ? { ...x, used: j < s.used ? j : j + 1 } : x));
-                                    void save({ ...sheet, spellcasting: { ...sheet.spellcasting, slots } });
+                                    if (saving) return; // keep focus; the click is ignored
+                                    void save((cur) => ({
+                                      ...cur,
+                                      spellcasting: {
+                                        ...cur.spellcasting,
+                                        slots: cur.spellcasting.slots.map((x, k) => (k === i ? { ...x, used: j < s.used ? j : j + 1 } : x)),
+                                      },
+                                    }));
                                   }}
                                 />
                               ))}
