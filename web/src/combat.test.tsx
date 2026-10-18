@@ -120,7 +120,7 @@ describe("combat page", () => {
     const rows = await screen.findAllByRole("listitem");
     expect(rows[0]).toHaveTextContent("Mira");
     expect(rows[1]).toHaveAttribute("aria-current", "true");
-    expect(screen.getByText(/round 2/i)).toBeInTheDocument();
+    expect(screen.getByText("Round 2", { selector: ".board-head p" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Next turn" }));
     expect(api.turn).toHaveBeenCalledWith("c1", 3, "next");
     await userEvent.click(within(rows[1]).getByRole("button", { name: /damage/i }));

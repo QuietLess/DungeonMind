@@ -38,14 +38,23 @@ export function CombatPage() {
   const [query, setQuery] = useState("");
   const [count, setCount] = useState(1);
   const [found, setFound] = useState<string[]>([]);
-  const [amount, setAmount] = useState(1);
+  const [amountText, setAmountText] = useState("1");
+  const amount = Math.max(1, Math.min(2000, Math.trunc(Number(amountText)) || 1));
   const busy = useRef(false);
+  const [pending, setPending] = useState(false); // one action at a time (no double moves)
+  const seq = useRef(0); // a poll older than the newest action is ignored
 
-  const load = () =>
-    api
+  const load = () => {
+    const mine = ++seq.current;
+    return api
       .encounter(campaign.id)
-      .then((e) => setEnc(e))
-      .catch((e) => setError(message(e)));
+      .then((e) => {
+        if (mine !== seq.current) return;
+        setEnc(e);
+        setError(null);
+      })
+      .catch((e) => mine === seq.current && setError(message(e)));
+  };
 
   useEffect(() => {
     void load();
@@ -72,20 +81,30 @@ export function CombatPage() {
     return () => clearTimeout(t);
   }, [campaign.id, dm, query]);
 
-  /** Runs a change; uses the encounter it returns, or reloads. */
+  /** Runs one change at a time; uses the encounter it returns, or reloads. */
   const act = async (work: () => Promise<unknown>) => {
+    if (busy.current) return;
     busy.current = true;
+    setPending(true);
+    seq.current++; // any poll in flight is now stale
     setError(null);
     try {
       const next = await work();
-      if (next && typeof next === "object" && "combatants" in (next as object)) setEnc(next as Encounter);
-      else await load();
+      if (next && typeof next === "object" && "combatants" in (next as object)) {
+        seq.current++;
+        setEnc(next as Encounter);
+      } else await load();
     } catch (e) {
       setError(message(e));
     } finally {
       busy.current = false;
+      setPending(false);
     }
   };
+
+  // Screen readers hear whose turn it is when it changes (review #10).
+  const current = enc?.combatants.find((c) => c.id === enc.current_id);
+  const announcement = enc ? `Round ${enc.round}${current ? ` — ${current.name}'s turn` : ""}` : "";
 
   const start = (e: FormEvent) => {
     e.preventDefault();
@@ -131,10 +150,10 @@ export function CombatPage() {
         </div>
         {dm && (
           <div className="actions">
-            <button type="button" className="btn" onClick={() => act(() => api.turn(campaign.id, enc.id, "prev"))}>
+            <button type="button" className="btn" disabled={pending} onClick={() => act(() => api.turn(campaign.id, enc.id, "prev"))}>
               Previous
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => act(() => api.turn(campaign.id, enc.id, "next"))}>
+            <button type="button" className="btn btn-primary" disabled={pending} onClick={() => act(() => api.turn(campaign.id, enc.id, "next"))}>
               Next turn
             </button>
           </div>
@@ -142,32 +161,48 @@ export function CombatPage() {
       </header>
       {error && <p className="error" role="alert">{error}</p>}
 
-      {dm && (
-        <div className="combat-tools">
-          <button type="button" className="btn" onClick={() => act(() => api.rollInitiative(campaign.id, enc.id, true))}>
+      <p className="sr-only" aria-live="polite">{announcement}</p>
+      <div className="combat-tools">
+        {dm && (
+          <button type="button" className="btn" disabled={pending} onClick={() => act(() => api.rollInitiative(campaign.id, enc.id, true))}>
             Roll initiative
           </button>
+        )}
+        {enc.combatants.some((c) => c.can_edit) && (
           <label className="num-field amount">
             HP change
-            <input type="number" min={1} max={2000} value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))} />
+            <input
+              type="number"
+              min={1}
+              max={2000}
+              value={amountText}
+              onChange={(e) => setAmountText(e.target.value)}
+              onBlur={() => setAmountText(String(amount))}
+            />
           </label>
+        )}
+        {dm && (
           <button
             type="button"
-            className="btn btn-ghost danger"
+            className="btn btn-ghost danger end-encounter"
+            disabled={pending}
             onClick={() => {
-              const remove = window.confirm("End the encounter? OK also deletes the monsters added for it; Cancel keeps them as NPCs.");
+              if (!window.confirm(`End “${enc.name}”?`)) return;
+              const remove = window.confirm(
+                "Also delete the monsters that were added for this fight? (Cancel keeps them as NPCs.)",
+              );
               void act(() => api.endEncounter(campaign.id, enc.id, remove));
             }}
           >
             End encounter
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <ol className="initiative-list">
         {enc.combatants.map((c) => (
           <li key={c.id} aria-current={c.id === enc.current_id ? "true" : undefined} className={`combatant${c.id === enc.current_id ? " current" : ""}${c.hidden ? " hidden-combatant" : ""}`}>
-            <span className="init">{c.initiative ?? "–"}</span>
+            <span className="init" aria-label={c.initiative === null ? "no initiative yet" : `initiative ${c.initiative}`}>{c.initiative ?? "–"}</span>
             <span className="combatant-name">
               {c.name}
               {c.is_npc && <small className="muted"> NPC</small>}
@@ -181,16 +216,29 @@ export function CombatPage() {
             {c.ac !== undefined && <span className="ac" title="Armor Class">AC {c.ac}</span>}
             <HpBar c={c} />
             <span className="conditions">
-              {c.conditions.map((x) => (
-                <span key={x} className="log-tag">{x}</span>
-              ))}
+              {c.conditions.map((x) =>
+                c.can_edit ? (
+                  <button
+                    key={x}
+                    type="button"
+                    className="log-tag tag-button"
+                    aria-label={`Remove ${x} from ${c.name}`}
+                    disabled={pending}
+                    onClick={() => act(() => api.combatConditions(campaign.id, enc.id, c.id, c.conditions.filter((y) => y !== x)))}
+                  >
+                    {x} ×
+                  </button>
+                ) : (
+                  <span key={x} className="log-tag">{x}</span>
+                ),
+              )}
             </span>
             {c.can_edit && (
               <span className="combatant-actions">
-                <button type="button" className="btn btn-small" aria-label={`Damage ${c.name}`} onClick={() => act(() => api.combatHp(campaign.id, enc.id, c.id, -amount))}>
+                <button type="button" className="btn btn-small" aria-label={`Damage ${c.name} by ${amount}`} disabled={pending} onClick={() => act(() => api.combatHp(campaign.id, enc.id, c.id, -amount))}>
                   −{amount}
                 </button>
-                <button type="button" className="btn btn-small" aria-label={`Heal ${c.name}`} onClick={() => act(() => api.combatHp(campaign.id, enc.id, c.id, amount))}>
+                <button type="button" className="btn btn-small" aria-label={`Heal ${c.name} by ${amount}`} disabled={pending} onClick={() => act(() => api.combatHp(campaign.id, enc.id, c.id, amount))}>
                   +{amount}
                 </button>
                 <select
@@ -203,11 +251,7 @@ export function CombatPage() {
                     <option key={x} value={x}>{x}</option>
                   ))}
                 </select>
-                {c.conditions.length > 0 && (
-                  <button type="button" className="btn btn-small btn-ghost" onClick={() => act(() => api.combatConditions(campaign.id, enc.id, c.id, []))}>
-                    Clear conditions
-                  </button>
-                )}
+
                 {dm && (
                   <>
                     <button type="button" className="btn btn-small btn-ghost" onClick={() => act(() => api.updateCombatant(campaign.id, enc.id, c.id, { hidden: !c.hidden }))}>
@@ -218,9 +262,12 @@ export function CombatPage() {
                       className="btn btn-small btn-ghost"
                       onClick={() => {
                         const v = window.prompt(`Initiative for ${c.name}`, String(c.initiative ?? ""));
-                        if (v !== null && v.trim() !== "" && Number.isInteger(Number(v))) {
-                          void act(() => api.updateCombatant(campaign.id, enc.id, c.id, { initiative: Number(v) }));
+                        if (v === null || v.trim() === "") return;
+                        if (!Number.isInteger(Number(v))) {
+                          setError("Initiative must be a whole number.");
+                          return;
                         }
+                        void act(() => api.updateCombatant(campaign.id, enc.id, c.id, { initiative: Number(v) }));
                       }}
                     >
                       Set initiative
@@ -243,7 +290,7 @@ export function CombatPage() {
           {available.length > 0 && (
             <div className="chip-row">
               {available.map((c) => (
-                <button key={c.id} type="button" className="chip" onClick={() => act(() => api.addCombatants(campaign.id, enc.id, { character_id: c.id }))}>
+                <button key={c.id} type="button" className="chip" disabled={pending} onClick={() => act(() => api.addCombatants(campaign.id, enc.id, { character_id: c.id }))}>
                   + {c.name}{c.is_npc ? " (NPC)" : ""}
                 </button>
               ))}
@@ -261,7 +308,7 @@ export function CombatPage() {
           </div>
           <div className="chip-row">
             {found.map((m) => (
-              <button key={m} type="button" className="chip" aria-label={`Add ${m}`} onClick={() => act(() => api.addCombatants(campaign.id, enc.id, { monster: m, count }))}>
+              <button key={m} type="button" className="chip" aria-label={`Add ${m}`} disabled={pending} onClick={() => act(() => api.addCombatants(campaign.id, enc.id, { monster: m, count }))}>
                 + {m}{count > 1 ? ` ×${count}` : ""}
               </button>
             ))}

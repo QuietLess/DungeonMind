@@ -1,6 +1,6 @@
 // M11 D3: a D&D Beyond–style dice tray. Click dice to add them (right-click to take one
 // away), pick who is rolling and which of their stats to add; the server adds the bonus.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { message, useCampaign, useLoad } from "../hooks";
 import { DiceIcon } from "../icons";
@@ -47,11 +47,27 @@ export function DiceTray() {
   );
   const choices = (characters ?? []).filter((c) => campaign.role === "dm" || c.owner_id === user.id);
   const chosen = choices.find((c) => String(c.id) === who);
-  const { data: view } = useLoad(
-    () => (chosen ? api.sheet(campaign.id, chosen.id) : Promise.resolve(undefined)),
+  // Tagged with the character it belongs to, so a slow load never shows (or sends) another
+  // character's stats (review #11).
+  const { data: loaded } = useLoad(
+    () =>
+      chosen
+        ? api.sheet(campaign.id, chosen.id).then((v) => ({ id: chosen.id, view: v }))
+        : Promise.resolve(undefined),
     [campaign.id, chosen?.id],
   );
+  const view = loaded && chosen && loaded.id === chosen.id ? loaded.view : undefined;
   const stats = useMemo(() => (view ? statOptions(view.sheet, view.derived) : []), [view]);
+  const panelId = useId();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const firstDie = useRef<HTMLButtonElement>(null);
+  const close = () => {
+    setOpen(false);
+    toggleRef.current?.focus(); // focus goes back where it came from
+  };
+  useEffect(() => {
+    if (open) firstDie.current?.focus();
+  }, [open]);
 
   const count = Object.values(dice).reduce((a, b) => a + b, 0);
   const loneD20 = count === 1 && dice[20] === 1;
@@ -101,32 +117,50 @@ export function DiceTray() {
   return (
     <div className={`dice-tray${open ? " open" : ""}`}>
       {open && (
-        <section className="tray-panel" aria-label="Dice tray">
+        <section
+          id={panelId}
+          className="tray-panel"
+          role="region"
+          aria-label="Dice tray"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              close();
+            }
+          }}
+        >
           <header className="tray-head">
             <h2>Dice</h2>
-            <button type="button" className="icon-button" aria-label="Close dice" onClick={() => setOpen(false)}>
+            <button type="button" className="icon-button" aria-label="Close dice tray" onClick={close}>
               ×
             </button>
           </header>
           <div className="tray-dice">
-            {TRAY_DICE.map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={`tray-die${dice[d] ? " picked" : ""}`}
-                aria-label={dice[d] ? `d${d}, ${dice[d]} selected` : `d${d}`}
-                onClick={() => add(d, 1)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  add(d, -1);
-                }}
-              >
-                <DieImage sides={d} />
-                {dice[d] ? <span className="tray-count">{dice[d]}</span> : null}
-              </button>
+            {TRAY_DICE.map((d, i) => (
+              <span key={d} className="tray-slot">
+                <button
+                  ref={i === 0 ? firstDie : undefined}
+                  type="button"
+                  className={`tray-die${dice[d] ? " picked" : ""}`}
+                  aria-label={dice[d] ? `d${d}, ${dice[d]} selected` : `d${d}`}
+                  onClick={() => add(d, 1)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    add(d, -1);
+                  }}
+                >
+                  <DieImage sides={d} />
+                  {dice[d] ? <span className="tray-count" aria-hidden="true">{dice[d]}</span> : null}
+                </button>
+                {dice[d] ? (
+                  <button type="button" className="tray-remove" aria-label={`Remove one d${d}`} onClick={() => add(d, -1)}>
+                    −
+                  </button>
+                ) : null}
+              </span>
             ))}
           </div>
-          <p className="muted small">Click to add · right-click to remove{count ? ` · ${count} dice` : ""}</p>
+          <p className="muted small">Click to add · − or right-click to remove{count ? ` · ${count} dice` : ""}</p>
 
           <div className="tray-row">
             <label>
@@ -144,7 +178,7 @@ export function DiceTray() {
             {chosen && (
               <label>
                 Add
-                <select aria-label="Add" value={stat} onChange={(e) => setStat(e.target.value)}>
+                <select aria-label="Add" value={stat} disabled={!view} onChange={(e) => setStat(e.target.value)}>
                   <option value="">nothing</option>
                   {stats.map((s) => (
                     <option key={s.value} value={s.value}>
@@ -200,11 +234,16 @@ export function DiceTray() {
               <span className="tray-result-dice">
                 {result.terms.flatMap((t, i) => {
                   const sides = Number(t.term.split("d")[1]?.split("k")[0]);
-                  return t.rolls.map((r, j) => (
-                    <span key={`${i}-${j}`} className={t.kept.includes(r) ? undefined : "dropped"}>
-                      <DieImage sides={sides} size={42} value={r} />
-                    </span>
-                  ));
+                  const keep = [...t.kept]; // each kept value marks one die, so ties are right
+                  return t.rolls.map((r, j) => {
+                    const k = keep.indexOf(r);
+                    if (k >= 0) keep.splice(k, 1);
+                    return (
+                      <span key={`${i}-${j}`} className={k >= 0 ? undefined : "dropped"} title={k >= 0 ? undefined : "dropped"}>
+                        <DieImage sides={sides} size={42} value={r} />
+                      </span>
+                    );
+                  });
                 })}
                 {result.bonus ? <span className="tray-bonus">{signed(result.bonus)}</span> : null}
               </span>
@@ -214,11 +253,13 @@ export function DiceTray() {
         </section>
       )}
       <button
+        ref={toggleRef}
         type="button"
         className="tray-toggle btn btn-primary"
-        aria-label={open ? "Close dice" : "Open dice"}
+        aria-label="Dice tray"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        aria-controls={panelId}
+        onClick={() => (open ? close() : setOpen(true))}
       >
         <DiceIcon />
       </button>

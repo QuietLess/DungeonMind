@@ -34,6 +34,8 @@ export function CharactersPage() {
   const [asNpc, setAsNpc] = useState(false);
   const [monster, setMonster] = useState("");
   const [monsterHits, setMonsterHits] = useState<string[]>([]);
+  const [npcError, setNpcError] = useState<string | null>(null);
+  const [addingNpc, setAddingNpc] = useState(false);
   const isDm = campaign.role === "dm";
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,15 +120,20 @@ export function CharactersPage() {
               className="monster-add"
               onSubmit={async (e) => {
                 e.preventDefault();
-                const pick = monsterHits[0] ?? monster;
+                if (addingNpc) return;
+                setAddingNpc(true);
+                setNpcError(null);
                 try {
-                  const made = await api.npcsFromMonster(campaign.id, pick, 1);
+                  // Exactly what was typed or picked; the server says if it isn't an SRD monster.
+                  const made = await api.npcsFromMonster(campaign.id, monster.trim(), 1);
                   setMonster("");
                   setMonsterHits([]);
                   reloadCharacters();
                   if (made[0]) navigate(`/c/${campaign.id}/characters/${made[0].id}/sheet`);
                 } catch (err) {
-                  setFormError(message(err));
+                  setNpcError(message(err));
+                } finally {
+                  setAddingNpc(false);
                 }
               }}
             >
@@ -148,7 +155,8 @@ export function CharactersPage() {
                   ))}
                 </datalist>
               </label>
-              <button className="btn btn-small" disabled={!monster.trim()}>
+              {npcError && <p className="error" role="alert">{npcError}</p>}
+              <button className="btn btn-small" disabled={!monster.trim() || addingNpc}>
                 Add NPC
               </button>
             </form>

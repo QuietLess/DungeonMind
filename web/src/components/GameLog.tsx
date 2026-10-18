@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { message } from "../hooks";
 import type { Roll } from "../types";
+import { DieImage } from "./DieImage";
 
 const POLL_MS = 3000;
 const KEEP = 60;
@@ -121,6 +122,12 @@ export function GameLog({
             <div className="log-head">
               <span className="log-label">{r.label}</span>
               <span className="log-total">{r.total}</span>
+            </div>
+            <div className="log-dice" aria-hidden="true">
+              {r.terms.flatMap((t, i) => {
+                const sides = Number(t.term.split("d")[1]?.split("k")[0]) || 20;
+                return t.rolls.slice(0, 12).map((v, j) => <DieImage key={`${i}-${j}`} sides={sides} size={24} value={v} />);
+              })}
             </div>
             <div className="log-detail">
               {rollDetail(r)}

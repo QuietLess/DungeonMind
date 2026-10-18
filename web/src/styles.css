@@ -288,6 +288,15 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .tray-head { display: flex; justify-content: space-between; align-items: center; }
 .tray-head h2 { margin: 0; font-size: 1.1rem; }
 .tray-dice { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem; }
+.tray-slot { position: relative; display: grid; }
+.tray-remove {
+  position: absolute; bottom: -0.35rem; right: -0.35rem; width: 1.5rem; height: 1.5rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 700; cursor: pointer; line-height: 1;
+}
+.tray-remove:focus-visible { outline: 3px solid var(--focus); }
+.log-dice { display: flex; flex-wrap: wrap; gap: 0.15rem; margin: 0.15rem 0; }
+.tag-button { border: 0; cursor: pointer; font: inherit; font-size: 0.72rem; }
+.campaign-main { padding-bottom: 5.5rem; } /* room for the floating dice button */
 .tray-die {
   position: relative; display: grid; place-items: center; padding: 0.45rem 0; cursor: pointer;
   background: var(--surface-2); border: 2px solid transparent; border-radius: 12px; color: var(--text);
@@ -323,7 +332,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
   background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.8rem;
 }
 .combatant.current { border-left-color: var(--accent); background: var(--accent-soft); }
-.combatant.hidden-combatant { opacity: 0.7; border-style: dashed; }
+.combatant.hidden-combatant { border-style: dashed; }
 .init { font-family: var(--serif); font-size: 1.5rem; font-weight: 700; text-align: center; }
 .combatant-name { font-weight: 600; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline; overflow-wrap: anywhere; }
 .combatant-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
