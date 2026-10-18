@@ -1456,9 +1456,14 @@ the chatbot reads the sheets its asker may see.
   entry. **F8** 2024 rules: Jack of All Trades doesn't apply to initiative. **F9** A critical
   doubles kept dice too (4d6kh3 → 8d6kh6). **F10/F11** Sheet bodies up to 512 KB, only on
   `PUT …/characters/<id>/sheet`.
-- **UI 3–4** One save at a time (HP ± and slots wait); a conflict reloads the newest sheet and
-  says so. **UI 5** Number fields can be cleared and take negatives. **UI 7** Focus moves into
+- **UI 3–4** One save at a time: HP clicks queue up and are saved together right after the
+  running save (no click lost, focus kept); a slot tick during a save is ignored; a conflict
+  reloads the newest sheet and says that saving again replaces the other person's changes.
+  Renaming a character still works when search is down (its sheet entry catches up on the
+  next save). **UI 5** Number fields can be cleared and take negatives. **UI 7** Focus moves into
   the editor and back to "Edit sheet". Roll results stay in view on phones; proficiency is
   announced to screen readers; the log doesn't read out its history.
-- Tracked: arrow-key tab navigation, a toast for rolls; the sheet doesn't refresh live when
-  someone else edits it (a conflict reloads it).
+- Tracked: arrow-key tab navigation; natural 20/1 also by colour only; index keys in editor
+  rows; the sheet doesn't refresh live when someone else edits it (a conflict reloads it); a
+  save racing a rename can leave the sheet entry's old name until the next save; a hit die
+  can total below 1 with a negative CON; huge path ids give 500 (all routes).

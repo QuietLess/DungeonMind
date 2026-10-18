@@ -820,7 +820,10 @@ class Hub:
             if row is None:
                 return
             sheet, version = self._load_sheet(db, character["id"])
-        entry = self._sheet_entry_parts(cid, character, sheet, derive(sheet))
+        try:
+            entry = self._sheet_entry_parts(cid, character, sheet, derive(sheet))
+        except StorageError:
+            return  # review N1: the rename stands; the next sheet save refreshes the entry
         with self.storage.campaign(cid, immediate=True) as db:
             character = self._character_row(db, chid)
             _, current = self._load_sheet(db, character["id"])
