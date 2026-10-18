@@ -309,3 +309,21 @@ describe("M10.1 polish", () => {
     expect(actions).toHaveFocus();
   });
 });
+
+describe("M10.1 review", () => {
+  it("a refresh that lands after Edit was clicked doesn't change what the save is based on", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.saveSheet.mockResolvedValue({ sheet, derived, version: 4, can_edit: true });
+    renderSheet();
+    await screen.findByRole("heading", { name: "Mira" });
+    let answer: (v: unknown) => void = () => {};
+    api.sheet.mockReturnValue(new Promise((r) => { answer = r; }));
+    await act(async () => {
+      vi.advanceTimersByTime(5100); // the poll is now in flight
+    });
+    await userEvent.click(screen.getByRole("button", { name: /edit sheet/i }));
+    await act(async () => answer({ sheet, derived, version: 9, can_edit: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Save sheet" }));
+    expect(api.saveSheet.mock.calls[0][3]).toBe(3); // still the version the draft started from
+  });
+});

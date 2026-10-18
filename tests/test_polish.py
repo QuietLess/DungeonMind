@@ -58,3 +58,10 @@ def test_p2_a_save_racing_a_rename_uses_the_current_name(table, monkeypatch):
     assert r.status_code == 200, r.text
     entries = c.get(f"/api/campaigns/{cid}/entries?board=character&character_id={chid}").json()
     assert [e["title"] for e in entries if e["kind"] == "sheet"] == ["Mirabel — character sheet"]
+
+
+@pytest.mark.parametrize("n", [HUGE, "-" + HUGE])
+def test_p1_huge_character_id_filters_are_not_500(table, n):
+    hub, c, cid, chid = table
+    r = c.get(f"/api/campaigns/{cid}/entries?character_id={n}")
+    assert r.status_code in (404, 422), r.status_code
