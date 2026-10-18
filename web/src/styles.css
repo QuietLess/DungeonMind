@@ -365,6 +365,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .log-detail { color: var(--muted); font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
 .log-tag { font-size: 0.72rem; border-radius: 999px; padding: 0.05rem 0.45rem; background: var(--k-other-bg); color: var(--k-other); font-weight: 600; }
 .log-tag.dm { background: var(--dm-bg); color: var(--dm); }
+.log-tag.nat { background: var(--k-location-bg); color: var(--k-location); }
+.nat1 .log-tag.nat { background: var(--k-faction-bg); color: var(--k-faction); }
 .dice-page .game-log { max-width: 720px; }
 .sheet-editor { display: grid; gap: 1rem; }
 .sheet-editor fieldset { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 0.9rem 1rem; margin: 0; }

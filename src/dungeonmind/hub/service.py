@@ -1071,6 +1071,8 @@ class Hub:
         q: str | None = None,
     ) -> list[Entry]:
         camp = self._member(user, cid)
+        if character_id is not None:
+            character_id = _id(character_id, "Character")  # P1: no SQLite overflow (404)
         if board is not None and board not in BOARD_KINDS:
             raise Invalid("Board must be lore, character or journal.")
         if q is not None:

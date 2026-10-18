@@ -65,9 +65,11 @@ export function SheetPage() {
   const latest = useRef<SheetView | null>(null);
   const inFlight = useRef(false);
   const hpQueue = useRef(0);
+  const editingNow = useRef(false); // read by the refresh's late responses (review)
   const editButton = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
   useEffect(() => {
+    editingNow.current = editing;
     if (wasEditing.current && !editing) editButton.current?.focus(); // back where it began
     wasEditing.current = editing;
   }, [editing]);
@@ -105,7 +107,8 @@ export function SheetPage() {
         .sheet(campaign.id, characterId)
         .then((fresh) => {
           const current = latest.current;
-          if (fresh && current && fresh.version > current.version && !inFlight.current) {
+          const busy = inFlight.current || editingNow.current || hpQueue.current !== 0;
+          if (fresh && current && fresh.version > current.version && !busy) {
             latest.current = fresh;
             setView(fresh);
           }
@@ -223,7 +226,15 @@ export function SheetPage() {
             <label className="check">
               <input type="checkbox" checked={toDm} onChange={(e) => setToDm(e.target.checked)} /> Roll to DM only
             </label>
-            <button type="button" className="btn" ref={editButton} onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="btn"
+              ref={editButton}
+              onClick={() => {
+                editingNow.current = true; // before any late refresh can land
+                setEditing(true);
+              }}
+            >
               Edit sheet
             </button>
           </div>
