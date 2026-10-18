@@ -710,6 +710,13 @@ class Hub:
         self._member(user, cid)
         with self.storage.campaign(cid, immediate=True) as db:
             row = self._own_character(db, user, chid)
+            fighting = db.execute(
+                "SELECT 1 FROM combatants c JOIN encounters e ON e.id = c.encounter_id "
+                "WHERE c.character_id = ? AND e.active = 1",
+                (row["id"],),
+            ).fetchone()
+            if fighting:  # the tracker would lose whose turn it is
+                raise Conflict("This character is in the running encounter; remove it there first.")
             count = db.execute(
                 "SELECT COUNT(*) FROM entries WHERE character_id = ? AND kind != 'sheet'",
                 (row["id"],),
