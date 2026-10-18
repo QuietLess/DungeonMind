@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -75,7 +76,9 @@ CREATE TABLE IF NOT EXISTS characters (
     owner_id TEXT NOT NULL,
     name TEXT NOT NULL,
     summary TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    is_npc INTEGER NOT NULL DEFAULT 0,  -- M11 N1: DM-only
+    from_encounter INTEGER  -- M11 C1: a monster added by this encounter
 );
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +146,25 @@ CREATE TABLE IF NOT EXISTS rolls (
     to_dm INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+-- M11 combat tracker: one active encounter per campaign, its combatants point at characters.
+CREATE TABLE IF NOT EXISTS encounters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    round INTEGER NOT NULL DEFAULT 1,
+    turn INTEGER NOT NULL DEFAULT 0,
+    current_combatant INTEGER,  -- who is acting; positions shift when the order changes
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS combatants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    encounter_id INTEGER NOT NULL REFERENCES encounters(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    initiative INTEGER,
+    init_bonus INTEGER NOT NULL DEFAULT 0,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS encounter_state (
     thread_id INTEGER PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
     request TEXT NOT NULL
@@ -190,6 +212,32 @@ def transaction(
         raise
     finally:
         conn.close()
+
+
+_UPGRADE_LOCK = threading.Lock()
+_ADDED_COLUMNS = (
+    ("characters", "is_npc", "INTEGER NOT NULL DEFAULT 0"),
+    ("characters", "from_encounter", "INTEGER"),
+    ("encounters", "current_combatant", "INTEGER"),
+)
+
+
+def _upgrade_characters(path: Path) -> None:
+    """Adds columns newer than a campaign's tables (M11). One upgrade at a time per process,
+    and a column another process added meanwhile is fine (review F4)."""
+    with _UPGRADE_LOCK:
+        conn = _connect(path)
+        try:
+            for table, column, kind in _ADDED_COLUMNS:
+                cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if cols and column not in cols:
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" not in str(e):
+                            raise
+        finally:
+            conn.close()
 
 
 def init_db(path: Path, schema: str) -> None:
@@ -255,6 +303,7 @@ class Storage:
     def campaign(self, cid: str, immediate: bool = False):
         path = self.campaign_db(cid)
         if not self.read_only and cid not in self._ready:
+            _upgrade_characters(path)  # M11: columns CREATE IF NOT EXISTS can't add
             init_db(path, CAMPAIGN_SCHEMA)  # M10: older campaigns gain new tables once
             self._ready.add(cid)
         return transaction(path, immediate, self.read_only)

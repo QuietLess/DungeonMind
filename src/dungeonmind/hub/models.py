@@ -72,6 +72,7 @@ class Character:
     owner_id: str
     name: str
     summary: str
+    is_npc: bool = False
 
 
 @dataclass

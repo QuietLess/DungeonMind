@@ -1476,3 +1476,81 @@ the chatbot reads the sheets its asker may see.
   version, so the table sees HP and slot changes without reloading.
 - **P4** Natural 20 / natural 1 are labelled in words in the roll result and the game log.
 - **P5** Sheet tabs follow the ARIA tabs pattern: arrow keys, Home / End, `aria-controls`.
+
+## M11 contract — NPCs, the dice tray and the combat tracker (owner's request)
+
+The owner asked for a combat tracker, D&D Beyond–style dice (pictures to click, no typing),
+and rolls "as" a campaign character or an NPC with the right + / − from their stats.
+
+### M11a NPCs (Python, tested)
+
+- **N1** An NPC is a character with `is_npc`, owned by the DM, created only by the DM. Only the
+  DM sees NPCs (list, sheet, rolls as them); for players they don't exist (404). Older
+  campaigns gain the column on first open.
+- **N2** NPC sheets use the same model; `proficiency_bonus` may be set directly (monsters' PB
+  comes from CR, not levels). An NPC's generated sheet entry is private to the DM.
+- **N3** `POST …/npcs/from-monster {monster, count 1–10}` copies an SRD 5.2.1 stat block into
+  that many NPCs ("Goblin Warrior 1…n"): AC, HP, speed, abilities, PB from CR, saves and skills
+  (as misc bonuses so the totals match the stat block), initiative, attacks (to-hit and
+  damage dice), traits and actions as features. Unknown monster → 404.
+- **N4** The sheet summary no longer includes current HP, and a save whose summary is
+  unchanged doesn't re-embed it (HP clicks stay fast).
+
+### M11b Dice pools (Python + UI, tested)
+
+- **D1** `POST …/rolls {kind: "pool", dice: {"4": n, "6": n, "8": n, "10": n, "12": n,
+  "20": n, "100": n}, stat?, modifier?, character_id?, mode, to_dm}` rolls the clicked dice.
+  At most 20 of one die and 50 in all. Advantage / disadvantage only for a single d20.
+- **D2** `stat` (`check:<ability>`, `save:<ability>`, `skill:<skill>`, `initiative`,
+  `attack:<n>`, `spell_attack`) adds that character's bonus from the stored sheet (with the
+  exhaustion penalty when the pool is a single d20); it needs `character_id` and the same
+  roll rights as before (player or DM; NPCs: DM only). `modifier` is a flat −50…+50 typed by
+  the roller and shown as such.
+- **D3 Dice tray (UI).** A dice button opens a tray: pictures of d4 d6 d8 d10 d12 d20 d100;
+  click to add, right-click or the count chip to remove; "Roll as" (me / my characters /
+  for the DM every character and NPC); "Add" a stat from that character with its bonus
+  shown; a ± modifier stepper; advantage / disadvantage for a lone d20; "to DM only"
+  (default on for NPCs); Roll. Results appear in the game log with die pictures.
+
+### M11c Combat tracker (Python + UI, tested)
+
+- **C1** One active encounter per campaign. The DM starts it, adds characters, NPCs, or SRD
+  monsters (created as NPCs and marked as added for this encounter), removes combatants, and
+  ends it (optionally deleting the monsters it added).
+- **C2 Initiative.** "Roll initiative" rolls d20 + the sheet's initiative (exhaustion included)
+  for every combatant without one (or all), logged in the game log (NPCs to the DM only).
+  The DM may set a value by hand. A player's own Initiative roll from their sheet fills their
+  empty slot in the active encounter. Order: initiative, then initiative bonus, then the order
+  added.
+- **C3 Turns.** Next / previous turn; the round goes up when the order wraps.
+- **C4 HP and conditions** change the combatant's sheet (one source of truth): damage takes
+  temporary HP first (2024), healing stops at max, HP never below 0. The DM may change any
+  combatant; a player may change their own character.
+- **C5 What players see.** The order, the current turn and the round; party characters' HP;
+  NPCs show only a health state (unharmed / injured / bloodied ≤ 50% / down), never HP or
+  AC. Hidden combatants are left out until the DM reveals them.
+- **C6 UI.** A Combat page (polled every 3 s): turn order with the current turn highlighted,
+  initiative, HP bar and ± for those allowed, conditions, Next / Previous, Roll initiative,
+  Add combatant (party, NPCs, SRD monster search with count), End encounter.
+
+### M11 review fixes (backend/security and frontend: no CRITICAL; two frontend HIGH, fixed)
+
+- **Turns by combatant (F1/F2):** the encounter stores who is acting, not a position, so late
+  initiative rolls, removals and hand-set values never shift or skip a turn; removing the one
+  acting passes the turn on; "roll initiative" for newcomers keeps the round.
+- **F3** Only a d20 initiative roll fills a slot (clamped −20…60); a pool with a stat keeps its
+  dice in the label ("Stealth (1d20)"). **F4** Column upgrades of older campaigns are
+  serialised and tolerate a concurrent upgrade. **F6/F7** Players get no position in the
+  full order, and hidden combatants are 404 for them. **F8** Public NPC rolls never carry the
+  NPC's id for players. **F11** Duplicate die keys are refused. **F12** Monster numbering
+  continues across additions. **F14** Healing from 0 HP clears death saves; a hand-set
+  initiative keeps the sheet's tie-break bonus.
+- **UI:** "Add NPC" uses the typed name (it used to take the first search hit: "Wolf" made a
+  Dire Wolf) and shows errors; page content leaves room for the dice button (it covered Send
+  on phones); dice can be removed by keyboard ("−"), Escape closes the tray and focus
+  returns; ending an encounter can be cancelled and asks separately about the monsters;
+  players set an HP amount for their own character; one combat action at a time; turn
+  changes are announced; single conditions can be removed; die pictures in the game log.
+- Tracked: extra damage dice on some attacks (e.g. dragons' Rend) stay in the feature text;
+  legendary/bonus/reaction actions are labelled "Action"; read-only eval on a campaign never
+  opened by M11 code; two DM tabs pressing Next together advance twice.

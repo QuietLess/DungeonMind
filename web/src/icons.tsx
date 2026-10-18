@@ -97,3 +97,11 @@ export const DiceIcon = () => (
     <circle cx="8.5" cy="15.5" r="1" fill="currentColor" />
   </Icon>
 );
+export const SwordsIcon = () => (
+  <Icon>
+    <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+    <path d="M13 19l6-6M16 16l4 4M19 21l2-2" />
+    <path d="M9.5 6.5 21 18v3h-3L6.5 9.5" />
+    <path d="M11 5 5 11M8 8 4 4M5 3 3 5" />
+  </Icon>
+);

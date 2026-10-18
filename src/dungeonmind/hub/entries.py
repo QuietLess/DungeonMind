@@ -157,7 +157,12 @@ def entry_from_row(row: sqlite3.Row) -> Entry:
 
 def character_from_row(row: sqlite3.Row) -> Character:
     return Character(
-        id=row["id"], owner_id=row["owner_id"], name=row["name"], summary=row["summary"]
+        id=row["id"],
+        owner_id=row["owner_id"],
+        name=row["name"],
+        summary=row["summary"],
+        # sqlite3.Row: `in row` checks values, so the column names it is.
+        is_npc=bool(row["is_npc"]) if "is_npc" in row.keys() else False,  # noqa: SIM118
     )
 
 

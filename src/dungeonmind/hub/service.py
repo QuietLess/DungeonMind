@@ -60,7 +60,7 @@ from dungeonmind.hub.models import (
     Thread,
     User,
 )
-from dungeonmind.hub.sheets import Sheet, derive, summary_text
+from dungeonmind.hub.sheets import Sheet, derive, sheet_from_monster, summary_text
 
 DEFAULT_ROOT = Path("data/hub")
 INVITE_DAYS = 7
@@ -136,6 +136,8 @@ class Hub:
         signup: str = "open",
         read_only: bool = False,
         rng: random.Random | None = None,
+        monsters: Callable[[str], dict[str, Any] | None] | None = None,
+        monster_names: Callable[[str], list[str]] | None = None,
     ) -> None:
         if signup not in SIGNUP_MODES:
             raise ValueError(f"signup must be one of {', '.join(SIGNUP_MODES)}")
@@ -156,6 +158,8 @@ class Hub:
         self._searches: dict[str, deque[datetime]] = {}
         self._roll_times: dict[str, deque[datetime]] = {}  # R4
         self.rng = rng  # None: the dice tool uses SystemRandom
+        self.monsters = monsters  # M11 N3: SRD stat block by name or key
+        self.monster_names = monster_names
         self._search_lock = threading.Lock()
         # Verified against for unknown usernames, so both failures cost the same time (8).
         self._dummy_hash = auth.hash_password(secrets.token_urlsafe(16), scrypt_n)
@@ -631,28 +635,40 @@ class Hub:
 
     # --- characters ------------------------------------------------------------------------
 
-    def create_character(self, user: User, cid: str, name: str, summary: str = "") -> Character:
-        self._member(user, cid)
+    def create_character(
+        self,
+        user: User,
+        cid: str,
+        name: str,
+        summary: str = "",
+        npc: bool = False,
+        from_encounter: int | None = None,
+    ) -> Character:
+        camp = self._member(user, cid)
+        if npc and camp.role != "dm":
+            raise Forbidden("Only the DM creates NPCs.")  # N1
         name = _text(name, "Character name", models.CHARACTER_NAME_CHARS)
         summary = _text(summary, "Summary", models.CHARACTER_SUMMARY_CHARS, allow_empty=True)
         with self.storage.campaign(cid) as db:
             cur = db.execute(
-                "INSERT INTO characters (owner_id, name, summary, created_at) VALUES (?, ?, ?, ?)",
-                (user.id, name, summary, _iso(self.clock())),
+                "INSERT INTO characters (owner_id, name, summary, created_at, is_npc, "
+                "from_encounter) VALUES (?, ?, ?, ?, ?, ?)",
+                (user.id, name, summary, _iso(self.clock()), int(bool(npc)), from_encounter),
             )
             row = db.execute("SELECT * FROM characters WHERE id = ?", (cur.lastrowid,)).fetchone()
         return store.character_from_row(row)
 
     def characters(self, user: User, cid: str) -> list[Character]:
-        self._member(user, cid)
+        camp = self._member(user, cid)
+        npcs = "" if camp.role == "dm" else " WHERE is_npc = 0"  # N1: players never see NPCs
         with self.storage.campaign(cid) as db:
-            rows = db.execute("SELECT * FROM characters ORDER BY name, id").fetchall()
+            rows = db.execute(f"SELECT * FROM characters{npcs} ORDER BY name, id").fetchall()
         return [store.character_from_row(r) for r in rows]
 
     def _own_character(self, db, user: User, chid: Any):
         row = db.execute("SELECT * FROM characters WHERE id = ?", (_id(chid, "Character"),))
         row = row.fetchone()
-        if row is None:
+        if row is None or (row["is_npc"] and row["owner_id"] != user.id):
             raise NotFound("Character not found.")
         if row["owner_id"] != user.id:
             raise Forbidden("Only the character's player can change it.")
@@ -694,6 +710,13 @@ class Hub:
         self._member(user, cid)
         with self.storage.campaign(cid, immediate=True) as db:
             row = self._own_character(db, user, chid)
+            fighting = db.execute(
+                "SELECT 1 FROM combatants c JOIN encounters e ON e.id = c.encounter_id "
+                "WHERE c.character_id = ? AND e.active = 1",
+                (row["id"],),
+            ).fetchone()
+            if fighting:  # the tracker would lose whose turn it is
+                raise Conflict("This character is in the running encounter; remove it there first.")
             count = db.execute(
                 "SELECT COUNT(*) FROM entries WHERE character_id = ? AND kind != 'sheet'",
                 (row["id"],),
@@ -709,10 +732,11 @@ class Hub:
 
     # --- character sheets (M10a) -------------------------------------------------------------
 
-    def _character_row(self, db, chid: Any):
+    def _character_row(self, db, chid: Any, camp: Campaign | None = None):
+        """A character row; with `camp`, NPCs exist only for the DM (N1)."""
         row = db.execute("SELECT * FROM characters WHERE id = ?", (_id(chid, "Character"),))
         row = row.fetchone()
-        if row is None:
+        if row is None or (camp is not None and row["is_npc"] and camp.role != "dm"):
             raise NotFound("Character not found.")
         return row
 
@@ -729,7 +753,7 @@ class Hub:
         """S3: every member may view; the player and the DM may edit."""
         camp = self._member(user, cid)
         with self.storage.campaign(cid) as db:
-            character = self._character_row(db, chid)
+            character = self._character_row(db, chid, camp)
             sheet, version = self._load_sheet(db, character["id"])
         return {
             "sheet": sheet.model_dump(),
@@ -754,7 +778,7 @@ class Hub:
             message = f"{where}: {err.get('msg', 'invalid value')}" if where else "Invalid sheet."
             raise Invalid(message) from None
         with self.storage.campaign(cid) as db:
-            character = self._character_row(db, chid)
+            character = self._character_row(db, chid, camp)
         if character["owner_id"] != user.id and camp.role != "dm":
             raise Forbidden("Only the character's player or the DM can edit this sheet.")
         derived = derive(sheet)
@@ -789,10 +813,17 @@ class Hub:
         }
 
     def _sheet_entry_parts(self, cid: str, character, sheet: Sheet, derived: dict[str, Any]):
-        """Title, text, embedded chunks and author name of a sheet's generated entry (slow)."""
+        """Title, text, embedded chunks and author name of a sheet's generated entry (slow).
+        Chunks are None when the entry already says exactly this (N4: no re-embedding)."""
         title = f"{character['name']} — character sheet"[: models.TITLE_CHARS]
         body = summary_text(character["name"], sheet, derived)
-        chunks = self._embed(cid, title, body)
+        with self.storage.campaign(cid) as db:
+            existing = db.execute(
+                "SELECT title, body FROM entries WHERE character_id = ? AND kind = 'sheet'",
+                (character["id"],),
+            ).fetchone()
+        unchanged = existing is not None and (existing["title"], existing["body"]) == (title, body)
+        chunks = None if unchanged else self._embed(cid, title, body)
         with self.storage.app() as db:
             owner = db.execute(
                 "SELECT username FROM users WHERE id = ?", (character["owner_id"],)
@@ -804,24 +835,47 @@ class Hub:
         so the chatbot finds and cites sheets through the normal notes search."""
         now = _iso(self.clock())
         row = db.execute(
-            "SELECT id FROM entries WHERE character_id = ? AND kind = 'sheet'", (character["id"],)
+            "SELECT id, title, body FROM entries WHERE character_id = ? AND kind = 'sheet'",
+            (character["id"],),
         ).fetchone()
+        if chunks is None and row is not None and (row["title"], row["body"]) == (title, body):
+            return  # N4: nothing to re-index
+        if chunks is None:  # changed since it was checked: index it now
+            chunks = self._embed_unlocked(title, body)
+        visibility = "private" if character["is_npc"] else "party"  # N2: NPCs are the DM's
         if row is None:
             cur = db.execute(
                 "INSERT INTO entries (board, character_id, author_id, author_name, kind, "
                 "title, body, visibility, session, created_at, updated_at) "
-                "VALUES ('character', ?, ?, ?, 'sheet', ?, ?, 'party', NULL, ?, ?)",
-                (character["id"], character["owner_id"], author_name, title, body, now, now),
+                "VALUES ('character', ?, ?, ?, 'sheet', ?, ?, ?, NULL, ?, ?)",
+                (
+                    character["id"],
+                    character["owner_id"],
+                    author_name,
+                    title,
+                    body,
+                    visibility,
+                    now,
+                    now,
+                ),
             )
             entry_id = cur.lastrowid
         else:
             entry_id = row["id"]
             db.execute(
-                "UPDATE entries SET title = ?, body = ?, version = version + 1, updated_at = ? "
-                "WHERE id = ?",
-                (title, body, now, entry_id),
+                "UPDATE entries SET title = ?, body = ?, visibility = ?, version = version + 1, "
+                "updated_at = ? WHERE id = ?",
+                (title, body, visibility, now, entry_id),
             )
         store.replace_chunks(db, entry_id, title, chunks)
+
+    def _embed_unlocked(self, title: str, body: str):
+        if self.embedder is None:
+            raise StorageError("Search isn't available, so the entry wasn't saved.")
+        try:
+            return store.embed_entry(self.embedder, title, body)
+        except Exception as e:
+            raise StorageError("Couldn't index this entry right now; it wasn't saved.") from e
 
     def _resync_sheet_entry(self, cid: str, chid: int) -> None:
         """F6: after a rename, the generated entry follows the character's new name."""
@@ -866,31 +920,59 @@ class Hub:
         to_dm: bool = False,
         character_id: int | None = None,
         expression: str | None = None,
+        dice: dict[str, Any] | None = None,
+        stat: str | None = None,
+        modifier: int | None = None,
     ) -> dict[str, Any]:
-        """R1/R2: rolls on the server with the sheet's bonus and logs it."""
+        """R1/R2 + M11 D1/D2: rolls on the server with the sheet's bonus and logs it."""
         camp = self._member(user, cid)
         if kind not in dice_rolls.KINDS:
             raise Invalid("Unknown roll.")
         if mode not in dice_rolls.MODES:
             raise Invalid("Mode must be normal, advantage, disadvantage or critical.")
         name = user.username
-        if kind == "expression":
-            spec = dice_rolls.spec_for_expression(expression, mode)
-            character_id = None
-        else:
+        character = sheet = None
+        if character_id is not None or (kind not in ("expression", "pool")):
             if character_id is None:
                 raise Invalid("Which character is rolling?")
             with self.storage.campaign(cid) as db:
-                character = self._character_row(db, character_id)
+                character = self._character_row(db, character_id, camp)
                 if character["owner_id"] != user.id and camp.role != "dm":
                     raise Forbidden("Only the character's player or the DM can roll for them.")
                 sheet, _ = self._load_sheet(db, character["id"])
-            spec = dice_rolls.spec_for(kind, key, mode, sheet, derive(sheet))
             name = character["name"]
-            character_id = character["id"]
+        if kind == "expression":
+            spec = dice_rolls.spec_for_expression(expression, mode)
+            character = None
+            name = user.username
+        elif kind == "pool":
+            if stat and character is None:
+                raise Invalid("Pick who is rolling to add a stat.")
+            derived = derive(sheet) if sheet is not None else None
+            spec = dice_rolls.spec_for_pool(dice, mode, modifier or 0, stat, sheet, derived)
+        else:
+            spec = dice_rolls.spec_for(kind, key, mode, sheet, derive(sheet))
         self._count_roll(user)
         detail = dice_rolls.perform(spec, self.rng)
-        label = f"{name} — {spec.label}"
+        if kind == "pool" and modifier:
+            detail["modifier"] = modifier
+        row = self._log_roll(
+            cid,
+            user,
+            character["id"] if character else None,
+            f"{name} — {spec.label}",
+            detail,
+            mode,
+            to_dm,
+        )
+        lone_d20 = kind == "pool" and isinstance(dice, dict) and dice == {"20": 1}
+        if character is not None and (
+            kind == "initiative" or (stat == "initiative" and lone_d20)
+        ):  # C2: only a d20 initiative roll fills a slot (review F3)
+            self._fill_initiative(cid, character["id"], detail["total"])
+        return row
+
+    def _log_roll(self, cid, user, character_id, label, detail, mode, to_dm) -> dict[str, Any]:
         now = _iso(self.clock())
         with self.storage.campaign(cid, immediate=True) as db:
             cur = db.execute(
@@ -915,6 +997,416 @@ class Hub:
             row = db.execute("SELECT * FROM rolls WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _roll_from_row(row)
 
+    # --- NPCs from SRD monsters (M11a) --------------------------------------------------------
+
+    def monster_search(self, user: User, cid: str, q: str) -> list[str]:
+        self._dm(user, cid)
+        q = _text(q, "Search", 60, allow_empty=True)
+        return (self.monster_names(q) if self.monster_names else [])[:20]
+
+    def npcs_from_monster(
+        self, user: User, cid: str, monster: str, count: int = 1, from_encounter: int | None = None
+    ) -> list[Character]:
+        """N3: an SRD stat block copied into `count` NPC sheets."""
+        self._dm(user, cid)
+        if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 10:
+            raise Invalid("Add 1–10 at a time.")
+        record = self.monsters(str(monster)[:100]) if self.monsters else None
+        if record is None:
+            raise NotFound("No such monster in the SRD.")
+        sheet = sheet_from_monster(record)
+        base = record["name"]
+        with self.storage.campaign(cid) as db:  # F12: numbering continues across additions
+            taken = [
+                r["name"][len(base) + 1 :]
+                for r in db.execute("SELECT name FROM characters WHERE name LIKE ?", (f"{base} %",))
+            ]
+        start = max([int(t) for t in taken if t.isdigit()] or [0]) + 1
+        numbered = count > 1 or from_encounter or taken
+        made = []
+        for n in range(start, start + count):
+            name = f"{base} {n}" if numbered else base
+            npc = self.create_character(
+                user,
+                cid,
+                name[: models.CHARACTER_NAME_CHARS],
+                npc=True,
+                from_encounter=from_encounter,
+            )
+            self.save_sheet(user, cid, npc.id, sheet.model_dump(), 0)
+            made.append(npc)
+        return made
+
+    # --- combat tracker (M11c) ----------------------------------------------------------------
+
+    @staticmethod
+    def _active_encounter(db):
+        return db.execute("SELECT * FROM encounters WHERE active = 1 ORDER BY id DESC").fetchone()
+
+    def _encounter(self, db, eid: Any):
+        row = db.execute(
+            "SELECT * FROM encounters WHERE id = ? AND active = 1", (_id(eid, "Encounter"),)
+        ).fetchone()
+        if row is None:
+            raise NotFound("Encounter not found.")
+        return row
+
+    def start_encounter(self, user: User, cid: str, name: str) -> dict[str, Any]:
+        self._dm(user, cid)
+        name = _text(name or "Encounter", "Encounter name", 80)
+        with self.storage.campaign(cid, immediate=True) as db:
+            if self._active_encounter(db) is not None:
+                raise Conflict("An encounter is already running. End it first.")
+            cur = db.execute(
+                "INSERT INTO encounters (name, created_at) VALUES (?, ?)",
+                (name, _iso(self.clock())),
+            )
+        return {"id": cur.lastrowid, "name": name}
+
+    def add_combatants(
+        self,
+        user: User,
+        cid: str,
+        eid: int,
+        *,
+        character_id: int | None = None,
+        monster: str | None = None,
+        count: int = 1,
+    ) -> list[dict[str, Any]]:
+        self._dm(user, cid)
+        with self.storage.campaign(cid) as db:
+            self._encounter(db, eid)
+        if monster:
+            ids = [c.id for c in self.npcs_from_monster(user, cid, monster, count, eid)]
+        elif character_id is not None:
+            with self.storage.campaign(cid) as db:
+                ids = [self._character_row(db, character_id)["id"]]
+        else:
+            raise Invalid("Add a character or a monster.")
+        added = []
+        with self.storage.campaign(cid, immediate=True) as db:
+            self._encounter(db, eid)
+            for chid in ids:
+                if db.execute(
+                    "SELECT 1 FROM combatants WHERE encounter_id = ? AND character_id = ?",
+                    (eid, chid),
+                ).fetchone():
+                    raise Conflict("That character is already in this encounter.")
+                position = db.execute(
+                    "SELECT COALESCE(MAX(position), 0) + 1 FROM combatants WHERE encounter_id = ?",
+                    (eid,),
+                ).fetchone()[0]
+                cur = db.execute(
+                    "INSERT INTO combatants (encounter_id, character_id, position) "
+                    "VALUES (?, ?, ?)",
+                    (eid, chid, position),
+                )
+                added.append({"id": cur.lastrowid, "character_id": chid})
+        return added
+
+    def update_combatant(
+        self, user: User, cid: str, eid: int, combatant: int, *, initiative=None, hidden=None
+    ) -> None:
+        self._dm(user, cid)
+        with self.storage.campaign(cid, immediate=True) as db:
+            self._encounter(db, eid)
+            row = self._combatant(db, eid, combatant)
+            if initiative is not None:
+                if isinstance(initiative, bool) or not isinstance(initiative, int):
+                    raise Invalid("Initiative must be a whole number.")
+                if not -20 <= initiative <= 60:
+                    raise Invalid("Initiative must be between -20 and 60.")
+                sheet, _ = self._load_sheet(db, row["character_id"])
+                db.execute(  # the sheet's bonus still breaks ties (review F14)
+                    "UPDATE combatants SET initiative = ?, init_bonus = ? WHERE id = ?",
+                    (initiative, derive(sheet)["initiative"], row["id"]),
+                )
+            if hidden is not None:
+                db.execute(
+                    "UPDATE combatants SET hidden = ? WHERE id = ?", (int(bool(hidden)), row["id"])
+                )
+
+    def remove_combatant(self, user: User, cid: str, eid: int, combatant: int) -> None:
+        self._dm(user, cid)
+        with self.storage.campaign(cid, immediate=True) as db:
+            self._encounter(db, eid)
+            enc = self._encounter(db, eid)
+            row = self._combatant(db, eid, combatant)
+            if enc["current_combatant"] == row["id"]:  # the turn passes to the next one
+                order = self._order(self._rows(db, eid))
+                i = [r["id"] for r in order].index(row["id"])
+                rnd = enc["round"]
+                if len(order) == 1:
+                    nxt = None
+                elif i + 1 < len(order):
+                    nxt = order[i + 1]["id"]
+                else:
+                    nxt, rnd = order[0]["id"], rnd + 1
+                db.execute(
+                    "UPDATE encounters SET current_combatant = ?, round = ? WHERE id = ?",
+                    (nxt, rnd, eid),
+                )
+            db.execute("DELETE FROM combatants WHERE id = ?", (row["id"],))
+
+    @staticmethod
+    def _rows(db, eid: int):
+        return db.execute("SELECT * FROM combatants WHERE encounter_id = ?", (eid,)).fetchall()
+
+    @staticmethod
+    def _combatant(db, eid: int, combatant: Any):
+        row = db.execute(
+            "SELECT * FROM combatants WHERE id = ? AND encounter_id = ?",
+            (_id(combatant, "Combatant"), eid),
+        ).fetchone()
+        if row is None:
+            raise NotFound("Combatant not found.")
+        return row
+
+    @staticmethod
+    def _order(rows) -> list:
+        """C2: initiative, then initiative bonus, then the order added; unrolled last."""
+        return sorted(
+            rows,
+            key=lambda r: (
+                r["initiative"] is None,
+                -(r["initiative"] or 0),
+                -r["init_bonus"],
+                r["position"],
+            ),
+        )
+
+    def roll_initiative(self, user: User, cid: str, eid: int, only_missing: bool = True) -> None:
+        """C2: d20 + the sheet's initiative for each combatant, logged (NPCs to the DM)."""
+        self._dm(user, cid)
+        with self.storage.campaign(cid) as db:
+            self._encounter(db, eid)
+            rows = db.execute(
+                "SELECT c.*, ch.name, ch.is_npc FROM combatants c "
+                "JOIN characters ch ON ch.id = c.character_id WHERE c.encounter_id = ?",
+                (eid,),
+            ).fetchall()
+            sheets = {r["character_id"]: self._load_sheet(db, r["character_id"])[0] for r in rows}
+        results = {}
+        for r in rows:
+            if only_missing and r["initiative"] is not None:
+                continue
+            sheet = sheets[r["character_id"]]
+            derived = derive(sheet)
+            spec = dice_rolls.spec_for("initiative", None, "normal", sheet, derived)
+            detail = dice_rolls.perform(spec, self.rng)
+            self._log_roll(
+                cid,
+                user,
+                r["character_id"],
+                f"{r['name']} — Initiative",
+                detail,
+                "normal",
+                bool(r["is_npc"]),
+            )
+            results[r["id"]] = (detail["total"], derived["initiative"])
+        with self.storage.campaign(cid, immediate=True) as db:
+            self._encounter(db, eid)
+            enc = self._encounter(db, eid)
+            for combatant, (total, bonus) in results.items():
+                db.execute(
+                    "UPDATE combatants SET initiative = ?, init_bonus = ? WHERE id = ?",
+                    (total, bonus, combatant),
+                )
+            if enc["current_combatant"] is None:  # the fight starts at the top of the order
+                order = self._order(self._rows(db, eid))
+                if order:
+                    db.execute(
+                        "UPDATE encounters SET current_combatant = ? WHERE id = ?",
+                        (order[0]["id"], eid),
+                    )
+
+    def _fill_initiative(self, cid: str, character_id: int, total: int) -> None:
+        """C2: a character's own Initiative roll fills its empty slot in the active encounter."""
+        with self.storage.campaign(cid, immediate=True) as db:
+            enc = self._active_encounter(db)
+            if enc is None:
+                return
+            sheet, _ = self._load_sheet(db, character_id)
+            db.execute(
+                "UPDATE combatants SET initiative = ?, init_bonus = ? "
+                "WHERE encounter_id = ? AND character_id = ? AND initiative IS NULL",
+                (max(-20, min(60, total)), derive(sheet)["initiative"], enc["id"], character_id),
+            )
+
+    def next_turn(self, user: User, cid: str, eid: int, direction: str = "next") -> None:
+        """C3: moves to the next / previous combatant in the current order; the round goes up
+        when the order wraps (and back down going back). Tracked by combatant (review F1)."""
+        self._dm(user, cid)
+        if direction not in ("next", "prev"):
+            raise Invalid("direction must be next or prev.")
+        with self.storage.campaign(cid, immediate=True) as db:
+            enc = self._encounter(db, eid)
+            ids = [r["id"] for r in self._order(self._rows(db, eid))]
+            if not ids:
+                return
+            rnd = enc["round"]
+            if enc["current_combatant"] not in ids:
+                current = ids[0]
+            else:
+                i = ids.index(enc["current_combatant"])
+                if direction == "next":
+                    if i + 1 < len(ids):
+                        current = ids[i + 1]
+                    else:
+                        current, rnd = ids[0], rnd + 1
+                elif i > 0:
+                    current = ids[i - 1]
+                elif rnd > 1:
+                    current, rnd = ids[-1], rnd - 1
+                else:
+                    current = ids[0]
+            db.execute(
+                "UPDATE encounters SET current_combatant = ?, round = ? WHERE id = ?",
+                (current, rnd, eid),
+            )
+
+    def _mutate_sheet(self, cid: str, character_id: int, change) -> None:
+        """Applies `change(sheet)` to a stored sheet (version + 1), re-indexing only if its
+        summary changed; retried if someone else saved in between."""
+        for _attempt in range(3):
+            with self.storage.campaign(cid) as db:
+                character = self._character_row(db, character_id)
+                sheet, version = self._load_sheet(db, character_id)
+            updated = Sheet.model_validate(change(sheet.model_copy(deep=True)).model_dump())
+            entry = self._sheet_entry_parts(cid, character, updated, derive(updated))
+            with self.storage.campaign(cid, immediate=True) as db:
+                character = self._character_row(db, character_id)
+                _, current = self._load_sheet(db, character_id)
+                if current != version:
+                    continue
+                db.execute(
+                    "INSERT INTO sheets (character_id, data, version, updated_at) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(character_id) DO UPDATE SET "
+                    "data = excluded.data, version = excluded.version, "
+                    "updated_at = excluded.updated_at",
+                    (character_id, updated.model_dump_json(), version + 1, _iso(self.clock())),
+                )
+                self._write_sheet_entry(db, character, *entry)
+                return
+        raise Conflict("The sheet kept changing; try again.")
+
+    def _combatant_for_change(self, user: User, cid: str, eid: int, combatant: int):
+        camp = self._member(user, cid)
+        with self.storage.campaign(cid) as db:
+            self._encounter(db, eid)
+            row = self._combatant(db, eid, combatant)
+            character = self._character_row(db, row["character_id"])
+        if camp.role != "dm" and row["hidden"]:
+            raise NotFound("Combatant not found.")  # F7: hidden ones don't exist for players
+        if camp.role != "dm" and (character["owner_id"] != user.id or character["is_npc"]):
+            raise Forbidden("Only the DM or the character's player can change this.")
+        return row
+
+    def change_hp(self, user: User, cid: str, eid: int, combatant: int, delta: Any) -> None:
+        """C4: damage takes temporary HP first (2024); healing stops at max; never below 0."""
+        if isinstance(delta, bool) or not isinstance(delta, int) or abs(delta) > 2000:
+            raise Invalid("HP change must be a whole number up to 2000.")
+        row = self._combatant_for_change(user, cid, eid, combatant)
+
+        def apply(sheet: Sheet) -> Sheet:
+            hp = sheet.hp
+            if delta < 0:
+                damage = -delta
+                absorbed = min(hp.temp, damage)
+                hp.temp -= absorbed
+                hp.current = max(0, hp.current - (damage - absorbed))
+            else:
+                if hp.current == 0 and delta > 0:  # 2024: regaining HP ends death saves
+                    sheet.death_saves.successes = sheet.death_saves.failures = 0
+                hp.current = min(hp.max, hp.current + delta)
+            return sheet
+
+        self._mutate_sheet(cid, row["character_id"], apply)
+
+    def set_conditions(self, user: User, cid: str, eid: int, combatant: int, conditions) -> None:
+        row = self._combatant_for_change(user, cid, eid, combatant)
+        if not isinstance(conditions, list) or not all(isinstance(c, str) for c in conditions):
+            raise Invalid("conditions must be a list.")
+
+        def apply(sheet: Sheet) -> Sheet:
+            sheet.conditions = conditions
+            return sheet
+
+        try:
+            self._mutate_sheet(cid, row["character_id"], apply)
+        except ValidationError as e:
+            raise Invalid("Unknown condition.") from e
+
+    def end_encounter(self, user: User, cid: str, eid: int, remove_monsters: bool = False) -> None:
+        """C1: ends it; optionally deletes the monsters this encounter added (with their boards)."""
+        self._dm(user, cid)
+        with self.storage.campaign(cid, immediate=True) as db:
+            self._encounter(db, eid)
+            db.execute("UPDATE encounters SET active = 0 WHERE id = ?", (eid,))
+            db.execute("DELETE FROM combatants WHERE encounter_id = ?", (eid,))
+            if remove_monsters:
+                ids = [
+                    r["id"]
+                    for r in db.execute(
+                        "SELECT id FROM characters WHERE from_encounter = ? AND is_npc = 1", (eid,)
+                    )
+                ]
+                for chid in ids:
+                    db.execute("DELETE FROM entries WHERE character_id = ?", (chid,))
+                    db.execute("DELETE FROM characters WHERE id = ?", (chid,))
+
+    def encounter(self, user: User, cid: str) -> dict[str, Any] | None:
+        """C5: the active encounter as this viewer may see it."""
+        camp = self._member(user, cid)
+        dm = camp.role == "dm"
+        with self.storage.campaign(cid) as db:
+            enc = self._active_encounter(db)
+            if enc is None:
+                return None
+            rows = db.execute(
+                "SELECT c.*, ch.name, ch.is_npc, ch.owner_id FROM combatants c "
+                "JOIN characters ch ON ch.id = c.character_id WHERE c.encounter_id = ?",
+                (enc["id"],),
+            ).fetchall()
+            sheets = {r["character_id"]: self._load_sheet(db, r["character_id"])[0] for r in rows}
+        ordered = self._order(rows)
+        ids = [r["id"] for r in ordered]
+        current = enc["current_combatant"] if enc["current_combatant"] in ids else None
+        out = []
+        for r in ordered:
+            if r["hidden"] and not dm:
+                continue
+            sheet = sheets[r["character_id"]]
+            hp = sheet.hp
+            item: dict[str, Any] = {
+                "id": r["id"],
+                "name": r["name"],
+                "initiative": r["initiative"],
+                "is_npc": bool(r["is_npc"]),
+                "conditions": sheet.conditions,
+                "health": _health(hp.current, hp.max),
+                "can_edit": dm or (r["owner_id"] == user.id and not r["is_npc"]),
+            }
+            if dm or not r["is_npc"]:
+                item |= {
+                    "character_id": r["character_id"],
+                    "hp": hp.model_dump(),
+                    "ac": sheet.armor_class,
+                }
+            if dm:
+                item |= {"hidden": bool(r["hidden"]), "init_bonus": r["init_bonus"]}
+            out.append(item)
+        view = {
+            "id": enc["id"],
+            "name": enc["name"],
+            "round": enc["round"],
+            "current_id": current if (dm or current in {c["id"] for c in out}) else None,
+            "combatants": out,
+        }
+        if dm:  # players get no position in the full order (review F6: hidden combatants)
+            view["turn"] = ids.index(current) if current in ids else 0
+        return view
+
     def rolls(self, user: User, cid: str, after: int = 0) -> list[dict[str, Any]]:
         """R3: newer rolls this viewer may see (public, their own, and all for the DM)."""
         camp = self._member(user, cid)
@@ -923,6 +1415,11 @@ class Hub:
         visible = "(to_dm = 0 OR user_id = ? OR ?)"
         args = (user.id, int(camp.role == "dm"))
         with self.storage.campaign(cid) as db:
+            npcs = (
+                set()
+                if camp.role == "dm"
+                else {r["id"] for r in db.execute("SELECT id FROM characters WHERE is_npc = 1")}
+            )
             if after == 0:  # the first page: the newest rolls (review F2), oldest first
                 rows = db.execute(
                     f"SELECT * FROM rolls WHERE {visible} ORDER BY id DESC LIMIT 100", args
@@ -932,7 +1429,11 @@ class Hub:
                     f"SELECT * FROM rolls WHERE id > ? AND {visible} ORDER BY id LIMIT 100",
                     (after, *args),
                 ).fetchall()
-        return [_roll_from_row(r) for r in rows]
+        out = [_roll_from_row(r) for r in rows]
+        for r in out:  # F8: a public NPC roll shows its words, never which character it is
+            if r["character_id"] in npcs:
+                r["character_id"] = None
+        return out
 
     # --- entries ---------------------------------------------------------------------------
 
@@ -1342,6 +1843,15 @@ def _history(db, thread_id: int, exchanges: int = 3) -> list[dict[str, str]]:
         ):
             pairs.append({"question": question["text"], "answer": answer["text"]})
     return pairs[-exchanges:]
+
+
+def _health(current: int, maximum: int) -> str:
+    """C5: what players see of an NPC's HP."""
+    if current <= 0:
+        return "down"
+    if maximum <= 0 or current >= maximum:
+        return "unharmed"
+    return "bloodied" if current * 2 <= maximum else "injured"
 
 
 def _roll_from_row(row) -> dict[str, Any]:

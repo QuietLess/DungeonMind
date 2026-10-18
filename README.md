@@ -23,6 +23,7 @@ assistant, not a chat-with-a-PDF demo.
 | M8 — 209-case eval suite, offline gates, live runner, per-step models | ✅ (live run pending an API key) |
 | M9 — Production: CI, Docker, backups, accounts, UI, sharing ✅ · hosting, tracing ⬜ | 🔶 |
 | M10 — Character sheets, server dice and the game log | ✅ |
+| M11 — NPCs, dice tray, combat tracker | ✅ |
 
 ## Quickstart
 
@@ -206,6 +207,23 @@ worked out from the 2024 rules.
   (exhaustion included) and appear in the **game log** (the **Dice** page and beside the
   sheet), which also rolls any formula like `2d6+3`.
 - The chatbot can answer from sheets ("What's Mira's AC?"), citing the sheet.
+
+## Dice tray, NPCs and combat
+
+- **Dice tray:** the round dice button (bottom right of every campaign page) opens D&D
+  Beyond–style dice. Click d4 … d100 to add them (right-click removes one), pick **Roll as**
+  (yourself, your characters, or for the DM any character or NPC) and **Add** one of their
+  stats; the server adds the right + / − from the sheet. Advantage / disadvantage for a lone
+  d20, a ± modifier, and "to DM only" (on by default for NPCs).
+- **NPCs** (DM only): on Characters, tick "NPC" when creating one, or make one from any SRD
+  monster ("Bandit Captain") with its AC, HP, abilities, saves, skills and attacks filled in.
+  Players never see NPCs.
+- **Combat** page: start an encounter, add party members, NPCs or SRD monsters ("Goblin
+  Warrior × 3"), **Roll initiative** (or players roll it from their sheet), then Next turn.
+  Damage and healing go straight to the sheets (temporary HP first), conditions too. Players
+  see the turn order, party HP, and for monsters only "unharmed / injured / bloodied / down";
+  the DM can hide combatants until they appear. Ending the encounter can delete the monsters
+  it added.
 
 ## Share with your players (Cloudflare Tunnel, free)
 

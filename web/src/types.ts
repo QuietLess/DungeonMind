@@ -41,6 +41,7 @@ export interface Character {
   owner_id: string;
   name: string;
   summary: string;
+  is_npc?: boolean;
 }
 
 export interface Entry {
@@ -177,6 +178,9 @@ export interface RollRequest {
   to_dm: boolean;
   character_id?: number;
   expression?: string;
+  dice?: Record<string, number>;
+  stat?: string;
+  modifier?: number;
 }
 
 export interface Roll {
@@ -193,4 +197,30 @@ export interface Roll {
   mode: RollMode;
   to_dm: boolean;
   created_at: string;
+}
+
+// --- M11 combat tracker ------------------------------------------------------------------
+
+export interface Combatant {
+  id: number;
+  name: string;
+  initiative: number | null;
+  is_npc: boolean;
+  conditions: string[];
+  health: "unharmed" | "injured" | "bloodied" | "down";
+  can_edit: boolean;
+  character_id?: number;
+  hp?: { max: number; current: number; temp: number };
+  ac?: number;
+  hidden?: boolean;
+  init_bonus?: number;
+}
+
+export interface Encounter {
+  id: number;
+  name: string;
+  round: number;
+  turn?: number; // DM only
+  current_id: number | null;
+  combatants: Combatant[];
 }

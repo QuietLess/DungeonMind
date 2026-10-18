@@ -9,6 +9,7 @@ import { CampaignLayout } from "./pages/CampaignLayout";
 import { CampaignsPage } from "./pages/CampaignsPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ChatPage } from "./pages/ChatPage";
+import { CombatPage } from "./pages/CombatPage";
 import { MembersPage } from "./pages/MembersPage";
 import { DicePage } from "./pages/DicePage";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -60,6 +61,7 @@ export function App() {
           <Route path="characters/:chid" element={<CharactersPage />} />
           <Route path="characters/:chid/sheet" element={<SheetRoute />} />
           <Route path="dice" element={<DicePage />} />
+          <Route path="combat" element={<CombatPage />} />
           <Route path="journal" element={<BoardPage key="journal" board="journal" />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="chat/:tid" element={<ChatPage />} />

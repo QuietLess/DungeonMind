@@ -277,6 +277,90 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .composer textarea { flex: 1; }
 .composer .btn { align-self: flex-end; height: 2.75rem; width: 2.75rem; padding: 0; font-size: 1.15rem; }
 
+/* --- dice tray, combat tracker and NPCs (M11) ---------------------------------------------------- */
+.dice-tray { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 30; display: grid; justify-items: end; gap: 0.6rem; }
+.tray-toggle { width: 3.4rem; height: 3.4rem; border-radius: 999px; font-size: 1.6rem; padding: 0; box-shadow: var(--shadow); }
+.tray-panel {
+  width: min(380px, calc(100vw - 2rem)); max-height: min(78vh, 720px); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 40px rgb(0 0 0 / 0.25);
+  padding: 0.9rem 1rem; display: grid; gap: 0.55rem;
+}
+.tray-head { display: flex; justify-content: space-between; align-items: center; }
+.tray-head h2 { margin: 0; font-size: 1.1rem; }
+.tray-dice { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem; }
+.tray-slot { position: relative; display: grid; }
+.tray-remove {
+  position: absolute; bottom: -0.35rem; right: -0.35rem; width: 1.5rem; height: 1.5rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 700; cursor: pointer; line-height: 1;
+}
+.tray-remove:focus-visible { outline: 3px solid var(--focus); }
+.log-dice { display: flex; flex-wrap: wrap; gap: 0.15rem; margin: 0.15rem 0; }
+.tag-button { border: 0; cursor: pointer; font: inherit; font-size: 0.72rem; }
+.campaign-main { padding-bottom: 5.5rem; } /* room for the floating dice button */
+.tray-die {
+  position: relative; display: grid; place-items: center; padding: 0.45rem 0; cursor: pointer;
+  background: var(--surface-2); border: 2px solid transparent; border-radius: 12px; color: var(--text);
+}
+.tray-die:hover { border-color: var(--accent); }
+.tray-die.picked { border-color: var(--accent); background: var(--accent-soft); }
+.tray-die:focus-visible { outline: 3px solid var(--focus); }
+.tray-count {
+  position: absolute; top: -0.4rem; right: -0.4rem; min-width: 1.4rem; height: 1.4rem; border-radius: 999px;
+  background: var(--accent); color: var(--accent-text); font-weight: 700; font-size: 0.8rem; display: grid; place-items: center;
+}
+.die-face { fill: var(--accent-soft); stroke: var(--k-npc); stroke-width: 4; stroke-linejoin: round; }
+.tray-die.picked .die-face { fill: var(--surface); }
+.die-edge { fill: none; stroke: var(--k-npc); stroke-width: 2; opacity: 0.5; }
+.die-text { fill: var(--k-npc); font: 800 32px var(--font); }
+.tray-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: end; }
+.tray-row > label { flex: 1 1 140px; margin: 0; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--field-border); border-radius: 999px; padding: 2px; }
+.stepper-value { min-width: 2.6rem; text-align: center; font-weight: 700; }
+.tray-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.tray-result { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem 0.8rem; align-items: center; border: 2px solid var(--accent); border-radius: 12px; padding: 0.6rem 0.75rem; }
+.tray-result-label { font-weight: 600; font-size: 0.9rem; }
+.tray-result-total { grid-row: span 2; font-family: var(--serif); font-size: 2.2rem; font-weight: 700; color: var(--k-npc); }
+.tray-result-dice { display: flex; flex-wrap: wrap; gap: 0.2rem; align-items: center; }
+.tray-result-dice .dropped { opacity: 0.35; }
+.tray-bonus { font-weight: 700; margin-left: 0.3rem; }
+.combat { max-width: 1100px; }
+.combat-tools { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: end; margin-bottom: 0.9rem; }
+.combat-tools .amount { width: 8rem; margin: 0; }
+.initiative-list { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.5rem; }
+.combatant {
+  display: grid; grid-template-columns: 3rem minmax(10rem, 1fr) auto minmax(9rem, 12rem) auto; align-items: center; gap: 0.4rem 0.8rem;
+  background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.8rem;
+}
+.combatant.current { border-left-color: var(--accent); background: var(--accent-soft); }
+.combatant.hidden-combatant { border-style: dashed; }
+.init { font-family: var(--serif); font-size: 1.5rem; font-weight: 700; text-align: center; }
+.combatant-name { font-weight: 600; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline; overflow-wrap: anywhere; }
+.combatant-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.combatant-actions select { width: auto; }
+.hp { display: grid; gap: 0.15rem; font-size: 0.85rem; }
+.hp-bar { height: 0.5rem; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.hp-bar span { display: block; height: 100%; background: var(--k-location); }
+.hp-bar.health-bloodied span { background: var(--k-item); }
+.hp-bar.health-down span { background: var(--k-faction); }
+.health { font-weight: 600; font-size: 0.85rem; }
+.health-bloodied { color: var(--k-item); }
+.health-down { color: var(--k-faction); }
+.health-injured { color: var(--k-event); }
+.health-unharmed { color: var(--k-location); }
+.ac { font-size: 0.85rem; color: var(--muted); }
+.conditions { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.add-combatants { display: grid; gap: 0.6rem; }
+.monster-search { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: end; }
+.monster-search > label { flex: 1 1 220px; margin: 0; }
+.monster-search .num-field { flex: 0 0 7rem; }
+.start-encounter { display: flex; gap: 0.6rem; align-items: end; max-width: 560px; }
+.start-encounter label { flex: 1; margin: 0; }
+.npc-section { margin-top: 1rem; }
+.npc-section h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+.monster-add { display: grid; gap: 0.4rem; margin-top: 0.6rem; }
+.monster-add label { margin: 0; }
+.character-col { display: grid; align-content: start; gap: 0.5rem; }
+
 /* --- character sheet, dice and the game log (M10) ------------------------------------------------ */
 .sheet { padding: 1.5rem; max-width: 1500px; display: grid; gap: 1rem; }
 .sheet-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
@@ -480,6 +564,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
   .sheet-cols { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
+  .combatant { grid-template-columns: 2.5rem 1fr; }
+  .combatant .ac, .combatant .hp, .combatant .conditions { grid-column: 2; }
+  .dice-tray { right: 0.75rem; bottom: 0.75rem; }
   .sheet { padding: 1rem; }
   .abilities { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .overview { padding: 1rem; }
