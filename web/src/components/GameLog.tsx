@@ -117,6 +117,8 @@ export function GameLog({
             </div>
             <div className="log-detail">
               {rollDetail(r)}
+              {r.natural === 20 && <span className="log-tag nat">natural 20</span>}
+              {r.natural === 1 && <span className="log-tag nat">natural 1</span>}
               {r.mode !== "normal" && <span className="log-tag">{r.mode}</span>}
               {r.outcome && <span className="log-tag">{r.outcome}</span>}
               {r.to_dm && <span className="log-tag dm">DM only</span>}

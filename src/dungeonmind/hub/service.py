@@ -114,8 +114,11 @@ def _session(value: Any) -> int | None:
     return value
 
 
+MAX_ID = 2**63 - 1  # SQLite INTEGER; larger ids would overflow (M10.1 P1)
+
+
 def _id(value: Any, what: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_ID:
         raise NotFound(f"{what} not found.")
     return value
 
@@ -755,19 +758,29 @@ class Hub:
         if character["owner_id"] != user.id and camp.role != "dm":
             raise Forbidden("Only the character's player or the DM can edit this sheet.")
         derived = derive(sheet)
-        entry = self._sheet_entry_parts(cid, character, sheet, derived)
-        with self.storage.campaign(cid, immediate=True) as db:
-            character = self._character_row(db, chid)  # still there (F7)
-            _, current = self._load_sheet(db, character["id"])
-            if current != version:
-                raise Conflict("This sheet changed while you were editing. Reload and try again.")
-            db.execute(
-                "INSERT INTO sheets (character_id, data, version, updated_at) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(character_id) DO UPDATE SET data = excluded.data, "
-                "version = excluded.version, updated_at = excluded.updated_at",
-                (character["id"], sheet.model_dump_json(), version + 1, _iso(self.clock())),
-            )
-            self._write_sheet_entry(db, character, *entry)
+        for _attempt in range(3):  # P2: rebuild the entry if a rename lands meanwhile
+            entry = self._sheet_entry_parts(cid, character, sheet, derived)
+            with self.storage.campaign(cid, immediate=True) as db:
+                fresh = self._character_row(db, chid)  # still there (F7)
+                if fresh["name"] != character["name"]:
+                    character = fresh
+                    continue
+                _, current = self._load_sheet(db, fresh["id"])
+                if current != version:
+                    raise Conflict(
+                        "This sheet changed while you were editing. Reload and try again."
+                    )
+                db.execute(
+                    "INSERT INTO sheets (character_id, data, version, updated_at) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(character_id) DO UPDATE SET "
+                    "data = excluded.data, version = excluded.version, "
+                    "updated_at = excluded.updated_at",
+                    (fresh["id"], sheet.model_dump_json(), version + 1, _iso(self.clock())),
+                )
+                self._write_sheet_entry(db, fresh, *entry)
+                break
+        else:
+            raise Conflict("The character was renamed while saving. Try again.")
         return {
             "sheet": sheet.model_dump(),
             "derived": derived,
