@@ -77,6 +77,7 @@ class CampaignIn(_In):
 class CharacterIn(_In):
     name: str
     summary: str = ""
+    npc: bool = False  # M11 N1: DM only
 
 
 class CharacterPatch(_In):
@@ -132,6 +133,49 @@ class RollIn(_In):
     to_dm: bool = False
     character_id: StrictInt | None = None
     expression: str | None = None
+    dice: dict[str, StrictInt] | None = None  # M11 D1
+    stat: str | None = None
+    modifier: StrictInt | None = None
+
+
+class MonsterIn(_In):
+    monster: str
+    count: StrictInt = 1
+
+
+class EncounterIn(_In):
+    name: str = "Encounter"
+
+
+class CombatantIn(_In):
+    character_id: StrictInt | None = None
+    monster: str | None = None
+    count: StrictInt = 1
+
+
+class CombatantPatch(_In):
+    initiative: StrictInt | None = None
+    hidden: bool | None = None
+
+
+class InitiativeIn(_In):
+    only_missing: bool = True
+
+
+class TurnIn(_In):
+    direction: str = "next"
+
+
+class HpIn(_In):
+    delta: StrictInt
+
+
+class ConditionsIn(_In):
+    conditions: list[str]
+
+
+class EndIn(_In):
+    remove_monsters: bool = False
 
 
 class MessageIn(_In):
@@ -369,7 +413,7 @@ def create_app(
 
     @private.post("/campaigns/{cid}/characters", status_code=201)
     def create_character(cid: str, body: CharacterIn, user: Me):
-        return asdict(hub.create_character(user, cid, body.name, body.summary))
+        return asdict(hub.create_character(user, cid, body.name, body.summary, npc=body.npc))
 
     @private.patch("/campaigns/{cid}/characters/{chid}")
     def update_character(cid: str, chid: int, body: CharacterPatch, user: Me):
@@ -426,6 +470,71 @@ def create_app(
     @private.post("/campaigns/{cid}/rolls", status_code=201)
     def roll(cid: str, body: RollIn, user: Me):
         return hub.roll(user, cid, **body.model_dump())
+
+    # --- NPCs and the combat tracker (M11) ---------------------------------------------------
+
+    @private.get("/campaigns/{cid}/monsters")
+    def monsters(cid: str, user: Me, q: str = ""):
+        return hub.monster_search(user, cid, q)
+
+    @private.post("/campaigns/{cid}/npcs/from-monster", status_code=201)
+    def npcs_from_monster(cid: str, body: MonsterIn, user: Me):
+        return [asdict(c) for c in hub.npcs_from_monster(user, cid, body.monster, body.count)]
+
+    @private.get("/campaigns/{cid}/encounter")
+    def encounter(cid: str, user: Me):
+        return hub.encounter(user, cid)
+
+    @private.post("/campaigns/{cid}/encounters", status_code=201)
+    def start_encounter(cid: str, body: EncounterIn, user: Me):
+        return hub.start_encounter(user, cid, body.name)
+
+    @private.post("/campaigns/{cid}/encounters/{eid}/combatants", status_code=201)
+    def add_combatants(cid: str, eid: int, body: CombatantIn, user: Me):
+        added = hub.add_combatants(
+            user,
+            cid,
+            eid,
+            character_id=body.character_id,
+            monster=body.monster,
+            count=body.count,
+        )
+        return added if body.monster else added[0]
+
+    @private.patch("/campaigns/{cid}/encounters/{eid}/combatants/{combatant}", status_code=204)
+    def update_combatant(cid: str, eid: int, combatant: int, body: CombatantPatch, user: Me):
+        hub.update_combatant(
+            user, cid, eid, combatant, initiative=body.initiative, hidden=body.hidden
+        )
+
+    @private.delete("/campaigns/{cid}/encounters/{eid}/combatants/{combatant}", status_code=204)
+    def remove_combatant(cid: str, eid: int, combatant: int, user: Me):
+        hub.remove_combatant(user, cid, eid, combatant)
+
+    @private.post("/campaigns/{cid}/encounters/{eid}/initiative")
+    def roll_initiative(cid: str, eid: int, body: InitiativeIn, user: Me):
+        hub.roll_initiative(user, cid, eid, body.only_missing)
+        return hub.encounter(user, cid)
+
+    @private.post("/campaigns/{cid}/encounters/{eid}/turn")
+    def next_turn(cid: str, eid: int, body: TurnIn, user: Me):
+        hub.next_turn(user, cid, eid, body.direction)
+        return hub.encounter(user, cid)
+
+    @private.post("/campaigns/{cid}/encounters/{eid}/combatants/{combatant}/hp")
+    def change_hp(cid: str, eid: int, combatant: int, body: HpIn, user: Me):
+        hub.change_hp(user, cid, eid, combatant, body.delta)
+        return hub.encounter(user, cid)
+
+    @private.post("/campaigns/{cid}/encounters/{eid}/combatants/{combatant}/conditions")
+    def set_conditions(cid: str, eid: int, combatant: int, body: ConditionsIn, user: Me):
+        hub.set_conditions(user, cid, eid, combatant, body.conditions)
+        return hub.encounter(user, cid)
+
+    @private.post("/campaigns/{cid}/encounters/{eid}/end")
+    def end_encounter(cid: str, eid: int, body: EndIn, user: Me):
+        hub.end_encounter(user, cid, eid, body.remove_monsters)
+        return None
 
     @private.get("/campaigns/{cid}/rolls")
     def rolls(cid: str, user: Me, after: Annotated[int, Query(ge=0, le=2**62)] = 0):

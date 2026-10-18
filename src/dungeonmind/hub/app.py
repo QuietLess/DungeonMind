@@ -89,10 +89,25 @@ def build_hub(
     engine = make_engine(
         make_llm(provider, models), retrieve, registry, timeout_s=provider_timeout(provider)
     )
+    catalog = registry.catalog if hasattr(registry, "catalog") else Catalog.load(chunks=srd_chunks)
+    by_name = {m.name.casefold(): m.record for m in catalog.monsters}
+    by_key = {m.record.get("key", ""): m.record for m in catalog.monsters}
+
+    def monsters(name: str):  # M11 N3
+        return by_name.get(name.strip().casefold()) or by_key.get(name.strip())
+
+    def monster_names(q: str) -> list[str]:
+        words = q.casefold().split()
+        return sorted(
+            m.name for m in catalog.monsters if all(w in m.name.casefold() for w in words)
+        )
+
     return Hub(
         root,
         embedder=NoteEmbedder(model_lock),
         engine=engine,
         daily_message_limit=daily_message_limit,
         signup=signup,
+        monsters=monsters,
+        monster_names=monster_names,
     )

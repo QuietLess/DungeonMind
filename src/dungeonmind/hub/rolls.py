@@ -16,7 +16,11 @@ from dungeonmind.hub.sheets import ABILITIES, ABILITY_NAMES, SKILLS, Sheet
 from dungeonmind.tools.dice import DiceError, DiceExpression, DiceTerm, parse, roll
 
 D20_KINDS = ("check", "save", "skill", "initiative", "attack", "spell_attack", "death_save")
-KINDS = (*D20_KINDS, "damage", "custom", "hit_die", "expression")
+KINDS = (*D20_KINDS, "damage", "custom", "hit_die", "expression", "pool")
+POOL_DICE = (4, 6, 8, 10, 12, 20, 100)  # M11 D1: the dice tray
+MAX_OF_ONE_DIE = 20
+MAX_POOL = 50
+MAX_MODIFIER = 50
 MODES = ("normal", "advantage", "disadvantage", "critical")
 
 
@@ -152,3 +156,72 @@ def perform(spec: Spec, rng: random.Random | None = None) -> dict[str, Any]:
             else:
                 detail["outcome"] = "success" if total >= 10 else "failure"
     return detail
+
+
+def _pool_dice(dice: dict[str, Any] | None) -> list[DiceTerm]:
+    if not isinstance(dice, dict) or not dice:
+        raise Invalid("Pick at least one die.")
+    terms = []
+    for key, count in dice.items():
+        if not re.fullmatch(r"[0-9]{1,3}", str(key)) or int(key) not in POOL_DICE:
+            raise Invalid("Dice are d4, d6, d8, d10, d12, d20 and d100.")
+        if (
+            isinstance(count, bool)
+            or not isinstance(count, int)
+            or not 0 <= count <= MAX_OF_ONE_DIE
+        ):
+            raise Invalid(f"At most {MAX_OF_ONE_DIE} of one die.")
+        if count:
+            terms.append((int(key), count))
+    if not terms:
+        raise Invalid("Pick at least one die.")
+    if sum(c for _, c in terms) > MAX_POOL:
+        raise Invalid(f"At most {MAX_POOL} dice in one roll.")
+    order = {d: i for i, d in enumerate(POOL_DICE)}
+    return [DiceTerm(c, d) for d, c in sorted(terms, key=lambda t: order[t[0]])]
+
+
+STAT_LABELS = {"initiative": "Initiative", "spell_attack": "Spell attack"}
+
+
+def stat_bonus(stat: str, sheet: Sheet, derived: dict[str, Any]) -> tuple[str, int, bool]:
+    """M11 D2: (label, bonus, is a d20 test) for a stat named like `skill:stealth`."""
+    kind, _, key = stat.partition(":")
+    if stat in ("initiative", "spell_attack"):
+        spec = spec_for(stat, None, "normal", sheet, derived)
+    elif kind in ("check", "save", "skill", "attack") and key:
+        spec = spec_for(kind, key, "normal", sheet, derived)
+    else:
+        raise Invalid("Unknown stat.")
+    return spec.label, spec.bonus - derived["d20_penalty"], True
+
+
+def spec_for_pool(
+    dice: dict[str, Any] | None,
+    mode: str,
+    modifier: int,
+    stat: str | None = None,
+    sheet: Sheet | None = None,
+    derived: dict[str, Any] | None = None,
+) -> Spec:
+    """M11 D1/D2: the clicked dice, plus a stat's bonus from the sheet and a typed modifier."""
+    terms = _pool_dice(dice)
+    lone_d20 = len(terms) == 1 and terms[0].sides == 20 and terms[0].count == 1
+    if mode in ("advantage", "disadvantage"):
+        if not lone_d20:
+            raise Invalid("Advantage and disadvantage are for a single d20.")
+        terms = [_d20(mode).dice[0]]
+    elif mode not in ("normal",):
+        raise Invalid("Mode must be normal, advantage or disadvantage.")
+    if isinstance(modifier, bool) or not isinstance(modifier, int) or abs(modifier) > MAX_MODIFIER:
+        raise Invalid(f"The modifier must be between -{MAX_MODIFIER} and +{MAX_MODIFIER}.")
+    expr = DiceExpression(dice=tuple(terms), constant=0, source="pool")
+    label = "+".join(str(t) for t in terms)
+    bonus = modifier
+    if stat:
+        if sheet is None or derived is None:
+            raise Invalid("Pick who is rolling to add a stat.")
+        stat_label, value, _ = stat_bonus(stat, sheet, derived)
+        bonus += value + (derived["d20_penalty"] if lone_d20 else 0)
+        label = stat_label
+    return Spec(label, expr, bonus, lone_d20)

@@ -189,6 +189,7 @@ class Sheet(_Model):
     background: Text = ""
     alignment: Annotated[str, Field(max_length=40)] = ""
     xp: Annotated[int, Field(ge=0, le=10_000_000)] = 0
+    proficiency_bonus: Annotated[int, Field(ge=2, le=9)] | None = None  # M11 N2: NPCs
     abilities: Abilities = Abilities()
     saves: Annotated[list[Ability], Field(max_length=6)] = []
     save_misc: dict[Ability, Bonus] = {}
@@ -259,7 +260,7 @@ def proficiency_bonus(level: int) -> int:
 def derive(sheet: Sheet) -> dict[str, Any]:
     """S2: every number the sheet implies under the 2024 rules."""
     level = level_of(sheet)
-    pb = proficiency_bonus(level)
+    pb = sheet.proficiency_bonus or proficiency_bonus(level)
     mods = {a: modifier(getattr(sheet.abilities, a)) for a in ABILITIES}
     half = pb // 2 if sheet.jack_of_all_trades else 0
     saves = {
@@ -320,8 +321,8 @@ def summary_text(name: str, sheet: Sheet, d: dict[str, Any]) -> str:
     )
     lines = [
         f"{name}: {who}. Proficiency bonus {_signed(d['proficiency_bonus'])}.",
-        f"AC {sheet.armor_class}, HP {sheet.hp.current}/{sheet.hp.max}"
-        + (f" (+{sheet.hp.temp} temp)" if sheet.hp.temp else "")
+        # Max HP only: current HP changes every round and shouldn't re-index the sheet (N4).
+        f"AC {sheet.armor_class}, max HP {sheet.hp.max}"
         + f", speed {d['speed']} ft, initiative {_signed(d['initiative'])}, "
         f"passive Perception {d['passive_perception']}.",
         "Abilities: "
@@ -400,3 +401,81 @@ def summary_text(name: str, sheet: Sheet, d: dict[str, Any]) -> str:
     if sheet.proficiencies:
         lines.append(f"Proficiencies and languages: {sheet.proficiencies}")
     return "\n\n".join(lines)[:10_000]
+
+
+ABILITY_FIELDS = {
+    "strength": "str",
+    "dexterity": "dex",
+    "constitution": "con",
+    "intelligence": "int",
+    "wisdom": "wis",
+    "charisma": "cha",
+}
+
+
+def pb_for_cr(cr: float) -> int:
+    """2024 monster proficiency bonus by challenge rating."""
+    return 2 + max(0, (int(cr) - 1)) // 4 if cr >= 1 else 2
+
+
+def _clamp(n: int, low: int = -20, high: int = 20) -> int:
+    return max(low, min(high, int(n)))
+
+
+def sheet_from_monster(m: dict[str, Any]) -> Sheet:
+    """M11 N3: an SRD stat block as an NPC sheet whose totals match the stat block."""
+    scores = {ABILITY_FIELDS[k]: max(1, min(30, int(v))) for k, v in m["ability_scores"].items()}
+    mods = {a: modifier(v) for a, v in scores.items()}
+    pb = pb_for_cr(float(m.get("challenge_rating") or 0))
+    saves = {
+        ABILITY_FIELDS[k]: _clamp(int(v) - mods[ABILITY_FIELDS[k]])
+        for k, v in (m.get("saving_throws_all") or {}).items()
+        if k in ABILITY_FIELDS
+    }
+    skill_misc = {
+        k: _clamp(int(v) - mods[SKILLS[k]])
+        for k, v in (m.get("skill_bonuses_all") or m.get("skill_bonuses") or {}).items()
+        if k in SKILLS
+    }
+    attacks = []
+    for action in m.get("actions") or []:
+        for a in action.get("attacks") or []:
+            dice = ""
+            if a.get("damage_die_count") and a.get("damage_die_type"):
+                dice = f"{a['damage_die_count']}d{str(a['damage_die_type']).lstrip('Dd')}"
+                bonus = int(a.get("damage_bonus") or 0)
+                dice += f"{bonus:+d}" if bonus else ""
+            dtype = (a.get("damage_type") or a.get("extra_damage_type") or {}) or {}
+            attacks.append(
+                Attack(
+                    name=(action.get("name") or a.get("name") or "Attack")[:60],
+                    to_hit_misc=_clamp(int(a.get("to_hit_mod") or 0)),
+                    damage=dice,
+                    damage_type=str(dtype.get("name", ""))[:20] if isinstance(dtype, dict) else "",
+                )
+            )
+    features = [
+        Feature(
+            name=str(t.get("name", ""))[:80], source="Trait", text=str(t.get("desc", ""))[:2000]
+        )
+        for t in (m.get("traits") or [])
+    ] + [
+        Feature(
+            name=str(a.get("name", ""))[:80], source="Action", text=str(a.get("desc", ""))[:2000]
+        )
+        for a in (m.get("actions") or [])
+    ]
+    hp = max(1, min(2000, int(m.get("hit_points") or 1)))
+    return Sheet(
+        proficiency_bonus=pb,
+        abilities=Abilities(**scores),
+        save_misc=saves,
+        skill_misc=skill_misc,
+        armor_class=max(0, min(50, int(m.get("armor_class") or 10))),
+        speed=max(0, min(300, int((m.get("speed") or {}).get("walk") or 30))),
+        initiative_misc=_clamp(int(m.get("initiative_bonus", mods["dex"]) or 0) - mods["dex"]),
+        hp=HitPoints(max=hp, current=hp),
+        attacks=attacks[:30],
+        features=features[:60],
+        notes=f"{m.get('name', '')}, challenge {m.get('challenge_rating')} (SRD 5.2.1)."[:5000],
+    )

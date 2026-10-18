@@ -75,7 +75,9 @@ CREATE TABLE IF NOT EXISTS characters (
     owner_id TEXT NOT NULL,
     name TEXT NOT NULL,
     summary TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    is_npc INTEGER NOT NULL DEFAULT 0,  -- M11 N1: DM-only
+    from_encounter INTEGER  -- M11 C1: a monster added by this encounter
 );
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +145,24 @@ CREATE TABLE IF NOT EXISTS rolls (
     to_dm INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+-- M11 combat tracker: one active encounter per campaign, its combatants point at characters.
+CREATE TABLE IF NOT EXISTS encounters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    round INTEGER NOT NULL DEFAULT 1,
+    turn INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS combatants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    encounter_id INTEGER NOT NULL REFERENCES encounters(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    initiative INTEGER,
+    init_bonus INTEGER NOT NULL DEFAULT 0,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS encounter_state (
     thread_id INTEGER PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
     request TEXT NOT NULL
@@ -188,6 +208,19 @@ def transaction(
         if conn.in_transaction:
             conn.execute("ROLLBACK")
         raise
+    finally:
+        conn.close()
+
+
+def _upgrade_characters(path: Path) -> None:
+    """Adds the M11 columns to a characters table made before them."""
+    conn = _connect(path)
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(characters)")}
+        if cols and "is_npc" not in cols:
+            conn.execute("ALTER TABLE characters ADD COLUMN is_npc INTEGER NOT NULL DEFAULT 0")
+        if cols and "from_encounter" not in cols:
+            conn.execute("ALTER TABLE characters ADD COLUMN from_encounter INTEGER")
     finally:
         conn.close()
 
@@ -255,6 +288,7 @@ class Storage:
     def campaign(self, cid: str, immediate: bool = False):
         path = self.campaign_db(cid)
         if not self.read_only and cid not in self._ready:
+            _upgrade_characters(path)  # M11: columns CREATE IF NOT EXISTS can't add
             init_db(path, CAMPAIGN_SCHEMA)  # M10: older campaigns gain new tables once
             self._ready.add(cid)
         return transaction(path, immediate, self.read_only)
