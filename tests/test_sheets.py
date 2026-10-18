@@ -254,3 +254,21 @@ def test_f10_a_full_sheet_fits_the_body_limit(table):
     ).model_dump()
     r = mia.put(_path(cid, chid), json={"sheet": sheet, "version": 0}, headers=H)
     assert r.status_code == 200, r.text[:200]
+
+
+def test_n1_rename_works_even_when_search_is_down(table, monkeypatch):
+    dm, mia, bo, cid, chid = table
+    mia.put(_path(cid, chid), json={"sheet": _rogue().model_dump(), "version": 0}, headers=H)
+    from dungeonmind.hub import service
+
+    def boom(*a, **k):
+        raise service.StorageError("Search isn't available, so the entry wasn't saved.")
+
+    monkeypatch.setattr(service.Hub, "_embed", boom)
+    r = mia.patch(f"/api/campaigns/{cid}/characters/{chid}", json={"name": "Mirabel"}, headers=H)
+    assert r.status_code == 200 and r.json()["name"] == "Mirabel"
+    monkeypatch.undo()
+    # The next sheet save brings the generated entry up to date.
+    mia.put(_path(cid, chid), json={"sheet": _rogue().model_dump(), "version": 1}, headers=H)
+    entries = mia.get(f"/api/campaigns/{cid}/entries?board=character&character_id={chid}").json()
+    assert next(e for e in entries if e["kind"] == "sheet")["title"] == "Mirabel — character sheet"
