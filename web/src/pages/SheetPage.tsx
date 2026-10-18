@@ -1,6 +1,6 @@
 // M10c: a D&D Beyond–style character sheet. Every bonus is a roll button for the player and the
 // DM (the server computes the bonus from the stored sheet); other members see it read-only.
-import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, createContext, useContext, useEffect, useId, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { GameLog, rollDetail } from "../components/GameLog";
@@ -65,21 +65,58 @@ export function SheetPage() {
   const latest = useRef<SheetView | null>(null);
   const inFlight = useRef(false);
   const hpQueue = useRef(0);
+  const editingNow = useRef(false); // read by the refresh's late responses (review)
   const editButton = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
   useEffect(() => {
+    editingNow.current = editing;
     if (wasEditing.current && !editing) editButton.current?.focus(); // back where it began
     wasEditing.current = editing;
   }, [editing]);
   const [tab, setTab] = useState<Tab>("Actions");
   const modeName = useId();
+  const tabsId = useId();
+
+  /** P5: ARIA tabs keys — arrows move and select, Home / End jump. */
+  const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const i = TABS.indexOf(tab);
+    const next =
+      e.key === "ArrowRight" ? (i + 1) % TABS.length
+      : e.key === "ArrowLeft" ? (i - 1 + TABS.length) % TABS.length
+      : e.key === "Home" ? 0
+      : e.key === "End" ? TABS.length - 1
+      : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    setTab(TABS[next]);
+    document.getElementById(`${tabsId}-tab-${next}`)?.focus();
+  };
 
   useEffect(() => {
-    if (loaded) setView(loaded);
+    if (loaded) {
+      latest.current = loaded; // set with the view itself, never one effect later
+      setView(loaded);
+    }
   }, [loaded]);
+  // P3: pick up a newer version someone else saved, unless we're editing or saving.
   useEffect(() => {
-    latest.current = view;
-  }, [view]);
+    const timer = setInterval(() => {
+      if (editing || inFlight.current || hpQueue.current !== 0) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      api
+        .sheet(campaign.id, characterId)
+        .then((fresh) => {
+          const current = latest.current;
+          const busy = inFlight.current || editingNow.current || hpQueue.current !== 0;
+          if (fresh && current && fresh.version > current.version && !busy) {
+            latest.current = fresh;
+            setView(fresh);
+          }
+        })
+        .catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [campaign.id, characterId, editing]);
 
   const character = characters?.find((c) => c.id === characterId);
   const name = character?.name ?? "Character";
@@ -189,7 +226,15 @@ export function SheetPage() {
             <label className="check">
               <input type="checkbox" checked={toDm} onChange={(e) => setToDm(e.target.checked)} /> Roll to DM only
             </label>
-            <button type="button" className="btn" ref={editButton} onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="btn"
+              ref={editButton}
+              onClick={() => {
+                editingNow.current = true; // before any late refresh can land
+                setEditing(true);
+              }}
+            >
               Edit sheet
             </button>
           </div>
@@ -201,7 +246,11 @@ export function SheetPage() {
         <div className={`roll-result${last.natural === 20 ? " nat20" : last.natural === 1 ? " nat1" : ""}`} role="status">
           <span className="roll-result-label">{last.label}</span>
           <span className="roll-result-total">{last.total}</span>
-          <span className="roll-result-detail">{rollDetail(last)}{last.outcome ? ` · ${last.outcome}` : ""}</span>
+          <span className="roll-result-detail">
+            {rollDetail(last)}
+            {last.natural === 20 ? " · natural 20" : last.natural === 1 ? " · natural 1" : ""}
+            {last.outcome ? ` · ${last.outcome}` : ""}
+          </span>
         </div>
       )}
 
@@ -308,14 +357,30 @@ export function SheetPage() {
             </section>
 
             <section className="panel sheet-tabs">
-              <div role="tablist" aria-label="Sheet sections" className="tablist">
-                {TABS.map((t) => (
-                  <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+              <div role="tablist" aria-label="Sheet sections" className="tablist" onKeyDown={onTabKey}>
+                {TABS.map((t, i) => (
+                  <button
+                    key={t}
+                    id={`${tabsId}-tab-${i}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t}
+                    aria-controls={`${tabsId}-panel`}
+                    tabIndex={tab === t ? 0 : -1}
+                    className={tab === t ? "tab active" : "tab"}
+                    onClick={() => setTab(t)}
+                  >
                     {t}
                   </button>
                 ))}
               </div>
-              <div role="tabpanel" aria-label={tab} className="tabpanel">
+              <div
+                role="tabpanel"
+                id={`${tabsId}-panel`}
+                aria-labelledby={`${tabsId}-tab-${TABS.indexOf(tab)}`}
+                className="tabpanel"
+                tabIndex={0}
+              >
                 {tab === "Actions" && (
                   <>
                     {sheet.attacks.length === 0 && <p className="muted">No attacks yet.</p>}

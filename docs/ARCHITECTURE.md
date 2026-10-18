@@ -1467,3 +1467,12 @@ the chatbot reads the sheets its asker may see.
   rows; the sheet doesn't refresh live when someone else edits it (a conflict reloads it); a
   save racing a rename can leave the sheet entry's old name until the next save; a hit die
   can total below 1 with a negative CON; huge path ids give 500 (all routes).
+
+### M10.1 polish (tested)
+
+- **P1** Path ids outside 1 … 2⁶³ − 1 are 404 on every route (they used to overflow SQLite: 500).
+- **P2** A sheet save that races a rename writes the entry under the character's current name.
+- **P3** An open sheet (not being edited) refreshes every 5 s when someone else saved a newer
+  version, so the table sees HP and slot changes without reloading.
+- **P4** Natural 20 / natural 1 are labelled in words in the roll result and the game log.
+- **P5** Sheet tabs follow the ARIA tabs pattern: arrow keys, Home / End, `aria-controls`.

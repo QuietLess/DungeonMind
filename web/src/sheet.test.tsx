@@ -271,3 +271,59 @@ describe("M10 review fixes", () => {
     expect(screen.getByRole("button", { name: /edit sheet/i })).toHaveFocus();
   });
 });
+
+describe("M10.1 polish", () => {
+  it("P3: an open sheet picks up a newer version saved elsewhere", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderSheet();
+    await screen.findByRole("heading", { name: "Mira" });
+    api.sheet.mockResolvedValue({ sheet: { ...sheet, hp: { ...sheet.hp, current: 7 } }, derived, version: 9, can_edit: true });
+    expect(screen.getByRole("group", { name: "Hit points" })).toHaveTextContent(/Hit points30/);
+    await act(async () => {
+      vi.advanceTimersByTime(5100);
+    });
+    await vi.waitFor(() =>
+      expect(screen.getByRole("group", { name: "Hit points" })).toHaveTextContent(/Hit points7\b/),
+    );
+  });
+
+  it("P4: naturals are labelled in words", async () => {
+    api.roll.mockResolvedValue({ ...rollResult, natural: 20, total: 30 });
+    renderSheet();
+    await userEvent.click(await screen.findByRole("button", { name: "Stealth +10" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/natural 20/i);
+  });
+
+  it("P5: arrow keys move between sheet tabs", async () => {
+    renderSheet();
+    const actions = await screen.findByRole("tab", { name: "Actions" });
+    actions.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    const spells = screen.getByRole("tab", { name: "Spells" });
+    expect(spells).toHaveFocus();
+    expect(spells).toHaveAttribute("aria-selected", "true");
+    expect(spells).toHaveAttribute("aria-controls", screen.getByRole("tabpanel").id);
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "Notes" })).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(actions).toHaveFocus();
+  });
+});
+
+describe("M10.1 review", () => {
+  it("a refresh that lands after Edit was clicked doesn't change what the save is based on", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    api.saveSheet.mockResolvedValue({ sheet, derived, version: 4, can_edit: true });
+    renderSheet();
+    await screen.findByRole("heading", { name: "Mira" });
+    let answer: (v: unknown) => void = () => {};
+    api.sheet.mockReturnValue(new Promise((r) => { answer = r; }));
+    await act(async () => {
+      vi.advanceTimersByTime(5100); // the poll is now in flight
+    });
+    await userEvent.click(screen.getByRole("button", { name: /edit sheet/i }));
+    await act(async () => answer({ sheet, derived, version: 9, can_edit: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Save sheet" }));
+    expect(api.saveSheet.mock.calls[0][3]).toBe(3); // still the version the draft started from
+  });
+});
