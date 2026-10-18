@@ -271,3 +271,38 @@ describe("M10 review fixes", () => {
     expect(screen.getByRole("button", { name: /edit sheet/i })).toHaveFocus();
   });
 });
+
+describe("M10.1 polish", () => {
+  it("P3: an open sheet picks up a newer version saved elsewhere", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderSheet();
+    await screen.findByRole("heading", { name: "Mira" });
+    api.sheet.mockResolvedValue({ sheet: { ...sheet, hp: { ...sheet.hp, current: 12 } }, derived, version: 9, can_edit: true });
+    await act(async () => {
+      vi.advanceTimersByTime(5100);
+    });
+    expect(await screen.findByText("12")).toBeInTheDocument();
+  });
+
+  it("P4: naturals are labelled in words", async () => {
+    api.roll.mockResolvedValue({ ...rollResult, natural: 20, total: 30 });
+    renderSheet();
+    await userEvent.click(await screen.findByRole("button", { name: "Stealth +10" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/natural 20/i);
+  });
+
+  it("P5: arrow keys move between sheet tabs", async () => {
+    renderSheet();
+    const actions = await screen.findByRole("tab", { name: "Actions" });
+    actions.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    const spells = screen.getByRole("tab", { name: "Spells" });
+    expect(spells).toHaveFocus();
+    expect(spells).toHaveAttribute("aria-selected", "true");
+    expect(spells).toHaveAttribute("aria-controls", screen.getByRole("tabpanel").id);
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "Notes" })).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(actions).toHaveFocus();
+  });
+});
