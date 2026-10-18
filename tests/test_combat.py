@@ -405,3 +405,13 @@ def test_f14_healing_from_zero_clears_death_saves(table):
     mia.put(path, json={"sheet": sheet, "version": view["version"]}, headers=H)
     dm.post(f"{base}/combatants/{mira}/hp", json={"delta": 5}, headers=H)
     assert mia.get(path).json()["sheet"]["death_saves"] == {"successes": 0, "failures": 0}
+
+
+def test_r1_a_character_in_the_fight_cant_be_deleted(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid, base = _setup_fight(dm, cid, chid)
+    acting = _enc(dm, cid)["current_id"]
+    npc = next(c["character_id"] for c in _enc(dm, cid)["combatants"] if c["id"] == acting)
+    r = dm.delete(f"/api/campaigns/{cid}/characters/{npc}", headers=H)
+    assert r.status_code == 409
+    assert _enc(dm, cid)["current_id"] == acting
