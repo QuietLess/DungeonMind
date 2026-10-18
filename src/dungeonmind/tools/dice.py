@@ -23,6 +23,7 @@ MAX_LENGTH = 64  # characters in an expression
 MAX_TERMS = 10  # dice terms plus constants
 MAX_DICE = 100  # dice in the whole expression
 MAX_SIDES = 1000
+MAX_CONSTANT = 10_000  # a modifier bigger than this is a typo, and overflows storage
 # Exact-odds bounds (about a second of arithmetic at most): total support Σ count × sides, and
 # the brute-force enumeration for keep-highest/lowest terms.
 MAX_SUPPORT = 1_000
@@ -101,8 +102,12 @@ def parse(expression: str) -> DiceExpression:
             raise DiceError(f"dice expression has more than {MAX_TERMS} terms")
         sign = -1 if m.group(1) == "-" else 1
         if m.group(6) is not None:
+            if len(m.group(6)) > 6 or int(m.group(6)) > MAX_CONSTANT:
+                raise DiceError(f"constants must be at most {MAX_CONSTANT}")
             constant += sign * int(m.group(6))
         else:
+            if (m.group(2) and len(m.group(2)) > 4) or len(m.group(3)) > 5:
+                raise DiceError("dice count or sides too large")
             count = int(m.group(2)) if m.group(2) else 1
             sides = 100 if m.group(3) == "%" else int(m.group(3))
             if not 1 <= count <= MAX_DICE:

@@ -122,7 +122,10 @@ def test_h2_oversized_inputs_get_readable_errors(reg, name, args, field, limit):
 @pytest.mark.parametrize(
     ("name", "args"),
     [
-        ("dice_roll", {"expression": "1d4+" + "1" * 60}),
+        (
+            "dice_roll",
+            {"expression": "10d1000+10d1000+10d1000+10d1000+10d1000+10d1000+10d1000+1000+100"},
+        ),  # 64 characters, constants ≤ 10 000
         ("search_spells", {"text": "a" * 200}),
         ("get_entity", {"kind": "spell", "name": "Fireball"}),
         (

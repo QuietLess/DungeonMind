@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, configureApi } from "./api";
 import { SessionContext } from "./hooks";
 import { AccountPage } from "./pages/AccountPage";
@@ -10,8 +10,16 @@ import { CampaignsPage } from "./pages/CampaignsPage";
 import { CharactersPage } from "./pages/CharactersPage";
 import { ChatPage } from "./pages/ChatPage";
 import { MembersPage } from "./pages/MembersPage";
+import { DicePage } from "./pages/DicePage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { SheetPage } from "./pages/SheetPage";
 import type { User } from "./types";
+
+/** A fresh sheet page per character, so nothing from the previous one lingers. */
+function SheetRoute() {
+  const { chid } = useParams();
+  return <SheetPage key={chid} />;
+}
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -50,6 +58,8 @@ export function App() {
           <Route path="lore" element={<BoardPage key="lore" board="lore" />} />
           <Route path="characters" element={<CharactersPage />} />
           <Route path="characters/:chid" element={<CharactersPage />} />
+          <Route path="characters/:chid/sheet" element={<SheetRoute />} />
+          <Route path="dice" element={<DicePage />} />
           <Route path="journal" element={<BoardPage key="journal" board="journal" />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="chat/:tid" element={<ChatPage />} />

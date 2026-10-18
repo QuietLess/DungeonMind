@@ -75,7 +75,7 @@ def test_h1_parse_rejects_oversized_expressions(bad):
 @pytest.mark.parametrize(
     "ok",
     [
-        "1d4+" + "1" * 60,  # exactly 64 characters
+        "10d1000+10d1000+10d1000+10d1000+10d1000+10d1000+10d1000+1000+100",  # 64 chars
         "1d6+1d6+1d6+1d6+1d6+1d6+1d6+1d6+1d6+1",  # exactly 10 terms
         "50d6+50d6",  # exactly 100 dice
         "8d6",
@@ -85,6 +85,12 @@ def test_h1_parse_rejects_oversized_expressions(bad):
 )
 def test_h1_parse_accepts_expressions_at_the_limits(ok):
     dice.parse(ok)
+
+
+@pytest.mark.parametrize("big", ["1d4+10001", "1d4+" + "1" * 60, "99999d6", "1d999999"])
+def test_m10_f3_huge_constants_and_numbers_are_refused(big):
+    with pytest.raises(dice.DiceError):
+        dice.parse(big)
 
 
 @pytest.mark.parametrize(

@@ -88,3 +88,12 @@ export const HomeIcon = () => (
     <path d="M10 20v-6h4v6" />
   </Icon>
 );
+export const DiceIcon = () => (
+  <Icon>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="3.5" />
+    <circle cx="8.5" cy="8.5" r="1" fill="currentColor" />
+    <circle cx="15.5" cy="15.5" r="1" fill="currentColor" />
+    <circle cx="15.5" cy="8.5" r="1" fill="currentColor" />
+    <circle cx="8.5" cy="15.5" r="1" fill="currentColor" />
+  </Icon>
+);

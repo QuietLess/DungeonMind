@@ -100,11 +100,16 @@ export function CharactersPage() {
                   <h2>{selected.name}'s storyboard</h2>
                   {selected.summary && <p className="muted">{selected.summary}</p>}
                 </div>
-                {mine && (
-                  <button type="button" className="btn" onClick={() => setAdding(true)}>
-                    <PlusIcon /> Add to storyboard
-                  </button>
-                )}
+                <div className="actions">
+                  <Link to={`/c/${campaign.id}/characters/${selected.id}/sheet`} className="btn btn-primary">
+                    Character sheet
+                  </Link>
+                  {mine && (
+                    <button type="button" className="btn" onClick={() => setAdding(true)}>
+                      <PlusIcon /> Add to storyboard
+                    </button>
+                  )}
+                </div>
               </header>
               {entries?.length === 0 && (
                 <p className="empty">
