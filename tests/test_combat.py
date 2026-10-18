@@ -250,3 +250,158 @@ def test_c1_end_removes_added_monsters_when_asked(table):
     assert _enc(dm, cid) is None
     names = [c["name"] for c in dm.get(f"/api/campaigns/{cid}/characters").json()]
     assert names == ["Baron", "Mira"]
+
+
+# --- M11 review fixes ----------------------------------------------------------------------------
+
+
+def _setup_fight(dm, cid, chid):
+    eid = _start(dm, cid)
+    base = f"/api/campaigns/{cid}/encounters/{eid}"
+    dm.post(f"{base}/combatants", json={"monster": "Goblin Warrior", "count": 3}, headers=H)
+    dm.post(f"{base}/initiative", json={"only_missing": True}, headers=H)
+    return eid, base
+
+
+def _current_name(client, cid):
+    enc = _enc(client, cid)
+    return next((c["name"] for c in enc["combatants"] if c["id"] == enc["current_id"]), None)
+
+
+def test_f1_the_current_turn_stays_put_when_the_order_changes(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid, base = _setup_fight(dm, cid, chid)
+    dm.post(f"{base}/turn", json={"direction": "next"}, headers=H)
+    acting = _current_name(dm, cid)
+    dm.post(f"{base}/combatants", json={"character_id": chid}, headers=H)
+    mira = next(c["id"] for c in _enc(dm, cid)["combatants"] if c["name"] == "Mira")
+    dm.patch(f"{base}/combatants/{mira}", json={"initiative": 50}, headers=H)  # sorts first
+    assert _current_name(dm, cid) == acting
+    first = _enc(dm, cid)["combatants"][0]["id"]  # Mira, before the current one
+    dm.delete(f"{base}/combatants/{first}", headers=H)
+    assert _current_name(dm, cid) == acting
+
+
+def test_f1_removing_the_acting_combatant_passes_the_turn_on(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid, base = _setup_fight(dm, cid, chid)
+    order = [c["name"] for c in _enc(dm, cid)["combatants"]]
+    current = _enc(dm, cid)["current_id"]
+    dm.delete(f"{base}/combatants/{current}", headers=H)
+    assert _current_name(dm, cid) == order[1]
+
+
+def test_f2_rolling_for_newcomers_keeps_the_round(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid, base = _setup_fight(dm, cid, chid)
+    for _ in range(7):  # into round 3
+        dm.post(f"{base}/turn", json={"direction": "next"}, headers=H)
+    before = _enc(dm, cid)
+    dm.post(f"{base}/combatants", json={"character_id": chid}, headers=H)
+    dm.post(f"{base}/initiative", json={"only_missing": True}, headers=H)
+    after = _enc(dm, cid)
+    assert after["round"] == before["round"] == 3
+    assert after["current_id"] == before["current_id"]
+
+
+def test_f3_only_a_d20_initiative_roll_fills_the_slot(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid = _start(dm, cid)
+    base = f"/api/campaigns/{cid}/encounters/{eid}"
+    mira = dm.post(f"{base}/combatants", json={"character_id": chid}, headers=H).json()["id"]
+    big = _pool(mia, cid, dice={"100": 20}, character_id=chid, stat="initiative").json()
+    assert "100" in big["label"]  # the dice stay visible in the log
+    combatant = next(c for c in _enc(dm, cid)["combatants"] if c["id"] == mira)
+    assert combatant["initiative"] is None
+    good = _pool(mia, cid, dice={"20": 1}, character_id=chid, stat="initiative").json()
+    combatant = next(c for c in _enc(dm, cid)["combatants"] if c["id"] == mira)
+    assert combatant["initiative"] == good["total"]
+
+
+def test_f4_concurrent_first_opens_of_an_old_campaign(tmp_path):
+    import sqlite3
+    import threading
+
+    from dungeonmind.hub.db import Storage
+
+    root = tmp_path / "hub"
+    storage = Storage(root)
+    cid = "a" * 32
+    folder = storage.campaigns_root / cid
+    folder.mkdir(mode=0o700)
+    with sqlite3.connect(folder / "campaign.db") as db:  # characters as before M11
+        db.execute(
+            "CREATE TABLE characters (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL,"
+            " name TEXT NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+    errors = []
+
+    def open_it():
+        try:
+            s = Storage(root)
+            with s.campaign(cid) as db:
+                db.execute("SELECT is_npc FROM characters").fetchall()
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=open_it) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+
+
+def test_f6_f7_players_learn_nothing_about_hidden_combatants(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid, base = _setup_fight(dm, cid, chid)
+    hidden = _enc(dm, cid)["current_id"]
+    dm.patch(f"{base}/combatants/{hidden}", json={"hidden": True}, headers=H)
+    seen = _enc(bo, cid)
+    assert "turn" not in seen or seen["turn"] is None
+    assert seen["current_id"] is None
+    assert (
+        mia.post(f"{base}/combatants/{hidden}/hp", json={"delta": -1}, headers=H).status_code == 404
+    )
+
+
+def test_f8_npc_rolls_dont_reveal_the_npc_to_players(table):
+    hub, dm, mia, bo, cid, chid = table
+    npc = dm.post(
+        f"/api/campaigns/{cid}/characters", json={"name": "Baron", "npc": True}, headers=H
+    ).json()["id"]
+    _pool(dm, cid, dice={"20": 1}, character_id=npc)  # rolled publicly on purpose
+    seen = bo.get(f"/api/campaigns/{cid}/rolls").json()
+    assert seen and all(r["character_id"] is None for r in seen)
+
+
+def test_f11_duplicate_die_keys_are_merged(table):
+    hub, dm, mia, bo, cid, chid = table
+    assert _pool(bo, cid, dice={"20": 20, "020": 20}).status_code == 422
+
+
+def test_f12_monster_names_keep_counting(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid = _start(dm, cid)
+    base = f"/api/campaigns/{cid}/encounters/{eid}"
+    dm.post(f"{base}/combatants", json={"monster": "Goblin Warrior", "count": 2}, headers=H)
+    dm.post(f"{base}/combatants", json={"monster": "Goblin Warrior", "count": 1}, headers=H)
+    names = sorted(c["name"] for c in _enc(dm, cid)["combatants"])
+    assert names == ["Goblin Warrior 1", "Goblin Warrior 2", "Goblin Warrior 3"]
+
+
+def test_f14_healing_from_zero_clears_death_saves(table):
+    hub, dm, mia, bo, cid, chid = table
+    eid = _start(dm, cid)
+    base = f"/api/campaigns/{cid}/encounters/{eid}"
+    mira = dm.post(f"{base}/combatants", json={"character_id": chid}, headers=H).json()["id"]
+    path = f"/api/campaigns/{cid}/characters/{chid}/sheet"
+    view = mia.get(path).json()
+    sheet = {
+        **view["sheet"],
+        "hp": {"max": 30, "current": 0, "temp": 0},
+        "death_saves": {"successes": 1, "failures": 2},
+    }
+    mia.put(path, json={"sheet": sheet, "version": view["version"]}, headers=H)
+    dm.post(f"{base}/combatants/{mira}/hp", json={"delta": 5}, headers=H)
+    assert mia.get(path).json()["sheet"]["death_saves"] == {"successes": 0, "failures": 0}
